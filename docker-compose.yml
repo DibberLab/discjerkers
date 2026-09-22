@@ -1,0 +1,14 @@
+services:
+  discjerkers:
+    build: .
+    container_name: discjerkers
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 3000
+    ports:
+      # host:container — change the host port if 3040 is taken on the droplet
+      - "127.0.0.1:3040:3000"
+    volumes:
+      # order + cart records survive rebuilds
+      - ./data:/app/data
