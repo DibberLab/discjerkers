@@ -59,6 +59,7 @@ const state = {
   style: 'backhand',
   windDir: 0, // where the wind comes FROM; you always throw north, so 0 (north) is a headwind
   windMph: 0,
+  arm: 2, // index into ARM
 };
 
 let DATA, discs, brands, LETTERS, weights, lastFocus;
@@ -69,10 +70,11 @@ function loadThrow() {
   try {
     const t = JSON.parse(localStorage.getItem('dj_fg_throw'));
     if (t && ['right', 'left'].includes(t.hand) && ['backhand', 'forehand'].includes(t.style)) { state.hand = t.hand; state.style = t.style; }
+    if (t && Number.isInteger(t.arm) && t.arm >= 0 && t.arm < ARM.length) state.arm = t.arm;
   } catch { /* private mode / blocked storage: keep the defaults */ }
 }
 function saveThrow() {
-  try { localStorage.setItem('dj_fg_throw', JSON.stringify({ hand: state.hand, style: state.style })); } catch { /* not persisted */ }
+  try { localStorage.setItem('dj_fg_throw', JSON.stringify({ hand: state.hand, style: state.style, arm: state.arm })); } catch { /* not persisted */ }
 }
 
 async function init() {
@@ -267,11 +269,37 @@ function render() {
 
 /* ---------- drawer ---------- */
 
-// Flight drawn on a measured field. Carry is a rough estimate from speed and glide (an average arm,
-// 160-400 ft across the catalog), and the grid is 100 ft a square. Not physics: a way to compare discs.
+// Flight drawn on a measured field. Carry is a rough estimate from speed and glide, scaled by the thrower's
+// arm, and the grid is 100 ft a square. Not physics: a way to compare discs.
 const FP = { w: 360, h: 340, x0: 200, y0: 315, k: 0.6, left: 52, right: 352 };
-const GRID_FT = 500; // far enough for the longest throw in a 25 mph tailwind
-const estFeet = (d) => Math.round((140 + d.speed * 16 + d.glide * 6) / 10) * 10;
+const GRID_FT = 500; // far enough for nearly every throw; the longest are held just inside it
+// cap: the disc speed this arm can get fully up to speed. power: how much distance the arm adds on top.
+const ARM = [
+  { name: 'Beginner', cap: 6, power: 0.74 },
+  { name: 'Beginner Plus', cap: 8, power: 0.87 },
+  { name: 'Intermediate', cap: 10, power: 1 },
+  { name: 'Intermediate Plus', cap: 11.5, power: 1.05 },
+  { name: 'Advanced', cap: 13, power: 1.1 },
+  { name: 'Pro', cap: 15, power: 1.14 },
+];
+
+// How this arm and this disc get along. A disc faster than the arm can power never gets up to speed: it carries
+// less and fades early. A slow disc on a strong arm is overpowered: it turns over more.
+function armEffects(d) {
+  const a = ARM[state.arm];
+  const ratio = Math.min(1, a.cap / d.speed);
+  const over = clamp(a.cap / d.speed, 1, 2);
+  return {
+    ratio,
+    turn: (0.4 + 0.6 * ratio) * (1 + (over - 1) * 0.25),
+    fade: (1 + (1 - ratio) * 1.5) * (1 - (over - 1) * 0.15),
+  };
+}
+const estFeet = (d) => {
+  const a = ARM[state.arm];
+  const { ratio } = armEffects(d);
+  return Math.round(((140 + Math.min(d.speed, a.cap) * 16 + d.glide * 6) * a.power * (0.85 + 0.15 * ratio)) / 10) * 10;
+};
 
 const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 const WIND_STEPS = [0, 5, 10, 15, 20, 25];
@@ -288,7 +316,7 @@ function windVector() {
 // Headwind costs more than a tailwind gives back.
 function carryFeet(d, wind) {
   const factor = wind.head >= 0 ? 1 - 0.011 * wind.head : 1 + 0.007 * -wind.head;
-  return Math.max(60, Math.round((estFeet(d) * factor) / 10) * 10);
+  return clamp(Math.round((estFeet(d) * factor) / 10) * 10, 60, GRID_FT - 10);
 }
 
 function flightGeometry(d, cw, wind) {
@@ -298,8 +326,9 @@ function flightGeometry(d, cw, wind) {
   const len = feet * k;
   const clampX = (x) => clamp(x, FP.left + 10, FP.right - 10);
   // a headwind makes any disc act more overstable; a tailwind makes it act more understable
-  const turnMul = clamp(1 - 0.04 * wind.head, 0.2, 2);
-  const fadeMul = clamp(1 + 0.04 * wind.head, 0.2, 2.2);
+  const arm = armEffects(d);
+  const turnMul = clamp((1 - 0.04 * wind.head) * arm.turn, 0.2, 2);
+  const fadeMul = clamp((1 + 0.04 * wind.head) * arm.fade, 0.2, 2.6);
   const turnX = -d.turn * turnMul * 33 * k * dir;
   const fadeX = -Math.max(0, d.fade) * fadeMul * 28 * k * dir;
   // crosswind pushes the disc downwind for as long as it hangs in the air, so the push builds toward the end
@@ -354,7 +383,6 @@ function windControls() {
       <span class="fg-wind__l">Wind</span>
       <div class="fg-compass" data-calm="${mph === 0}" title="You are throwing north. Tap where the wind comes from.">
         ${dots}<span class="fg-compass__n" aria-hidden="true">N</span>
-        <svg class="fg-compass__arrow" viewBox="-10 -10 20 20" aria-hidden="true" style="transform:rotate(${state.windDir * 45 + 180}deg)"><path d="M0 -8 L4.5 5 L0 2.5 L-4.5 5 Z"/></svg>
       </div>
       <div class="fg-mph" role="group" aria-label="Wind speed">
         <button type="button" data-wind-step="-1" aria-label="Less wind"${mph === 0 ? ' disabled' : ''}>−</button>
@@ -362,6 +390,28 @@ function windControls() {
         <button type="button" data-wind-step="1" aria-label="More wind"${mph === WIND_STEPS[WIND_STEPS.length - 1] ? ' disabled' : ''}>+</button>
       </div>
     </div>`;
+}
+
+// Arm speed: a stepper like the wind's, with a pip for each of the six levels.
+function armControls() {
+  const last = ARM.length - 1;
+  const pips = ARM.map((_, i) => `<i${i <= state.arm ? ' class="is-on"' : ''}></i>`).join('');
+  return `<div class="fg-arm" role="group" aria-label="Arm speed">
+      <span class="fg-wind__l">Arm speed</span>
+      <div class="fg-mph fg-mph--arm">
+        <button type="button" data-arm-step="-1" aria-label="Slower arm"${state.arm === 0 ? ' disabled' : ''}>−</button>
+        <output aria-live="polite"><span>${ARM[state.arm].name}</span><span class="fg-pips" aria-hidden="true">${pips}</span></output>
+        <button type="button" data-arm-step="1" aria-label="Faster arm"${state.arm === last ? ' disabled' : ''}>+</button>
+      </div>
+    </div>`;
+}
+
+function armNote(d) {
+  const { ratio } = armEffects(d);
+  const over = ARM[state.arm].cap / d.speed;
+  if (ratio < 0.8) return ' · too fast for this arm: comes up short and fades early';
+  if (over >= 1.7) return ' · plenty of arm: turns over more';
+  return '';
 }
 
 function flightPath(d, color, cw, wind) {
@@ -385,12 +435,21 @@ function flightPath(d, color, cw, wind) {
     }
   }
 
+  // which way the wind is blowing, bottom right of the field beside the tee
+  const wx = x0 + 96;
+  const wy = y0 + 10;
+  const windArrow = `<g class="fp-windarrow${wind.mph ? '' : ' is-calm'}" aria-hidden="true">
+      <path transform="translate(${wx} ${wy}) rotate(${state.windDir * 45 + 180}) scale(1.35)" d="M0 -8 L4.5 5 L0 2.5 L-4.5 5 Z"/>
+      ${wind.mph ? `<text x="${wx + 15}" y="${wy + 3.5}">${wind.mph} mph</text>` : ''}
+    </g>`;
+
   const side = p3[0] >= x0 ? -1 : 1; // keep the distance label on the roomy side of the disc
   return `<svg class="fg-fp-svg" viewBox="0 0 ${FP.w} ${FP.h}" role="img" aria-label="Flight path, about ${feet} feet">
     ${grid}
     ${windStreaks(wind)}
     <line class="fp-center" x1="${x0}" y1="${y0}" x2="${x0}" y2="${f(top)}"/>
     <rect x="${x0 - 26}" y="${y0 + 4}" width="52" height="12" rx="3" fill="#26472a"/>
+    ${windArrow}
     <path class="fg-fp" d="M${x0} ${y0} C${f(p1[0])} ${f(p1[1])} ${f(p2[0])} ${f(p2[1])} ${f(p3[0])} ${f(p3[1])}" fill="none" stroke="#d35400" stroke-width="5.5" stroke-linecap="round"/>
     <g class="fg-fp-disc" transform="translate(${f(p3[0])} ${f(p3[1])})">
       <circle r="15" fill="${color}" stroke="rgba(255,255,255,.4)" stroke-width="1.8"/>
@@ -476,7 +535,8 @@ function pathSection(d) {
     <div class="fg-path">
       ${flightPath(d, paint(d).c, cw, wind)}
       ${windControls()}
-      <p>${cw ? 'Spins clockwise · fade finishes left' : 'Spins counter-clockwise · fade finishes right'}${windNote(wind)}</p>
+      ${armControls()}
+      <p>${cw ? 'Spins clockwise · fade finishes left' : 'Spins counter-clockwise · fade finishes right'}${windNote(wind)}${armNote(d)}</p>
     </div>`;
 }
 
@@ -682,6 +742,21 @@ function wire() {
         (next && !next.disabled
           ? next
           : wrap.querySelector('[data-wind-step]:not([disabled])') || wrap.querySelector(`[data-wind-dir="${state.windDir}"]`))?.focus({ preventScroll: true });
+        playFlight(d);
+      }
+      return;
+    }
+    const armBtn = e.target.closest('[data-arm-step]');
+    if (armBtn) {
+      state.arm = clamp(state.arm + Number(armBtn.dataset.armStep), 0, ARM.length - 1);
+      saveThrow();
+      const d = discs.find((x) => x.id === state.selected);
+      if (d) {
+        const wrap = $('#fg-path-wrap');
+        wrap.innerHTML = pathSection(d);
+        const same = wrap.querySelector(`[data-arm-step="${armBtn.dataset.armStep}"]`);
+        // the button that just hit its limit is disabled now: hand focus to its partner, not the page
+        (same && !same.disabled ? same : wrap.querySelector('[data-arm-step]:not([disabled])'))?.focus({ preventScroll: true });
         playFlight(d);
       }
       return;

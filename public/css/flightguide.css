@@ -307,8 +307,9 @@
 .fg-compass__dot:hover { background: var(--bone); }
 .fg-compass__dot[aria-pressed="true"] { background: var(--lime); box-shadow: 0 0 0 2px rgba(163, 230, 53, 0.28); }
 .fg-compass__n { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); font: 700 7px/1 var(--mono); letter-spacing: 0.05em; color: var(--bone-faint); pointer-events: none; }
-.fg-compass__arrow { position: absolute; inset: 14px; width: 24px; height: 24px; fill: var(--bone-dim); transition: transform 0.25s ease, opacity 0.2s ease; pointer-events: none; }
-.fg-compass[data-calm="true"] .fg-compass__arrow { opacity: 0.18; }
+.fp-windarrow path { fill: var(--bone-dim); }
+.fp-windarrow text { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.06em; fill: var(--bone-faint); }
+.fp-windarrow.is-calm { opacity: 0.2; }
 .fg-mph { display: flex; align-items: center; gap: 4px; }
 .fg-mph button {
   width: 28px; height: 28px; padding: 0; border: 1px solid var(--hair); border-radius: 50%;
@@ -317,6 +318,11 @@
 .fg-mph button:hover:not([disabled]) { border-color: var(--lime); color: var(--lime); }
 .fg-mph button[disabled] { opacity: 0.25; cursor: default; }
 .fg-mph output { min-width: 62px; text-align: center; font: 700 0.8rem/1 var(--mono); letter-spacing: 0.04em; color: var(--bone); }
+.fg-arm { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 20px; margin: 6px 2px 4px; padding-top: 12px; border-top: 1px solid var(--hair); }
+.fg-mph--arm output { display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 128px; }
+.fg-pips { display: flex; gap: 4px; }
+.fg-pips i { width: 14px; height: 3px; border-radius: 2px; background: var(--hair); transition: background 0.2s ease; }
+.fg-pips i.is-on { background: var(--lime); }
 .fg-compass__dot:focus-visible, .fg-mph button:focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .fp-streak { animation: none; opacity: 0.3; } }
 .fp-grid { stroke: rgba(238, 241, 232, 0.11); stroke-width: 1; }
