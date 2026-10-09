@@ -55,9 +55,23 @@ const state = {
   color: 'stability',
   sizes: { bands: 52, grades: 40 },   // each view remembers its own disc size
   selected: null,
+  hand: 'right',
+  style: 'backhand',
 };
 
 let DATA, discs, brands, LETTERS, weights, lastFocus;
+
+// RHBH and LHFH spin clockwise (fade finishes left); LHBH and RHFH spin counter-clockwise (fade finishes right)
+const spinsClockwise = () => (state.hand === 'right') === (state.style === 'backhand');
+function loadThrow() {
+  try {
+    const t = JSON.parse(localStorage.getItem('dj_fg_throw'));
+    if (t && ['right', 'left'].includes(t.hand) && ['backhand', 'forehand'].includes(t.style)) { state.hand = t.hand; state.style = t.style; }
+  } catch { /* private mode / blocked storage: keep the defaults */ }
+}
+function saveThrow() {
+  try { localStorage.setItem('dj_fg_throw', JSON.stringify({ hand: state.hand, style: state.style })); } catch { /* not persisted */ }
+}
 
 async function init() {
   const res = await fetch('/data/flightguide.json?v=1');
@@ -96,6 +110,7 @@ async function init() {
     document.querySelectorAll('.fg-seg [data-view]').forEach((el) => el.setAttribute('aria-pressed', el.dataset.view === 'bands' ? 'true' : 'false'));
   }
 
+  loadThrow();
   buildFilters();
   wire();
   render();
@@ -250,11 +265,12 @@ function render() {
 
 /* ---------- drawer ---------- */
 
-function flightPath(d, color) {
+function flightPath(d, color, cw) {
   const x0 = 110, y0 = 188;
   const len = Math.min(164, 64 + d.speed * 6 + d.glide * 3);
-  const turnX = -d.turn * 13;
-  const fadeX = -Math.max(0, d.fade) * 11;
+  const dir = cw ? 1 : -1;
+  const turnX = -d.turn * 13 * dir;
+  const fadeX = -Math.max(0, d.fade) * 11 * dir;
   const clampX = (x) => Math.max(20, Math.min(200, x));
   const y1 = y0 - len;
   const p1 = [x0, y0 - len * 0.32];
@@ -267,6 +283,17 @@ function flightPath(d, color) {
     <circle cx="${p3[0]}" cy="${p3[1]}" r="13" fill="${color}" stroke="rgba(255,255,255,.35)" stroke-width="1.5"/>
     <circle cx="${p3[0]}" cy="${p3[1]}" r="6.5" fill="none" stroke="rgba(0,0,0,.35)" stroke-width="1.6"/>
   </svg>`;
+}
+
+function pathSection(d) {
+  const cw = spinsClockwise();
+  const chip = (key, val, label) => `<button class="chip" type="button" data-${key}="${val}" aria-pressed="${state[key] === val}">${label}</button>`;
+  return `
+    <div class="fg-throw" role="group" aria-label="How you throw">
+      <div class="fg-seg">${chip('hand', 'right', 'Right hand')}${chip('hand', 'left', 'Left hand')}</div>
+      <div class="fg-seg">${chip('style', 'backhand', 'Backhand')}${chip('style', 'forehand', 'Forehand')}</div>
+    </div>
+    <div class="fg-path">${flightPath(d, paint(d).c, cw)}<p>${cw ? 'Spins clockwise · fade finishes left' : 'Spins counter-clockwise · fade finishes right'} · stylized, not to scale</p></div>`;
 }
 
 function gauge(label, shown, pct, ring) {
@@ -309,7 +336,7 @@ function openDrawer(id, trigger) {
       ${gauge('Turn', fmtTurn(d.turn), (Math.min(5, Math.abs(d.turn)) / 5) * 100, 'var(--lime)')}
       ${gauge('Fade', d.fade, (Math.max(0, d.fade) / 6) * 100, 'var(--rust-lift)')}
     </div>
-    <div class="fg-path">${flightPath(d, paint(d).c)}<p>Stylized flight · right-hand backhand · not to scale</p></div>
+    <div id="fg-path-wrap">${pathSection(d)}</div>
     <ul class="fg-specs">${specs.map(([k, v, u]) => `<li><span>${k}</span><b>${esc(v)}${u ? ` ${u}` : ''}</b></li>`).join('')}</ul>
     <div class="fg-d-actions">
       ${href
@@ -431,6 +458,18 @@ function wire() {
   $('#fg-d-close').addEventListener('click', closeDrawer);
   $('#fg-scrim').addEventListener('click', closeDrawer);
   $('#fg-d-body').addEventListener('click', (e) => {
+    const pick = e.target.closest('[data-hand],[data-style]');
+    if (pick) {
+      const key = pick.dataset.hand ? 'hand' : 'style';
+      state[key] = pick.dataset[key];
+      saveThrow();
+      const d = discs.find((x) => x.id === state.selected);
+      if (d) {
+        $('#fg-path-wrap').innerHTML = pathSection(d);
+        $('#fg-path-wrap').querySelector(`[data-${key}="${state[key]}"]`)?.focus({ preventScroll: true });
+      }
+      return;
+    }
     const only = e.target.closest('[data-only-brand]');
     if (!only) return;
     state.brands = new Set([Number(only.dataset.onlyBrand)]);
