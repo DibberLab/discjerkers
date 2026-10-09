@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090c09">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css?v=2">
+  <link rel="stylesheet" href="/css/flightguide.css?v=1">
+  <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+  <title>Flight Guide — Disc Jerkers</title>
+  <meta name="description" content="Every disc, plotted by speed and stability. 1,218 molds from 51 manufacturers. Find the plastic, then blame it anyway.">
+</head>
+<body>
+<div class="topbar">Who Up Jerkin' They Discs? · Printed to order · Free US shipping over $75</div>
+  <header class="masthead">
+    <div class="wrap masthead__inner">
+      <a class="logo" href="/"><svg class="logo__mark" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="18" fill="none" stroke="#d35400" stroke-width="3"/><ellipse cx="20" cy="20" rx="14" ry="5.5" fill="none" stroke="#a3e635" stroke-width="2.4"/><ellipse cx="20" cy="20" rx="6.5" ry="2.4" fill="#a3e635"/></svg> Disc Jerkers</a>
+      <nav class="nav">
+        <a href="/shop.html">Shop</a>
+        <a href="/#rules" data-hide-sm>Rules</a>
+        <a href="/#lexicon" data-hide-sm>Lexicon</a>
+        <a class="cart-btn" href="/cart.html" data-cart-count>Cart</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="fg-hero">
+      <div class="wrap fg-hero__grid">
+        <div>
+          <span class="eyebrow">Know your plastic</span>
+          <h1>Flight<br><span class="hl">Guide</span></h1>
+          <p class="lede">Every disc we could find, plotted by speed and stability. Pick a round thing, read the numbers, then blame it anyway.</p>
+          <div class="stats fg-stats">
+            <div class="stat"><div class="stat__n" id="stat-molds">1,218</div><div class="stat__l">Molds</div></div>
+            <div class="stat"><div class="stat__n" id="stat-brands">51</div><div class="stat__l">Brands</div></div>
+            <div class="stat"><div class="stat__n">17</div><div class="stat__l">Stability grades</div></div>
+            <div class="stat"><div class="stat__n">0</div><div class="stat__l">Your fault</div></div>
+          </div>
+        </div>
+        <div class="fg-art" aria-hidden="true">
+          <svg viewBox="0 0 440 380" role="img">
+            <circle cx="220" cy="196" r="176" fill="#0f160e" stroke="#d35400" stroke-width="4"/>
+            <circle cx="220" cy="196" r="146" fill="none" stroke="rgba(238,241,232,.14)" stroke-width="1.5" stroke-dasharray="3 7"/>
+            <circle cx="220" cy="196" r="96" fill="none" stroke="rgba(238,241,232,.08)" stroke-width="1.5"/>
+            <rect x="198" y="318" width="44" height="14" rx="3" fill="#26472a"/>
+            <path d="M220 318 C220 246 218 168 150 96" fill="none" stroke="#d35400" stroke-width="5" stroke-linecap="round"/>
+            <path d="M220 318 C220 236 224 150 222 58" fill="none" stroke="#b4bdad" stroke-width="5" stroke-linecap="round" stroke-dasharray="1 11"/>
+            <path d="M220 318 C226 252 300 202 322 86" fill="none" stroke="#a3e635" stroke-width="5" stroke-linecap="round"/>
+            <g>
+              <circle cx="150" cy="96" r="17" fill="#d35400"/><circle cx="150" cy="96" r="9" fill="none" stroke="rgba(0,0,0,.35)" stroke-width="2"/>
+              <circle cx="222" cy="58" r="17" fill="#eef1e8"/><circle cx="222" cy="58" r="9" fill="none" stroke="rgba(0,0,0,.3)" stroke-width="2"/>
+              <circle cx="322" cy="86" r="17" fill="#a3e635"/><circle cx="322" cy="86" r="9" fill="none" stroke="rgba(0,0,0,.3)" stroke-width="2"/>
+            </g>
+            <text x="96" y="132" class="fg-art__t" fill="#ef6c12">OVERSTABLE</text>
+            <text x="222" y="30" class="fg-art__t" fill="#eef1e8" text-anchor="middle">STABLE</text>
+            <text x="322" y="126" class="fg-art__t" fill="#a3e635" text-anchor="middle">UNDERSTABLE</text>
+            <text x="220" y="354" class="fg-art__t" fill="#7f8c8d" text-anchor="middle">TEE · RHBH</text>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <section class="fg-tool">
+      <div class="wrap">
+        <div class="fg-controls">
+          <div class="fg-row">
+            <label class="fg-search">
+              <span class="sr-only">Search molds</span>
+              <input id="fg-q" type="search" placeholder="Mold, brand, or numbers (12 5)" autocomplete="off" spellcheck="false">
+            </label>
+            <div class="fg-pop">
+              <button class="chip" id="fg-brand-btn" type="button" aria-expanded="false" aria-controls="fg-brand-panel">Brands <span id="fg-brand-count">· all 51</span></button>
+              <div class="fg-pop__panel" id="fg-brand-panel" hidden>
+                <input id="fg-brand-q" type="search" placeholder="Find a manufacturer" autocomplete="off">
+                <div class="fg-brandgrid" id="fg-brand-list"></div>
+                <div class="fg-pop__foot"><button class="chip" id="fg-brand-clear" type="button">Clear brands</button></div>
+              </div>
+            </div>
+            <div class="fg-seg" role="group" aria-label="Chart view">
+              <button class="chip" type="button" data-view="grades" aria-pressed="true">A–Q</button>
+              <button class="chip" type="button" data-view="bands" aria-pressed="false">5 bands</button>
+            </div>
+            <div class="fg-colorby" id="fg-colorby">
+              <span class="fg-label">Color</span>
+              <div class="fg-seg" role="group" aria-label="Color discs by">
+                <button class="chip" type="button" data-color="stability" aria-pressed="true">Stability</button>
+                <button class="chip" type="button" data-color="type" aria-pressed="false">Type</button>
+                <button class="chip" type="button" data-color="brand" aria-pressed="false">Brand</button>
+              </div>
+            </div>
+            <label class="fg-size">
+              <span class="fg-label">Disc size</span>
+              <input id="fg-size" type="range" min="20" max="74" step="2" value="40" aria-label="Disc size">
+            </label>
+          </div>
+          <div class="fg-row">
+            <span class="fg-label">Type</span>
+            <div class="chips" id="fg-cats"></div>
+          </div>
+          <div class="fg-row">
+            <span class="fg-label">Stability</span>
+            <div class="chips" id="fg-stabs"></div>
+          </div>
+          <div class="fg-row fg-legend" id="fg-legend"></div>
+          <div class="fg-row fg-row--status">
+            <span class="fg-count" id="fg-count" aria-live="polite"></span>
+            <button class="chip" id="fg-reset" type="button">Reset all</button>
+          </div>
+        </div>
+
+        <div class="fg-scroll"><div class="fg-chart" id="fg-chart"><p class="fg-loading">Loading 1,218 discs…</p></div></div>
+
+        <p class="fg-note">Flight numbers, specs, and store links are a snapshot of <a href="https://www.marshallstreetdiscgolf.com/flightguide" target="_blank" rel="noopener">Marshall Street Disc Golf's flight guide</a> (<span id="fg-snap">Oct 2026</span>). Half-speeds sit in the nearest row; the real number is on each disc's card. We don't sell discs. We sell the shirts you wear while losing them.</p>
+      </div>
+    </section>
+  </main>
+
+  <div class="fg-scrim" id="fg-scrim"></div>
+  <aside class="fg-drawer" id="fg-drawer" role="dialog" aria-modal="true" aria-labelledby="fg-d-name" aria-hidden="true" tabindex="-1">
+    <button class="fg-drawer__x" id="fg-d-close" type="button" aria-label="Close">×</button>
+    <div id="fg-d-body"></div>
+  </aside>
+
+  <footer class="footer">
+    <div class="wrap">
+      <div class="footer__grid">
+        <div class="footer__col" style="max-width:32ch">
+          <a class="logo" href="/" style="margin-bottom:14px"><svg class="logo__mark" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="18" fill="none" stroke="#d35400" stroke-width="3"/><ellipse cx="20" cy="20" rx="14" ry="5.5" fill="none" stroke="#a3e635" stroke-width="2.4"/><ellipse cx="20" cy="20" rx="6.5" ry="2.4" fill="#a3e635"/></svg> Disc Jerkers</a>
+          <p style="font-family:var(--body);letter-spacing:0;text-transform:none;color:var(--bone-dim);line-height:1.6;font-size:0.9rem">A high-volume, low-morale disc golf syndicate operating across Minnesota and Wisconsin. Started in a group chat to spare everyone else.</p>
+        </div>
+        <div class="footer__col">
+          <p class="eyebrow eyebrow--rust">Store</p>
+          <p><a href="/shop.html">All products</a><br><a href="/cart.html">Cart</a></p>
+        </div>
+        <div class="footer__col">
+          <p class="eyebrow eyebrow--rust">The Bit</p>
+          <p><a href="/#rules">Official rules</a><br><a href="/#lexicon">Lexicon</a><br><a href="/#courses">Home courses</a><br><a href="/flightguide">Flight guide</a></p>
+        </div>
+        <div class="footer__col">
+          <p class="eyebrow eyebrow--rust">Contact</p>
+          <p><a href="mailto:hello@discjerkers.com">hello@discjerkers.com</a></p>
+        </div>
+      </div>
+      <div class="footer__help">
+        <span>Boys, Brews, &amp; Baskets</span>
+        <span><b>There Is Help For Addiction</b></span>
+        <span>&copy; 2026 Disc Jerkers</span>
+      </div>
+    </div>
+  </footer>
+
+  <script type="module" src="/js/site.js?v=2"></script>
+  <script type="module" src="/js/flightguide.js?v=1"></script>
+</body>
+</html>
