@@ -57,6 +57,8 @@ const state = {
   selected: null,
   hand: 'right',
   style: 'backhand',
+  windDir: 0, // where the wind comes FROM; you always throw north, so 0 (north) is a headwind
+  windMph: 0,
 };
 
 let DATA, discs, brands, LETTERS, weights, lastFocus;
@@ -270,24 +272,100 @@ function render() {
 const FP = { w: 360, h: 230, x0: 200, y0: 205, k: 0.42, left: 52, right: 352 };
 const estFeet = (d) => Math.round((140 + d.speed * 16 + d.glide * 6) / 10) * 10;
 
-function flightGeometry(d, cw) {
+const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+const WIND_STEPS = [0, 5, 10, 15, 20, 25];
+const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+
+// You always throw north (up the page). head > 0 is into your face; cross > 0 pushes the disc to the right.
+function windVector() {
+  const mph = state.windMph;
+  if (!mph) return { mph: 0, head: 0, cross: 0 };
+  const a = (state.windDir * Math.PI) / 4;
+  return { mph, head: mph * Math.cos(a), cross: -mph * Math.sin(a) };
+}
+
+// Headwind costs more than a tailwind gives back.
+function carryFeet(d, wind) {
+  const factor = wind.head >= 0 ? 1 - 0.011 * wind.head : 1 + 0.007 * -wind.head;
+  return Math.max(60, Math.round((estFeet(d) * factor) / 10) * 10);
+}
+
+function flightGeometry(d, cw, wind) {
   const { x0, y0, k } = FP;
-  const dir = cw ? 1 : -1; // counter-clockwise spin mirrors everything
-  const len = estFeet(d) * k;
-  const clampX = (x) => Math.max(FP.left + 10, Math.min(FP.right - 10, x));
-  const turnX = -d.turn * 33 * k * dir;
-  const fadeX = -Math.max(0, d.fade) * 28 * k * dir;
+  const dir = cw ? 1 : -1; // counter-clockwise spin mirrors the disc's own turn and fade (not the wind)
+  const feet = carryFeet(d, wind);
+  const len = feet * k;
+  const clampX = (x) => clamp(x, FP.left + 10, FP.right - 10);
+  // a headwind makes any disc act more overstable; a tailwind makes it act more understable
+  const turnMul = clamp(1 - 0.04 * wind.head, 0.2, 2);
+  const fadeMul = clamp(1 + 0.04 * wind.head, 0.2, 2.2);
+  const turnX = -d.turn * turnMul * 33 * k * dir;
+  const fadeX = -Math.max(0, d.fade) * fadeMul * 28 * k * dir;
+  // crosswind pushes the disc downwind for as long as it hangs in the air, so the push builds toward the end
+  const driftX = wind.cross * 3.2 * (feet / 300) * k;
   return {
-    p1: [x0, y0 - len * 0.32],
-    p2: [clampX(x0 + turnX), y0 - len * 0.72],
-    p3: [clampX(x0 + turnX * 0.85 + fadeX), y0 - len],
+    p1: [x0 + driftX * 0.1, y0 - len * 0.32],
+    p2: [clampX(x0 + turnX + driftX * 0.45), y0 - len * 0.72],
+    p3: [clampX(x0 + turnX * 0.85 + fadeX + driftX), y0 - len],
   };
 }
 
-function flightPath(d, color, cw) {
+// Faint streaks drifting the way the wind is blowing: faster and denser as it picks up.
+function windStreaks(wind) {
+  if (!wind.mph) return '';
+  const { left, right, y0 } = FP;
+  const a = (state.windDir * Math.PI) / 4;
+  const ux = -Math.sin(a);
+  const uy = Math.cos(a); // where the wind is going, in screen terms
+  const dur = 55 / wind.mph;
+  const reach = 70 + wind.mph * 2;
+  const length = 9 + wind.mph * 0.5;
+  const count = 10 + Math.round(wind.mph / 2);
+  let seed = 7;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const f = (n) => n.toFixed(1);
+  let lines = '';
+  for (let i = 0; i < count; i++) {
+    const x = left + 8 + rnd() * (right - left - 16);
+    const y = 20 + rnd() * (y0 - 36);
+    lines += `<line class="fp-streak" x1="${f(x)}" y1="${f(y)}" x2="${f(x + ux * length)}" y2="${f(y + uy * length)}" style="--tx:${f(ux * reach)}px;--ty:${f(uy * reach)}px;--dur:${dur.toFixed(2)}s;--delay:-${(rnd() * dur).toFixed(2)}s"/>`;
+  }
+  return `<clipPath id="fp-clip"><rect x="${left}" y="${f(y0 - 450 * FP.k)}" width="${right - left}" height="${f(450 * FP.k)}"/></clipPath><g class="fp-wind" clip-path="url(#fp-clip)" aria-hidden="true">${lines}</g>`;
+}
+
+function windNote(wind) {
+  if (!wind.mph) return '';
+  const bits = [];
+  if (wind.head > 3) bits.push('shorter, more fade');
+  else if (wind.head < -3) bits.push('longer, turns over more');
+  if (wind.cross > 3) bits.push('drifts right');
+  else if (wind.cross < -3) bits.push('drifts left');
+  return ` · ${wind.mph} mph wind from the ${COMPASS[state.windDir]}${bits.length ? `: ${bits.join(', ')}` : ''}`;
+}
+
+// A small compass and speed stepper that live inside the flight box.
+function windControls() {
+  const mph = state.windMph;
+  const dots = COMPASS.map((name, i) =>
+    `<button class="fg-compass__dot" type="button" data-wind-dir="${i}" style="--a:${i * 45}deg" aria-label="Wind from the ${name}" aria-pressed="${mph > 0 && state.windDir === i}"></button>`
+  ).join('');
+  return `<div class="fg-wind" role="group" aria-label="Wind">
+      <div class="fg-compass" data-calm="${mph === 0}" title="You are throwing north. Tap where the wind comes from.">
+        ${dots}<span class="fg-compass__n" aria-hidden="true">N</span>
+        <svg class="fg-compass__arrow" viewBox="-10 -10 20 20" aria-hidden="true" style="transform:rotate(${state.windDir * 45 + 180}deg)"><path d="M0 -8 L4.5 5 L0 2.5 L-4.5 5 Z"/></svg>
+      </div>
+      <div class="fg-mph" role="group" aria-label="Wind speed">
+        <button type="button" data-wind-step="-1" aria-label="Less wind"${mph === 0 ? ' disabled' : ''}>−</button>
+        <output>${mph ? `${mph} mph` : 'Calm'}</output>
+        <button type="button" data-wind-step="1" aria-label="More wind"${mph === WIND_STEPS[WIND_STEPS.length - 1] ? ' disabled' : ''}>+</button>
+      </div>
+    </div>`;
+}
+
+function flightPath(d, color, cw, wind) {
   const { x0, y0, k, left, right } = FP;
-  const { p1, p2, p3 } = flightGeometry(d, cw);
-  const feet = estFeet(d);
+  const { p1, p2, p3 } = flightGeometry(d, cw, wind);
+  const feet = carryFeet(d, wind);
   const f = (n) => n.toFixed(1);
   const top = y0 - 450 * k;
 
@@ -308,6 +386,7 @@ function flightPath(d, color, cw) {
   const side = p3[0] >= x0 ? -1 : 1; // keep the distance label on the roomy side of the disc
   return `<svg class="fg-fp-svg" viewBox="0 0 ${FP.w} ${FP.h}" role="img" aria-label="Flight path, about ${feet} feet">
     ${grid}
+    ${windStreaks(wind)}
     <line class="fp-center" x1="${x0}" y1="${y0}" x2="${x0}" y2="${f(top)}"/>
     <rect x="${x0 - 22}" y="${y0 + 3}" width="44" height="10" rx="3" fill="#26472a"/>
     <path class="fg-fp" d="M${x0} ${y0} C${f(p1[0])} ${f(p1[1])} ${f(p2[0])} ${f(p2[1])} ${f(p3[0])} ${f(p3[1])}" fill="none" stroke="#d35400" stroke-width="4.5" stroke-linecap="round"/>
@@ -343,7 +422,7 @@ function playFlight(d) {
   // nobody to watch (background tab), or someone who asked for less motion: just show where it lands
   if (document.hidden || window.matchMedia('(prefers-reduced-motion: reduce)').matches) { draw(1); return; }
 
-  const ms = 1500 + estFeet(d) * 2; // longer throws hang in the air longer
+  const ms = 1500 + carryFeet(d, windVector()) * 2; // longer throws hang in the air longer
   const start = performance.now();
   const tick = (now) => {
     const raw = Math.min(1, (now - start) / ms);
@@ -384,6 +463,7 @@ function fitDrawerText() {
 
 function pathSection(d) {
   const cw = spinsClockwise();
+  const wind = windVector();
   const chip = (key, val, label) => `<button class="chip" type="button" data-${key}="${val}" aria-pressed="${state[key] === val}">${label}</button>`;
   return `
     <div class="fg-throw" role="group" aria-label="How you throw">
@@ -391,7 +471,10 @@ function pathSection(d) {
       <div class="fg-seg">${chip('style', 'backhand', 'Backhand')}${chip('style', 'forehand', 'Forehand')}</div>
       <button class="chip fg-replay" type="button" data-replay>↻ Replay</button>
     </div>
-    <div class="fg-path">${flightPath(d, paint(d).c, cw)}<p>${cw ? 'Spins clockwise · fade finishes left' : 'Spins counter-clockwise · fade finishes right'} · distances are rough estimates</p></div>`;
+    <div class="fg-path">
+      <div class="fg-stage">${flightPath(d, paint(d).c, cw, wind)}${windControls()}</div>
+      <p>${cw ? 'Spins clockwise · fade finishes left' : 'Spins counter-clockwise · fade finishes right'}${windNote(wind)}</p>
+    </div>`;
 }
 
 function gauge(label, shown, pct, ring) {
@@ -571,6 +654,31 @@ function wire() {
       if (d) {
         $('#fg-path-wrap').innerHTML = pathSection(d);
         $('#fg-path-wrap').querySelector(`[data-${key}="${state[key]}"]`)?.focus({ preventScroll: true });
+        playFlight(d);
+      }
+      return;
+    }
+    const windBtn = e.target.closest('[data-wind-dir],[data-wind-step]');
+    if (windBtn) {
+      const i = WIND_STEPS.indexOf(state.windMph);
+      if (windBtn.dataset.windDir !== undefined) {
+        state.windDir = Number(windBtn.dataset.windDir);
+        if (!state.windMph) state.windMph = 10; // picking a direction in calm air would change nothing, so give it a breeze
+      } else {
+        state.windMph = WIND_STEPS[clamp(i + Number(windBtn.dataset.windStep), 0, WIND_STEPS.length - 1)];
+      }
+      const d = discs.find((x) => x.id === state.selected);
+      if (d) {
+        const wrap = $('#fg-path-wrap');
+        wrap.innerHTML = pathSection(d);
+        const same = windBtn.dataset.windDir !== undefined
+          ? `[data-wind-dir="${state.windDir}"]`
+          : `[data-wind-step="${windBtn.dataset.windStep}"]`;
+        const next = wrap.querySelector(same);
+        // a stepper button that just hit its limit is disabled now: hand focus to its partner, not the page
+        (next && !next.disabled
+          ? next
+          : wrap.querySelector('[data-wind-step]:not([disabled])') || wrap.querySelector(`[data-wind-dir="${state.windDir}"]`))?.focus({ preventScroll: true });
         playFlight(d);
       }
       return;
