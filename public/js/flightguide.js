@@ -60,6 +60,7 @@ const state = {
   windDir: 0, // where the wind comes FROM; you always throw north, so 0 (north) is a headwind
   windMph: 0,
   arm: 2, // index into ARM
+  angle: 0, // release angle in steps of ANGLE_STEP degrees: + is hyzer, - is anhyzer
 };
 
 let DATA, discs, brands, LETTERS, weights, lastFocus;
@@ -271,7 +272,7 @@ function render() {
 
 // Flight drawn on a measured field. Carry is a rough estimate from speed and glide, scaled by the thrower's
 // arm, and the grid is 100 ft a square. Not physics: a way to compare discs.
-const FP = { w: 360, h: 340, x0: 200, y0: 315, k: 0.6, left: 52, right: 352 };
+const FP = { w: 360, h: 417, x0: 200, y0: 392, k: 0.74, left: 52, right: 352 };
 const GRID_FT = 500; // far enough for nearly every throw; the longest are held just inside it
 // cap: the disc speed this arm can get fully up to speed. power: how much distance the arm adds on top.
 const ARM = [
@@ -301,6 +302,21 @@ const estFeet = (d) => {
   return Math.round(((140 + Math.min(d.speed, a.cap) * 16 + d.glide * 6) * a.power * (0.85 + 0.15 * ratio)) / 10) * 10;
 };
 
+// Release angle. Hyzer tips the disc onto its fade side, anhyzer onto its turn side.
+// state.angle walks this ladder either way: the last two rungs are the extreme throws.
+const ANGLE_DEG = [0, 5, 10, 15, 20, 35, 55];
+const ANGLE_MAX = ANGLE_DEG.length - 1;
+const angleDeg = () => Math.sign(state.angle) * ANGLE_DEG[Math.abs(state.angle)];
+function angleName() {
+  const a = angleDeg();
+  if (!a) return 'Flat';
+  const hyzer = a > 0;
+  const big = Math.abs(a);
+  if (big === 55) return hyzer ? 'Spike hyzer' : 'Over anhyzer';
+  if (big === 35) return hyzer ? 'Hard hyzer' : 'Hard anhyzer';
+  return `${hyzer ? 'Hyzer' : 'Anhyzer'} ${big}°`;
+}
+
 const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 const WIND_STEPS = [0, 5, 10, 15, 20, 25];
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
@@ -316,7 +332,10 @@ function windVector() {
 // Headwind costs more than a tailwind gives back.
 function carryFeet(d, wind) {
   const factor = wind.head >= 0 ? 1 - 0.011 * wind.head : 1 + 0.007 * -wind.head;
-  return clamp(Math.round((estFeet(d) * factor) / 10) * 10, 60, GRID_FT - 10);
+  const a = angleDeg();
+  // hyzer shortens a throw (and a spike dives); a little anhyzer rides flat for more, but past that it falls out of the sky
+  const tilt = a >= 0 ? 1 - 0.004 * a - 0.00004 * a * a : 1 + 0.0025 * Math.min(-a, 20) - 0.006 * Math.max(0, -a - 20);
+  return clamp(Math.round((estFeet(d) * factor * tilt) / 10) * 10, 60, GRID_FT - 10);
 }
 
 function flightGeometry(d, cw, wind) {
@@ -327,16 +346,20 @@ function flightGeometry(d, cw, wind) {
   const clampX = (x) => clamp(x, FP.left + 10, FP.right - 10);
   // a headwind makes any disc act more overstable; a tailwind makes it act more understable
   const arm = armEffects(d);
-  const turnMul = clamp((1 - 0.04 * wind.head) * arm.turn, 0.2, 2);
-  const fadeMul = clamp((1 + 0.04 * wind.head) * arm.fade, 0.2, 2.6);
+  const a = angleDeg();
+  // hyzer holds the line (less turn, harder fade); anhyzer lets it turn and softens the fade
+  const turnMul = clamp((1 - 0.04 * wind.head) * arm.turn * clamp(1 - 0.03 * a, 0.25, 1.7), 0.15, 2.4);
+  const fadeMul = clamp((1 + 0.04 * wind.head) * arm.fade * clamp(1 + 0.025 * a, 0.3, 1.6), 0.2, 2.6);
   const turnX = -d.turn * turnMul * 33 * k * dir;
   const fadeX = -Math.max(0, d.fade) * fadeMul * 28 * k * dir;
   // crosswind pushes the disc downwind for as long as it hangs in the air, so the push builds toward the end
   const driftX = wind.cross * 3.2 * (feet / 300) * k;
+  // the release angle aims the disc: hyzer starts toward the fade side, anhyzer toward the turn side
+  const aimX = -dir * Math.sign(a) * (Math.abs(a) * 0.9 + 0.012 * a * a); // extreme angles aim harder than they look
   return {
-    p1: [x0 + driftX * 0.1, y0 - len * 0.32],
-    p2: [clampX(x0 + turnX + driftX * 0.45), y0 - len * 0.72],
-    p3: [clampX(x0 + turnX * 0.85 + fadeX + driftX), y0 - len],
+    p1: [x0 + driftX * 0.1 + aimX, y0 - len * 0.32],
+    p2: [clampX(x0 + turnX + driftX * 0.45 + aimX * 0.8), y0 - len * 0.72],
+    p3: [clampX(x0 + turnX * 0.85 + fadeX + driftX + aimX * 0.3), y0 - len],
   };
 }
 
@@ -404,6 +427,38 @@ function armControls() {
         <button type="button" data-arm-step="1" aria-label="Faster arm"${state.arm === last ? ' disabled' : ''}>+</button>
       </div>
     </div>`;
+}
+
+// A disc seen from behind: hyzer drops the fade-side edge, anhyzer the turn-side edge.
+function angleControls() {
+  const a = angleDeg();
+  const dir = spinsClockwise() ? 1 : -1;
+  const name = angleName();
+  const tilt = (-dir * Math.sign(a) * Math.min(Math.abs(a) * 1.5, 80)).toFixed(1); // drawn at 1.5x so a few degrees still reads
+  return `<div class="fg-arm fg-angle" role="group" aria-label="Release angle">
+      <span class="fg-wind__l">Angle</span>
+      <div class="fg-mph fg-mph--angle">
+        <button type="button" data-angle-step="-1" aria-label="More anhyzer"${state.angle === -ANGLE_MAX ? ' disabled' : ''}>‹</button>
+        <output aria-live="polite">
+          <svg viewBox="-20 -9 40 18" aria-hidden="true"><g transform="rotate(${tilt})"><ellipse class="fg-angle__disc" rx="16" ry="3.6"/><ellipse class="fg-angle__top" rx="11" ry="1.6" cy="-1.1"/></g></svg>
+          <span>${name}</span>
+        </output>
+        <button type="button" data-angle-step="1" aria-label="More hyzer"${state.angle === ANGLE_MAX ? ' disabled' : ''}>›</button>
+      </div>
+    </div>`;
+}
+
+function angleNote(d) {
+  const a = angleDeg();
+  if (!a) return '';
+  if (a >= 55) return ' · spike hyzer: dive bomb, comes up short';
+  if (a >= 35) return ' · hard hyzer: dives early, finishes short';
+  if (a > 0) return ' · hyzer: holds the line, finishes harder';
+  if (a <= -55) return ' · over anhyzer: rolls over and crashes';
+  if (a <= -35) return ' · hard anhyzer: big turn, big hook back';
+  if (d.turn <= -2) return ' · anhyzer: flips over';
+  if (d.fade >= 3) return ' · anhyzer: flexes out, then hooks back';
+  return ' · anhyzer: turns more, softer finish';
 }
 
 function armNote(d) {
@@ -525,18 +580,19 @@ function fitDrawerText() {
 function pathSection(d) {
   const cw = spinsClockwise();
   const wind = windVector();
-  const chip = (key, val, label) => `<button class="chip" type="button" data-${key}="${val}" aria-pressed="${state[key] === val}">${label}</button>`;
+  const chip = (key, val, label, title = label) => `<button class="chip" type="button" data-${key}="${val}" aria-pressed="${state[key] === val}" title="${title}">${label}</button>`;
   return `
-    <div class="fg-throw" role="group" aria-label="How you throw">
-      <div class="fg-seg">${chip('hand', 'right', 'Right hand')}${chip('hand', 'left', 'Left hand')}</div>
-      <div class="fg-seg">${chip('style', 'backhand', 'Backhand')}${chip('style', 'forehand', 'Forehand')}</div>
-      <button class="chip fg-replay" type="button" data-replay>↻ Replay</button>
-    </div>
     <div class="fg-path">
       ${flightPath(d, paint(d).c, cw, wind)}
+      <div class="fg-throw" role="group" aria-label="How you throw">
+        <div class="fg-seg">${chip('hand', 'right', 'Right', 'Right hand')}${chip('hand', 'left', 'Left', 'Left hand')}</div>
+        <div class="fg-seg">${chip('style', 'backhand', 'Backhand')}${chip('style', 'forehand', 'Forehand')}</div>
+        <button class="chip fg-replay" type="button" data-replay aria-label="Replay the throw" title="Replay">↻</button>
+      </div>
       ${windControls()}
       ${armControls()}
-      <p>${cw ? 'Spins clockwise · fade finishes left' : 'Spins counter-clockwise · fade finishes right'}${windNote(wind)}${armNote(d)}</p>
+      ${angleControls()}
+      <p>${cw ? 'Spins clockwise · fade finishes left' : 'Spins counter-clockwise · fade finishes right'}${windNote(wind)}${armNote(d)}${angleNote(d)}</p>
     </div>`;
 }
 
@@ -757,6 +813,19 @@ function wire() {
         const same = wrap.querySelector(`[data-arm-step="${armBtn.dataset.armStep}"]`);
         // the button that just hit its limit is disabled now: hand focus to its partner, not the page
         (same && !same.disabled ? same : wrap.querySelector('[data-arm-step]:not([disabled])'))?.focus({ preventScroll: true });
+        playFlight(d);
+      }
+      return;
+    }
+    const angleBtn = e.target.closest('[data-angle-step]');
+    if (angleBtn) {
+      state.angle = clamp(state.angle + Number(angleBtn.dataset.angleStep), -ANGLE_MAX, ANGLE_MAX);
+      const d = discs.find((x) => x.id === state.selected);
+      if (d) {
+        const wrap = $('#fg-path-wrap');
+        wrap.innerHTML = pathSection(d);
+        const same = wrap.querySelector(`[data-angle-step="${angleBtn.dataset.angleStep}"]`);
+        (same && !same.disabled ? same : wrap.querySelector('[data-angle-step]:not([disabled])'))?.focus({ preventScroll: true });
         playFlight(d);
       }
       return;
