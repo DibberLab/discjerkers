@@ -4,6 +4,10 @@ const path = require('node:path');
 const express = require('express');
 const config = require('./config');
 const printify = require('./lib/printify');
+const { createChangeStore } = require('./lib/changes');
+const { createChangesRouter } = require('./routes/changes');
+
+const changes = createChangesRouter({ store: createChangeStore(path.join(__dirname, '..', 'data', 'changes.json')) });
 
 const app = express();
 app.disable('x-powered-by');
@@ -13,6 +17,7 @@ app.set('trust proxy', true);
 app.use('/webhook', require('./routes/webhook'));
 
 app.use(express.json({ limit: '128kb' }));
+app.use('/api/changes', changes);
 app.use('/api', require('./routes/api'));
 
 app.get('/healthz', (req, res) => res.json({ ok: true, demoMode: config.demoMode }));
@@ -42,7 +47,10 @@ const server = app.listen(config.port, () => {
 });
 
 for (const sig of ['SIGINT', 'SIGTERM']) {
-  process.on(sig, () => server.close(() => process.exit(0)));
+  process.on(sig, () => {
+    changes.closeStreams();
+    server.close(() => process.exit(0));
+  });
 }
 
 module.exports = app;

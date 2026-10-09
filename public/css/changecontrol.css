@@ -1,0 +1,145 @@
+/* ===========================================================================
+   CHANGE CONTROL — stand-alone page. Tokens come from style.css.
+   =========================================================================== */
+
+.cc-hero { position: relative; z-index: 2; padding: 64px 0 36px; }
+.cc-hero h1 { font-size: clamp(3rem, 9vw, 6.4rem); margin-bottom: 0.28em; }
+.cc-hero h1 .hl { color: var(--rust-lift); }
+.cc-main { position: relative; z-index: 2; padding: 12px 0 70px; }
+
+/* ---------- policy steps beside the form ---------- */
+.cc { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 28px; align-items: start; }
+.cc__steps { display: grid; gap: 1px; background: var(--hair); border: 1px solid var(--hair); }
+.cc__note { margin: 26px 0 0; max-width: 64ch; font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.06em; color: var(--bone-faint); }
+
+/* ---------- the form ---------- */
+.ticket {
+  position: relative;
+  background: var(--panel);
+  border: 1px dashed var(--bone-faint);
+  border-radius: var(--radius);
+  padding: 22px 24px 24px;
+  font-family: var(--mono);
+}
+.ticket__head {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding-bottom: 14px; border-bottom: 1px solid var(--hair);
+  font-size: 0.7rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--bone-faint);
+}
+.ticket__head b { color: var(--lime); font-weight: 700; }
+.ticket__foot { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 18px; margin-top: 22px; }
+
+.field { display: block; margin-top: 16px; }
+.field > span {
+  display: block; margin-bottom: 6px;
+  font-size: 0.64rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--bone-faint);
+}
+.field input, .field textarea {
+  width: 100%;
+  background: var(--panel-2);
+  border: 1px solid var(--hair);
+  border-radius: var(--radius);
+  color: var(--bone);
+  font-family: var(--mono);
+  font-size: 0.86rem;
+  line-height: 1.5;
+  padding: 10px 12px;
+  outline: none;
+  resize: vertical;
+}
+.field input:focus, .field textarea:focus { border-color: var(--lime); }
+.field input::placeholder, .field textarea::placeholder { color: var(--bone-faint); }
+.hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+
+.form-msg { margin: 0; font-size: 0.74rem; letter-spacing: 0.04em; line-height: 1.5; color: var(--bone-dim); }
+.form-msg a { color: var(--bone); }
+.form-msg.is-error { color: var(--rust-lift); }
+
+/* ---------- the running log ---------- */
+.cc-log { position: relative; z-index: 2; background: var(--panel); border-block: 1px solid var(--hair); padding: 60px 0 84px; }
+.cc-log__head { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; flex-wrap: wrap; margin-bottom: 22px; }
+.cc-log__head h2 { margin-bottom: 0; }
+.cc-filters { margin-bottom: 26px; }
+.cc-filters .chip small { opacity: 0.55; margin-left: 4px; }
+
+.live {
+  display: inline-flex; align-items: center; gap: 9px;
+  font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--bone-faint);
+}
+.live i { width: 9px; height: 9px; border-radius: 50%; background: var(--grey); }
+.live[data-state="live"] { color: var(--bone-dim); }
+.live[data-state="live"] i { background: var(--lime); box-shadow: 0 0 0 0 rgba(163, 230, 53, 0.6); animation: cc-pulse 2s ease-out infinite; }
+.live[data-state="offline"] i { background: var(--rust); }
+@keyframes cc-pulse { 70% { box-shadow: 0 0 0 8px rgba(163, 230, 53, 0); } 100% { box-shadow: 0 0 0 0 rgba(163, 230, 53, 0); } }
+
+.cc-empty { margin: 0; padding: 54px 0; text-align: center; font-family: var(--mono); letter-spacing: 0.06em; color: var(--bone-faint); }
+
+.cr {
+  --st: var(--grey);
+  position: relative;
+  margin-bottom: 12px;
+  padding: 20px 22px 18px;
+  background: var(--void);
+  border: 1px solid var(--hair);
+  border-left: 3px solid var(--st);
+  border-radius: var(--radius);
+}
+.cr[data-status="approved"] { --st: var(--lime); }
+.cr[data-status="denied"] { --st: var(--rust); }
+.cr.is-fresh { animation: cc-flash 1.8s ease-out; }
+@keyframes cc-flash {
+  from { box-shadow: 0 0 0 2px var(--st), 0 0 26px -4px var(--st); }
+  to { box-shadow: 0 0 0 0 transparent, 0 0 0 0 transparent; }
+}
+
+.cr__top { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
+.cr__id { font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.2em; color: var(--bone-faint); }
+.cr__status {
+  font-family: var(--mono); font-size: 0.66rem; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase;
+  padding: 4px 10px; border: 1px solid var(--st); border-radius: 999px; color: var(--st);
+}
+.cr[data-status="pending"] .cr__status { color: var(--bone-dim); }
+.cr[data-status="denied"] .cr__status { color: var(--rust-lift); }
+.cr__change { margin: 0 0 4px; font-family: var(--body); font-size: 1.18rem; font-weight: 700; line-height: 1.35; text-transform: none; letter-spacing: 0; overflow-wrap: anywhere; }
+.cr dl { display: grid; grid-template-columns: 112px 1fr; gap: 8px 16px; margin: 14px 0 0; }
+.cr dt { padding-top: 3px; font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--bone-faint); }
+.cr dd { margin: 0; color: var(--bone-dim); font-size: 0.95rem; overflow-wrap: anywhere; }
+
+.cr__trail { list-style: none; margin: 16px 0 0; padding: 12px 0 0; border-top: 1px solid var(--hair); font-family: var(--mono); font-size: 0.72rem; line-height: 1.6; color: var(--bone-dim); }
+.cr__trail li { margin: 3px 0; overflow-wrap: anywhere; }
+.cr__trail b { letter-spacing: 0.14em; text-transform: uppercase; color: var(--bone); }
+.cr__trail li[data-a="approved"] b { color: var(--lime); }
+.cr__trail li[data-a="denied"] b { color: var(--rust-lift); }
+.cr__trail time { color: var(--bone-faint); }
+.cr__trail em { font-style: italic; color: var(--bone-dim); }
+
+.cr__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.cr__actions .chip { padding: 8px 16px; }
+.cr__actions .chip[data-act="approve"]:hover { border-color: var(--lime); color: var(--lime); }
+.cr__actions .chip[data-act="deny"]:hover { border-color: var(--rust-lift); color: var(--rust-lift); }
+
+.cc-cta { margin-top: 44px; display: flex; flex-wrap: wrap; gap: 14px; }
+
+/* ---------- approve / deny / reopen dialog ---------- */
+.cc-dialog {
+  width: min(460px, calc(100vw - 34px));
+  padding: 26px 26px 24px;
+  background: var(--panel); color: var(--bone);
+  border: 1px solid var(--hair); border-radius: var(--radius);
+}
+.cc-dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
+.cc-dialog h3 { margin: 0 0 6px; font-size: 1.9rem; }
+.cc-dialog__sub { margin: 0 0 4px; color: var(--bone-dim); font-size: 0.92rem; overflow-wrap: anywhere; }
+.cc-dialog .form-msg { margin-top: 14px; min-height: 1.2em; }
+.cc-dialog__actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 10px; }
+.cc-dialog .btn { padding: 13px 22px; }
+
+@media (max-width: 900px) { .cc { grid-template-columns: 1fr; } }
+@media (max-width: 560px) {
+  .cr dl { grid-template-columns: 1fr; gap: 2px; }
+  .cr dd { margin-bottom: 10px; }
+  .cr { padding: 18px 16px 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cr.is-fresh, .live[data-state="live"] i { animation: none; }
+}

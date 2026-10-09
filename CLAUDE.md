@@ -55,6 +55,21 @@ that way; don't introduce React/Vite/Tailwind here.
 - Rule 6 ("the store must crash at checkout") is a joke. The store works and
   sends receipts. Copy may reference it; code must never implement it.
 
+## Change-control log (/change-control)
+
+- A public, **unauthenticated** page: anyone can file a request and approve, deny, or
+  reopen one. Names are self-reported (honor system). `server/routes/changes.js`,
+  `server/lib/changes.js`; records live in `data/changes.json` (gitignored, in the data
+  volume, so back it up like orders).
+- It shares the Node process with checkout, so it must never be able to take the store
+  down: an unreadable log goes read-only instead of failing startup. Keep it that way.
+- Abuse guards: hourly per-visitor limits (X-Real-IP from nginx), length caps, a honeypot
+  field, and text-only rendering. Never put user text in `innerHTML` without `esc()`.
+- Live updates are server-sent events. Keep `X-Accel-Buffering: no` and the `ping` event:
+  the page's watchdog reconnects if pings stop, because a dead connection can look healthy.
+- No delete in the UI. To remove an entry, edit `data/changes.json` and restart the container
+  (the server holds the log in memory).
+
 ## Deploy
 
 Droplet, `/var/www/discjerkers`, docker compose behind nginx on 127.0.0.1:3040.
