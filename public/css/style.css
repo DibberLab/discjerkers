@@ -477,6 +477,9 @@ p { margin: 0 0 1em; }
   .stats { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* the nav keeps growing: drop the least-essential links before the header can wrap or scroll sideways */
+@media (max-width: 860px) { .nav a[data-hide-md] { display: none; } }
+@media (max-width: 700px) { .nav a[data-hide-sm], .nav a[data-hide-md] { display: none; } }
 @media (max-width: 560px) {
   body { font-size: 16px; }
   .section { padding: 54px 0; }
