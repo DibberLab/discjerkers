@@ -60,13 +60,15 @@ const state = {
   windDir: 0, // where the wind comes FROM; you always throw north, so 0 (north) is a headwind
   windMph: 0,
   arm: 2, // index into ARM
+  panel: 'disc', // what the side panel is showing: one disc, or the comparison
+  cmp: [], // comparison throws, up to MAX_CMP: { uid, id, hand, style, arm, angle }
   angle: 0, // release angle in steps of ANGLE_STEP degrees: + is hyzer, - is anhyzer
 };
 
 let DATA, discs, brands, LETTERS, weights, lastFocus;
 
 // RHBH and LHFH spin clockwise (fade finishes left); LHBH and RHFH spin counter-clockwise (fade finishes right)
-const spinsClockwise = () => (state.hand === 'right') === (state.style === 'backhand');
+const spinsClockwise = (t = state) => (t.hand === 'right') === (t.style === 'backhand');
 function loadThrow() {
   try {
     const t = JSON.parse(localStorage.getItem('dj_fg_throw'));
@@ -266,6 +268,7 @@ function render() {
   const cols = `${ROWHEAD}px ${w.map((x) => `minmax(${floor},${x.toFixed(2)}fr)`).join(' ')}`;
   const scrollMin = grades && !L.fit ? `;min-width:calc(${ROWHEAD}px + ${w.length} * (var(--disc) + 22px))` : '';
   chart.innerHTML = `<div class="fg-grid${L.size < BARE_BELOW ? ' is-bare' : ''}${L.fit ? ' is-fit' : ''}" style="--disc:${L.size}px;grid-template-columns:${cols}${scrollMin}">${h}</div>`;
+  markCompared();
 }
 
 /* ---------- drawer ---------- */
@@ -286,8 +289,8 @@ const ARM = [
 
 // How this arm and this disc get along. A disc faster than the arm can power never gets up to speed: it carries
 // less and fades early. A slow disc on a strong arm is overpowered: it turns over more.
-function armEffects(d) {
-  const a = ARM[state.arm];
+function armEffects(d, t = state) {
+  const a = ARM[t.arm];
   const ratio = Math.min(1, a.cap / d.speed);
   const over = clamp(a.cap / d.speed, 1, 2);
   return {
@@ -296,19 +299,24 @@ function armEffects(d) {
     fade: (1 + (1 - ratio) * 1.5) * (1 - (over - 1) * 0.15),
   };
 }
-const estFeet = (d) => {
-  const a = ARM[state.arm];
-  const { ratio } = armEffects(d);
+const estFeet = (d, t = state) => {
+  const a = ARM[t.arm];
+  const { ratio } = armEffects(d, t);
   return Math.round(((140 + Math.min(d.speed, a.cap) * 16 + d.glide * 6) * a.power * (0.85 + 0.15 * ratio)) / 10) * 10;
 };
+
+// Comparison: up to three throws, each in its own color.
+const MAX_CMP = 3;
+const SLOT = ['#ff8a3d', '#38c8e8', '#b8f04a'];
+let cmpUid = 0;
 
 // Release angle. Hyzer tips the disc onto its fade side, anhyzer onto its turn side.
 // state.angle walks this ladder either way: the last two rungs are the extreme throws.
 const ANGLE_DEG = [0, 5, 10, 15, 20, 35, 55];
 const ANGLE_MAX = ANGLE_DEG.length - 1;
-const angleDeg = () => Math.sign(state.angle) * ANGLE_DEG[Math.abs(state.angle)];
-function angleName() {
-  const a = angleDeg();
+const angleDeg = (t = state) => Math.sign(t.angle) * ANGLE_DEG[Math.abs(t.angle)];
+function angleName(t = state) {
+  const a = angleDeg(t);
   if (!a) return 'Flat';
   const hyzer = a > 0;
   const big = Math.abs(a);
@@ -330,23 +338,23 @@ function windVector() {
 }
 
 // Headwind costs more than a tailwind gives back.
-function carryFeet(d, wind) {
+function carryFeet(d, wind, t = state) {
   const factor = wind.head >= 0 ? 1 - 0.011 * wind.head : 1 + 0.007 * -wind.head;
-  const a = angleDeg();
+  const a = angleDeg(t);
   // hyzer shortens a throw (and a spike dives); a little anhyzer rides flat for more, but past that it falls out of the sky
   const tilt = a >= 0 ? 1 - 0.004 * a - 0.00004 * a * a : 1 + 0.0025 * Math.min(-a, 20) - 0.006 * Math.max(0, -a - 20);
-  return clamp(Math.round((estFeet(d) * factor * tilt) / 10) * 10, 60, GRID_FT - 10);
+  return clamp(Math.round((estFeet(d, t) * factor * tilt) / 10) * 10, 60, GRID_FT - 10);
 }
 
-function flightGeometry(d, cw, wind) {
+function flightGeometry(d, cw, wind, t = state) {
   const { x0, y0, k } = FP;
   const dir = cw ? 1 : -1; // counter-clockwise spin mirrors the disc's own turn and fade (not the wind)
-  const feet = carryFeet(d, wind);
+  const feet = carryFeet(d, wind, t);
   const len = feet * k;
   const clampX = (x) => clamp(x, FP.left + 10, FP.right - 10);
   // a headwind makes any disc act more overstable; a tailwind makes it act more understable
-  const arm = armEffects(d);
-  const a = angleDeg();
+  const arm = armEffects(d, t);
+  const a = angleDeg(t);
   // hyzer holds the line (less turn, harder fade); anhyzer lets it turn and softens the fade
   const turnMul = clamp((1 - 0.04 * wind.head) * arm.turn * clamp(1 - 0.03 * a, 0.25, 1.7), 0.15, 2.4);
   const fadeMul = clamp((1 + 0.04 * wind.head) * arm.fade * clamp(1 + 0.025 * a, 0.3, 1.6), 0.2, 2.6);
@@ -448,8 +456,8 @@ function angleControls() {
     </div>`;
 }
 
-function angleNote(d) {
-  const a = angleDeg();
+function angleNote(d, t = state) {
+  const a = angleDeg(t);
   if (!a) return '';
   if (a >= 55) return ' · spike hyzer: dive bomb, comes up short';
   if (a >= 35) return ' · hard hyzer: dives early, finishes short';
@@ -461,18 +469,17 @@ function angleNote(d) {
   return ' · anhyzer: turns more, softer finish';
 }
 
-function armNote(d) {
-  const { ratio } = armEffects(d);
-  const over = ARM[state.arm].cap / d.speed;
+function armNote(d, t = state) {
+  const { ratio } = armEffects(d, t);
+  const over = ARM[t.arm].cap / d.speed;
   if (ratio < 0.8) return ' · too fast for this arm: comes up short and fades early';
   if (over >= 1.7) return ' · plenty of arm: turns over more';
   return '';
 }
 
-function flightPath(d, color, cw, wind) {
+// Everything on the field but the throws themselves: grid, wind, the tee box, and which way the wind blows.
+function fieldMarkup(wind) {
   const { x0, y0, k, left, right } = FP;
-  const { p1, p2, p3 } = flightGeometry(d, cw, wind);
-  const feet = carryFeet(d, wind);
   const f = (n) => n.toFixed(1);
   const top = y0 - GRID_FT * k;
 
@@ -498,54 +505,100 @@ function flightPath(d, color, cw, wind) {
       ${wind.mph ? `<text x="${wx + 15}" y="${wy + 3.5}">${wind.mph} mph</text>` : ''}
     </g>`;
 
-  const side = p3[0] >= x0 ? -1 : 1; // keep the distance label on the roomy side of the disc
-  return `<svg class="fg-fp-svg" viewBox="0 0 ${FP.w} ${FP.h}" role="img" aria-label="Flight path, about ${feet} feet">
-    ${grid}
+  return `${grid}
     ${windStreaks(wind)}
     <line class="fp-center" x1="${x0}" y1="${y0}" x2="${x0}" y2="${f(top)}"/>
     <rect x="${x0 - 26}" y="${y0 + 4}" width="52" height="12" rx="3" fill="#26472a"/>
-    ${windArrow}
-    <path class="fg-fp" d="M${x0} ${y0} C${f(p1[0])} ${f(p1[1])} ${f(p2[0])} ${f(p2[1])} ${f(p3[0])} ${f(p3[1])}" fill="none" stroke="#d35400" stroke-width="5.5" stroke-linecap="round"/>
-    <g class="fg-fp-disc" transform="translate(${f(p3[0])} ${f(p3[1])})">
-      <circle r="15" fill="${color}" stroke="rgba(255,255,255,.4)" stroke-width="1.8"/>
-      <circle r="8" fill="none" stroke="rgba(0,0,0,.35)" stroke-width="1.8"/>
-      <circle cy="-11.6" r="2.3" fill="rgba(0,0,0,.5)"/>
-    </g>
-    <text class="fg-fp__dist" x="${f(p3[0] + side * 25)}" y="${f(p3[1] + 4)}" text-anchor="${side < 0 ? 'end' : 'start'}">≈${feet} ft</text>
+    ${windArrow}`;
+}
+
+// One throw: its path, the disc at the end of it, and its distance. t is a throw: the page's own settings,
+// or a comparison entry. playFlight animates whatever it finds, matched up by data-run.
+function flightRun(d, t, wind, pathColor, discColor, { run = 0, badge = '', stroke = 5.5, r = 15, labelDy = 0 } = {}) {
+  const { x0, y0 } = FP;
+  const f = (n) => n.toFixed(1);
+  const cw = spinsClockwise(t);
+  const { p1, p2, p3 } = flightGeometry(d, cw, wind, t);
+  const feet = carryFeet(d, wind, t);
+  const side = p3[0] >= x0 ? -1 : 1; // keep the distance label on the roomy side of the disc
+  const body = `<path class="fg-fp" data-run="${run}" data-ms="${1500 + feet * 2}" data-spin="${cw ? 1 : -1}" d="M${x0} ${y0} C${f(p1[0])} ${f(p1[1])} ${f(p2[0])} ${f(p2[1])} ${f(p3[0])} ${f(p3[1])}" fill="none" stroke="${pathColor}" stroke-width="${stroke}" stroke-linecap="round"/>
+    <g class="fg-fp-disc" data-run="${run}" transform="translate(${f(p3[0])} ${f(p3[1])})">
+      <g class="fg-fp-spin">
+        <circle r="${r}" fill="${discColor}" stroke="rgba(255,255,255,.4)" stroke-width="1.8"/>
+        <circle r="${f(r * 0.53)}" fill="none" stroke="rgba(0,0,0,.35)" stroke-width="1.8"/>
+        <circle cy="${f(-r * 0.77)}" r="2.3" fill="rgba(0,0,0,.5)"/>
+      </g>
+      ${badge ? `<text class="fg-fp-badge" y="4.5" text-anchor="middle" fill="${bestInk(discColor)}">${badge}</text>` : ''}
+    </g>`;
+  // returned apart so a comparison can draw every label on top of every path
+  const label = `<text class="fg-fp__dist" data-run="${run}" x="${f(p3[0] + side * (r + 10))}" y="${f(p3[1] + 4 + labelDy)}" text-anchor="${side < 0 ? 'end' : 'start'}">≈${feet} ft</text>`;
+  return { body, label };
+}
+
+function flightPath(d, color, wind) {
+  const feet = carryFeet(d, wind);
+  return `<svg class="fg-fp-svg" viewBox="0 0 ${FP.w} ${FP.h}" role="img" aria-label="Flight path, about ${feet} feet">
+    ${fieldMarkup(wind)}
+    ${(({ body, label }) => body + label)(flightRun(d, state, wind, '#d35400', color))}
   </svg>`;
 }
 
-// Throws the disc down the line. Plays on open, on every change of hand or throw, and on Replay.
-let flightFrame = 0;
-function playFlight(d) {
-  cancelAnimationFrame(flightFrame);
-  const svg = document.querySelector('#fg-path-wrap .fg-fp-svg');
-  if (!svg) return;
-  const path = svg.querySelector('.fg-fp');
-  const disc = svg.querySelector('.fg-fp-disc');
-  const tag = svg.querySelector('.fg-fp__dist');
-  const length = path.getTotalLength();
-  const spin = spinsClockwise() ? 1 : -1;
+// Every throw in the comparison on one field, each in its own color and numbered to match its card.
+function comparePath(wind) {
+  const rows = state.cmp.map((e, i) => {
+    const d = discs.find((x) => x.id === e.id);
+    return { e, d, i, endY: flightGeometry(d, spinsClockwise(e), wind, e).p3[1] };
+  });
+  // nudge distance labels apart when two throws finish side by side
+  let last = -Infinity;
+  [...rows].sort((a, b) => a.endY - b.endY).forEach((r) => {
+    r.dy = Math.max(0, 14 - (r.endY - last));
+    last = r.endY + r.dy;
+  });
+  const runs = [...rows].reverse().map((r) => flightRun(r.d, r.e, wind, SLOT[r.i], SLOT[r.i], { run: r.i, badge: r.i + 1, stroke: 4.5, r: 13, labelDy: r.dy }));
+  const summary = rows.map((r) => `${r.i + 1}: ${r.d.name} about ${carryFeet(r.d, wind, r.e)} feet`).join('; ');
+  return `<svg class="fg-fp-svg" viewBox="0 0 ${FP.w} ${FP.h}" role="img" aria-label="Flight paths compared. ${esc(summary)}">
+    ${fieldMarkup(wind)}
+    ${runs.map((x) => x.body).join('')}
+    ${runs.map((x) => x.label).join('')}
+  </svg>`;
+}
 
-  const draw = (t) => {
-    const pt = path.getPointAtLength(length * t);
-    path.style.strokeDasharray = `${length}`;
-    path.style.strokeDashoffset = `${length * (1 - t)}`;
-    disc.setAttribute('transform', `translate(${pt.x.toFixed(2)} ${pt.y.toFixed(2)}) rotate(${(spin * t * 1080).toFixed(1)})`);
-    tag.style.opacity = String(Math.max(0, Math.min(1, (t - 0.85) / 0.15)));
+// Throws the discs down the line. Plays on open, on every change of hand or throw, and on Replay.
+let flightFrame = 0;
+function playFlight(root = '#fg-path-wrap') {
+  cancelAnimationFrame(flightFrame);
+  const svg = document.querySelector(`${root} .fg-fp-svg`);
+  if (!svg) return;
+  const runs = [...svg.querySelectorAll('.fg-fp')].map((path) => {
+    const q = (sel) => svg.querySelector(`${sel}[data-run="${path.dataset.run}"]`);
+    const disc = q('.fg-fp-disc');
+    return { path, disc, spinEl: disc.querySelector('.fg-fp-spin'), tag: q('.fg-fp__dist'), length: path.getTotalLength(), ms: Number(path.dataset.ms), spin: Number(path.dataset.spin) };
+  });
+
+  const draw = (r, t) => {
+    const pt = r.path.getPointAtLength(r.length * t);
+    r.path.style.strokeDasharray = `${r.length}`;
+    r.path.style.strokeDashoffset = `${r.length * (1 - t)}`;
+    r.disc.setAttribute('transform', `translate(${pt.x.toFixed(2)} ${pt.y.toFixed(2)})`);
+    r.spinEl.setAttribute('transform', `rotate(${(r.spin * t * 1080).toFixed(1)})`);
+    r.tag.style.opacity = String(Math.max(0, Math.min(1, (t - 0.85) / 0.15)));
   };
 
-  // nobody to watch (background tab), or someone who asked for less motion: just show where it lands
-  if (document.hidden || window.matchMedia('(prefers-reduced-motion: reduce)').matches) { draw(1); return; }
+  // nobody to watch (background tab), or someone who asked for less motion: just show where they land
+  if (document.hidden || window.matchMedia('(prefers-reduced-motion: reduce)').matches) { runs.forEach((r) => draw(r, 1)); return; }
 
-  const ms = 1500 + carryFeet(d, windVector()) * 2; // longer throws hang in the air longer
   const start = performance.now();
   const tick = (now) => {
-    const raw = Math.min(1, (now - start) / ms);
-    draw(1 - (1 - raw) ** 3); // leaves the hand fast, then hangs and settles
-    if (raw < 1) flightFrame = requestAnimationFrame(tick);
+    let flying = false;
+    for (const r of runs) { // longer throws hang in the air longer
+      const raw = Math.min(1, (now - start) / r.ms);
+      draw(r, 1 - (1 - raw) ** 3); // leaves the hand fast, then hangs and settles
+      if (raw < 1) flying = true;
+    }
+    if (flying) flightFrame = requestAnimationFrame(tick);
   };
-  draw(0);
+  runs.forEach((r) => draw(r, 0));
   flightFrame = requestAnimationFrame(tick);
 }
 
@@ -583,7 +636,7 @@ function pathSection(d) {
   const chip = (key, val, label, title = label) => `<button class="chip" type="button" data-${key}="${val}" aria-pressed="${state[key] === val}" title="${title}">${label}</button>`;
   return `
     <div class="fg-path">
-      ${flightPath(d, paint(d).c, cw, wind)}
+      ${flightPath(d, paint(d).c, wind)}
       <div class="fg-throw" role="group" aria-label="How you throw">
         <div class="fg-seg">${chip('hand', 'right', 'Right', 'Right hand')}${chip('hand', 'left', 'Left', 'Left hand')}</div>
         <div class="fg-seg">${chip('style', 'backhand', 'Backhand')}${chip('style', 'forehand', 'Forehand')}</div>
@@ -607,6 +660,7 @@ function openDrawer(id, trigger) {
   const band = BANDS[d.band];
 
   state.selected = id;
+  state.panel = 'disc';
   document.querySelectorAll('.disc[aria-pressed="true"]').forEach((el) => el.setAttribute('aria-pressed', 'false'));
   const chip = document.querySelector(`#fg-chart .disc[data-id="${id}"]`);
   if (chip) chip.setAttribute('aria-pressed', 'true');
@@ -639,6 +693,7 @@ function openDrawer(id, trigger) {
       ${gauge('Fade', d.fade, (Math.max(0, d.fade) / 6) * 100, 'var(--rust-lift)')}
     </div>
     <div id="fg-path-wrap">${pathSection(d)}</div>
+    <div class="fg-d-cmp" id="fg-cmp-btn" aria-live="polite">${cmpButtons()}</div>
     <ul class="fg-specs">${specs.map(([k, v, u]) => `<li><span>${k}</span><b>${esc(v)}${u ? ` ${u}` : ''}</b></li>`).join('')}</ul>
     <div class="fg-d-actions">
       ${href
@@ -654,7 +709,7 @@ function openDrawer(id, trigger) {
   $('#fg-drawer').focus({ preventScroll: true });
   fitDrawerText();
   document.fonts?.ready.then(() => { if (state.selected === id) fitDrawerText(); }); // measured again once the display font is in
-  playFlight(d);
+  playFlight();
 }
 
 function closeDrawer() {
@@ -665,6 +720,193 @@ function closeDrawer() {
   document.querySelectorAll('.disc[aria-pressed="true"]').forEach((el) => el.setAttribute('aria-pressed', 'false'));
   state.selected = null;
   if (lastFocus && document.contains(lastFocus)) lastFocus.focus({ preventScroll: true });
+}
+
+/* ---------- comparison ---------- */
+
+function cmpButtons() {
+  const n = state.cmp.length;
+  const add = n < MAX_CMP
+    ? `<button class="chip fg-cmpbtn" type="button" data-cmp-add>+ Add to compare (${n}/${MAX_CMP})</button>`
+    : `<span class="fg-d-cmp__full">Compare is full (${MAX_CMP}/${MAX_CMP})</span>`;
+  const open = n >= 2 ? `<button class="chip fg-cmpbtn fg-cmpbtn--go" type="button" data-cmp-open>Open compare (${n}) →</button>` : '';
+  return add + open;
+}
+
+// the little numbered dots on chart discs that are in the comparison
+function markCompared() {
+  const first = new Map();
+  state.cmp.forEach((e, i) => { if (!first.has(e.id)) first.set(e.id, i); });
+  document.querySelectorAll('#fg-chart .disc').forEach((el) => {
+    const i = first.get(Number(el.dataset.id));
+    if (i === undefined) el.removeAttribute('data-cmp'); else el.dataset.cmp = String(i + 1);
+  });
+}
+
+function renderTray() {
+  const tray = $('#fg-tray');
+  const n = state.cmp.length;
+  tray.hidden = n === 0;
+  if (!n) { tray.innerHTML = ''; return; }
+  const chips = state.cmp.map((e, i) => {
+    const d = discs.find((x) => x.id === e.id);
+    const name = splitName(d.name).main;
+    return `<span class="fg-tray__chip" style="--c:${SLOT[i]}"><b>${i + 1}</b><span class="fg-tray__nm">${esc(name)}</span><button type="button" data-tray-remove="${e.uid}" aria-label="Remove ${esc(name)} from compare">×</button></span>`;
+  }).join('');
+  tray.innerHTML = `<span class="fg-tray__l">Compare</span>${chips}
+    ${n >= 2 ? '<button class="chip fg-cmpbtn fg-cmpbtn--go" type="button" data-tray-open>Compare →</button>' : '<span class="fg-tray__hint">Pick one more</span>'}
+    <button class="fg-tray__clear" type="button" data-tray-clear>Clear</button>`;
+}
+
+// anything that changes the list: keep the tray, the chart dots and the drawer button in step
+function syncCompare() {
+  renderTray();
+  markCompared();
+  const btn = $('#fg-cmp-btn');
+  if (btn) btn.innerHTML = cmpButtons();
+}
+
+function addToCompare(id) {
+  if (state.cmp.length >= MAX_CMP) return;
+  state.cmp.push({ uid: ++cmpUid, id, hand: state.hand, style: state.style, arm: state.arm, angle: state.angle });
+  syncCompare();
+}
+
+function compareCard(e, i) {
+  const d = discs.find((x) => x.id === e.id);
+  const b = brands[d.b];
+  const band = BANDS[d.band];
+  const wind = windVector();
+  const { main } = splitName(d.name);
+  const chip = (key, val, label) => `<button class="chip" type="button" data-cact="${key}" data-cval="${val}" aria-pressed="${e[key] === val}">${label}</button>`;
+  const step = (kind, label, text, min, max) => `<div class="fg-cstep">
+      <span class="fg-wind__l">${label}</span>
+      <div class="fg-mph">
+        <button type="button" data-cact="${kind}" data-cval="-1" aria-label="${kind === 'arm' ? 'Slower arm' : 'More anhyzer'}"${e[kind] <= min ? ' disabled' : ''}>${kind === 'arm' ? '−' : '‹'}</button>
+        <output aria-live="polite">${text}</output>
+        <button type="button" data-cact="${kind}" data-cval="1" aria-label="${kind === 'arm' ? 'Faster arm' : 'More hyzer'}"${e[kind] >= max ? ' disabled' : ''}>${kind === 'arm' ? '+' : '›'}</button>
+      </div>
+    </div>`;
+  const notes = [armNote(d, e), angleNote(d, e)].map((n) => n.replace(/^ · /, '')).filter(Boolean);
+  return `<article class="fg-ccard" data-cu="${e.uid}" style="--c:${SLOT[i]}" aria-label="${i + 1}: ${esc(b.n)} ${esc(d.name)}">
+    <header class="fg-ccard__head">
+      <span class="fg-ccard__n" aria-hidden="true">${i + 1}</span>
+      <div class="fg-ccard__id"><b>${esc(main)}</b><small>${esc(b.n)} · ${d.speed} / ${d.glide} / ${fmtTurn(d.turn)} / ${d.fade} · ${band.label}</small></div>
+      <button class="fg-ccard__x" type="button" data-cact="remove" aria-label="Remove ${esc(main)} from compare">×</button>
+    </header>
+    <div class="fg-throw" role="group" aria-label="How you throw it">
+      <div class="fg-seg">${chip('hand', 'right', 'Right')}${chip('hand', 'left', 'Left')}</div>
+      <div class="fg-seg">${chip('style', 'backhand', 'Backhand')}${chip('style', 'forehand', 'Forehand')}</div>
+    </div>
+    <div class="fg-ccard__steps">
+      ${step('arm', 'Arm', ARM[e.arm].name, 0, ARM.length - 1)}
+      ${step('angle', 'Angle', angleName(e), -ANGLE_MAX, ANGLE_MAX)}
+    </div>
+    <p class="fg-ccard__note"><b>≈${carryFeet(d, wind, e)} ft</b>${notes.length ? ` · ${esc(notes.join(' · '))}` : ''}</p>
+  </article>`;
+}
+
+function renderCompare(focusSel) {
+  const drawer = $('#fg-drawer');
+  const scroll = drawer.scrollTop;
+  const wind = windVector();
+  $('#fg-d-body').innerHTML = `
+    <div class="fg-cmp-head">
+      <p class="fg-d-brand">Side by side</p>
+      <h2 class="fg-d-name" id="fg-d-name">Compare</h2>
+    </div>
+    <div id="fg-cmp-wrap">
+      <div class="fg-path">
+        ${comparePath(wind)}
+        <div class="fg-throw fg-throw--bar"><span class="fg-wind__l">Same wind for everyone</span><button class="chip fg-replay" type="button" data-replay aria-label="Replay the throws" title="Replay">↻</button></div>
+        ${windControls()}
+        ${windNoteLine(wind)}
+      </div>
+      <div class="fg-cmp-cards">${state.cmp.map(compareCard).join('')}</div>
+      <div class="fg-d-cmp">
+        ${state.cmp.length < MAX_CMP ? '<button class="chip fg-cmpbtn" type="button" data-cmp-more>+ Add another disc</button>' : ''}
+        <button class="fg-tray__clear" type="button" data-cmp-clear>Clear all</button>
+      </div>
+    </div>`;
+  drawer.scrollTop = scroll;
+  if (focusSel) refocus($('#fg-cmp-wrap'), focusSel);
+}
+
+const windNoteLine = (wind) => (wind.mph ? `<p>${windNote(wind).replace(/^ · /, '')}</p>` : '');
+
+// put focus back on the control that was just used; if it has hit its limit and is disabled, on its partner
+function refocus(root, sel) {
+  const el = root.querySelector(sel);
+  const target = el && !el.disabled ? el : (el?.closest('.fg-mph')?.querySelector('button:not([disabled])') || root.querySelector('.fg-ccard button'));
+  target?.focus({ preventScroll: true });
+}
+
+function openCompare(trigger) {
+  if (state.cmp.length < 2) return;
+  state.panel = 'compare';
+  state.selected = null;
+  document.querySelectorAll('.disc[aria-pressed="true"]').forEach((el) => el.setAttribute('aria-pressed', 'false'));
+  renderCompare();
+  if (trigger) lastFocus = trigger;
+  $('#fg-drawer').classList.add('is-open');
+  $('#fg-scrim').classList.add('is-open');
+  $('#fg-drawer').setAttribute('aria-hidden', 'false');
+  $('#fg-drawer').focus({ preventScroll: true });
+  $('#fg-drawer').scrollTop = 0;
+  playFlight('#fg-cmp-wrap');
+}
+
+function handleCompareClick(e) {
+  let focusSel = null;
+  const act = e.target.closest('[data-cact]');
+  const windBtn = e.target.closest('[data-wind-dir],[data-wind-step]');
+  if (act) {
+    const entry = state.cmp.find((x) => x.uid === Number(act.closest('[data-cu]').dataset.cu));
+    if (!entry) return;
+    const kind = act.dataset.cact;
+    const val = act.dataset.cval;
+    if (kind === 'remove') {
+      state.cmp = state.cmp.filter((x) => x !== entry);
+      syncCompare();
+      if (state.cmp.length < 2) { closeDrawer(); return; } // one throw is not a comparison
+    } else if (kind === 'hand' || kind === 'style') {
+      entry[kind] = val;
+    } else if (kind === 'arm') {
+      entry.arm = clamp(entry.arm + Number(val), 0, ARM.length - 1);
+    } else if (kind === 'angle') {
+      entry.angle = clamp(entry.angle + Number(val), -ANGLE_MAX, ANGLE_MAX);
+    }
+    focusSel = kind === 'remove' ? '.fg-ccard__x' : `[data-cu="${entry.uid}"] [data-cact="${kind}"][data-cval="${val}"]`;
+  } else if (windBtn) {
+    focusSel = stepWind(windBtn);
+  } else if (e.target.closest('[data-replay]')) {
+    playFlight('#fg-cmp-wrap');
+    return;
+  } else if (e.target.closest('[data-cmp-more]')) {
+    closeDrawer();
+    return;
+  } else if (e.target.closest('[data-cmp-clear]')) {
+    state.cmp = [];
+    syncCompare();
+    closeDrawer();
+    return;
+  } else {
+    return;
+  }
+  renderCompare(focusSel);
+  playFlight('#fg-cmp-wrap');
+}
+
+// a wind control was used: update the wind, and say which control to hand focus back to
+function stepWind(btn) {
+  if (btn.dataset.windDir !== undefined) {
+    state.windDir = Number(btn.dataset.windDir);
+    if (!state.windMph) state.windMph = 10; // picking a direction in calm air would change nothing, so give it a breeze
+    return `[data-wind-dir="${state.windDir}"]`;
+  }
+  const i = WIND_STEPS.indexOf(state.windMph);
+  state.windMph = WIND_STEPS[clamp(i + Number(btn.dataset.windStep), 0, WIND_STEPS.length - 1)];
+  return `[data-wind-step="${btn.dataset.windStep}"]`;
 }
 
 /* ---------- wiring ---------- */
@@ -681,6 +923,15 @@ function syncBrandButtons() {
 }
 
 function wire() {
+  // the comparison tray: floats at the bottom while there is anything to compare
+  document.body.insertAdjacentHTML('beforeend', '<div class="fg-tray" id="fg-tray" role="region" aria-label="Compare discs" hidden></div>');
+  $('#fg-tray').addEventListener('click', (e) => {
+    const rm = e.target.closest('[data-tray-remove]');
+    if (rm) { state.cmp = state.cmp.filter((x) => x.uid !== Number(rm.dataset.trayRemove)); syncCompare(); return; }
+    if (e.target.closest('[data-tray-clear]')) { state.cmp = []; syncCompare(); return; }
+    const open = e.target.closest('[data-tray-open]');
+    if (open) openCompare(open);
+  });
   let lastVw = document.documentElement.clientWidth;
   let resizeTimer;
   window.addEventListener('resize', () => {
@@ -764,6 +1015,13 @@ function wire() {
   $('#fg-d-close').addEventListener('click', closeDrawer);
   $('#fg-scrim').addEventListener('click', closeDrawer);
   $('#fg-d-body').addEventListener('click', (e) => {
+    if (state.panel === 'compare') { handleCompareClick(e); return; }
+    if (e.target.closest('[data-cmp-add]')) {
+      addToCompare(state.selected);
+      $('#fg-cmp-btn').querySelector('[data-cmp-add],[data-cmp-open]')?.focus({ preventScroll: true });
+      return;
+    }
+    if (e.target.closest('[data-cmp-open]')) { openCompare($('#fg-cmp-btn')); return; }
     const pick = e.target.closest('[data-hand],[data-style]');
     if (pick) {
       const key = pick.dataset.hand ? 'hand' : 'style';
@@ -773,32 +1031,23 @@ function wire() {
       if (d) {
         $('#fg-path-wrap').innerHTML = pathSection(d);
         $('#fg-path-wrap').querySelector(`[data-${key}="${state[key]}"]`)?.focus({ preventScroll: true });
-        playFlight(d);
+        playFlight();
       }
       return;
     }
     const windBtn = e.target.closest('[data-wind-dir],[data-wind-step]');
     if (windBtn) {
-      const i = WIND_STEPS.indexOf(state.windMph);
-      if (windBtn.dataset.windDir !== undefined) {
-        state.windDir = Number(windBtn.dataset.windDir);
-        if (!state.windMph) state.windMph = 10; // picking a direction in calm air would change nothing, so give it a breeze
-      } else {
-        state.windMph = WIND_STEPS[clamp(i + Number(windBtn.dataset.windStep), 0, WIND_STEPS.length - 1)];
-      }
+      const same = stepWind(windBtn);
       const d = discs.find((x) => x.id === state.selected);
       if (d) {
         const wrap = $('#fg-path-wrap');
         wrap.innerHTML = pathSection(d);
-        const same = windBtn.dataset.windDir !== undefined
-          ? `[data-wind-dir="${state.windDir}"]`
-          : `[data-wind-step="${windBtn.dataset.windStep}"]`;
         const next = wrap.querySelector(same);
         // a stepper button that just hit its limit is disabled now: hand focus to its partner, not the page
         (next && !next.disabled
           ? next
           : wrap.querySelector('[data-wind-step]:not([disabled])') || wrap.querySelector(`[data-wind-dir="${state.windDir}"]`))?.focus({ preventScroll: true });
-        playFlight(d);
+        playFlight();
       }
       return;
     }
@@ -813,7 +1062,7 @@ function wire() {
         const same = wrap.querySelector(`[data-arm-step="${armBtn.dataset.armStep}"]`);
         // the button that just hit its limit is disabled now: hand focus to its partner, not the page
         (same && !same.disabled ? same : wrap.querySelector('[data-arm-step]:not([disabled])'))?.focus({ preventScroll: true });
-        playFlight(d);
+        playFlight();
       }
       return;
     }
@@ -826,13 +1075,13 @@ function wire() {
         wrap.innerHTML = pathSection(d);
         const same = wrap.querySelector(`[data-angle-step="${angleBtn.dataset.angleStep}"]`);
         (same && !same.disabled ? same : wrap.querySelector('[data-angle-step]:not([disabled])'))?.focus({ preventScroll: true });
-        playFlight(d);
+        playFlight();
       }
       return;
     }
     if (e.target.closest('[data-replay]')) {
       const d = discs.find((x) => x.id === state.selected);
-      if (d) playFlight(d);
+      if (d) playFlight();
       return;
     }
     const only = e.target.closest('[data-only-brand]');
