@@ -269,7 +269,8 @@ function render() {
 
 // Flight drawn on a measured field. Carry is a rough estimate from speed and glide (an average arm,
 // 160-400 ft across the catalog), and the grid is 100 ft a square. Not physics: a way to compare discs.
-const FP = { w: 360, h: 230, x0: 200, y0: 205, k: 0.42, left: 52, right: 352 };
+const FP = { w: 360, h: 340, x0: 200, y0: 315, k: 0.6, left: 52, right: 352 };
+const GRID_FT = 500; // far enough for the longest throw in a 25 mph tailwind
 const estFeet = (d) => Math.round((140 + d.speed * 16 + d.glide * 6) / 10) * 10;
 
 const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
@@ -330,7 +331,7 @@ function windStreaks(wind) {
     const y = 20 + rnd() * (y0 - 36);
     lines += `<line class="fp-streak" x1="${f(x)}" y1="${f(y)}" x2="${f(x + ux * length)}" y2="${f(y + uy * length)}" style="--tx:${f(ux * reach)}px;--ty:${f(uy * reach)}px;--dur:${dur.toFixed(2)}s;--delay:-${(rnd() * dur).toFixed(2)}s"/>`;
   }
-  return `<clipPath id="fp-clip"><rect x="${left}" y="${f(y0 - 450 * FP.k)}" width="${right - left}" height="${f(450 * FP.k)}"/></clipPath><g class="fp-wind" clip-path="url(#fp-clip)" aria-hidden="true">${lines}</g>`;
+  return `<clipPath id="fp-clip"><rect x="${left}" y="${f(y0 - GRID_FT * FP.k)}" width="${right - left}" height="${f(GRID_FT * FP.k)}"/></clipPath><g class="fp-wind" clip-path="url(#fp-clip)" aria-hidden="true">${lines}</g>`;
 }
 
 function windNote(wind) {
@@ -343,13 +344,14 @@ function windNote(wind) {
   return ` · ${wind.mph} mph wind from the ${COMPASS[state.windDir]}${bits.length ? `: ${bits.join(', ')}` : ''}`;
 }
 
-// A small compass and speed stepper that live inside the flight box.
+// A compass and speed stepper, in their own row under the chart.
 function windControls() {
   const mph = state.windMph;
   const dots = COMPASS.map((name, i) =>
     `<button class="fg-compass__dot" type="button" data-wind-dir="${i}" style="--a:${i * 45}deg" aria-label="Wind from the ${name}" aria-pressed="${mph > 0 && state.windDir === i}"></button>`
   ).join('');
   return `<div class="fg-wind" role="group" aria-label="Wind">
+      <span class="fg-wind__l">Wind</span>
       <div class="fg-compass" data-calm="${mph === 0}" title="You are throwing north. Tap where the wind comes from.">
         ${dots}<span class="fg-compass__n" aria-hidden="true">N</span>
         <svg class="fg-compass__arrow" viewBox="-10 -10 20 20" aria-hidden="true" style="transform:rotate(${state.windDir * 45 + 180}deg)"><path d="M0 -8 L4.5 5 L0 2.5 L-4.5 5 Z"/></svg>
@@ -367,16 +369,16 @@ function flightPath(d, color, cw, wind) {
   const { p1, p2, p3 } = flightGeometry(d, cw, wind);
   const feet = carryFeet(d, wind);
   const f = (n) => n.toFixed(1);
-  const top = y0 - 450 * k;
+  const top = y0 - GRID_FT * k;
 
   let grid = '';
-  for (let ft = 50; ft <= 450; ft += 50) {
+  for (let ft = 50; ft <= GRID_FT; ft += 50) {
     const y = y0 - ft * k;
     const major = ft % 100 === 0;
     grid += `<line class="fp-grid${major ? '' : ' fp-grid--minor'}" x1="${left}" y1="${f(y)}" x2="${right}" y2="${f(y)}"/>`;
-    if (major && ft <= 400) grid += `<text class="fp-axis" x="${left - 6}" y="${f(y + 3)}" text-anchor="end">${ft} ft</text>`;
+    if (major) grid += `<text class="fp-axis" x="${left - 6}" y="${f(y + 3)}" text-anchor="end">${ft} ft</text>`;
   }
-  for (const ft of [100, 200, 300]) {
+  for (const ft of [100, 200]) {
     for (const side of [-1, 1]) {
       const x = x0 + side * ft * k;
       grid += `<line class="fp-grid fp-grid--minor" x1="${f(x)}" y1="${f(top)}" x2="${f(x)}" y2="${y0}"/>`;
@@ -388,14 +390,14 @@ function flightPath(d, color, cw, wind) {
     ${grid}
     ${windStreaks(wind)}
     <line class="fp-center" x1="${x0}" y1="${y0}" x2="${x0}" y2="${f(top)}"/>
-    <rect x="${x0 - 22}" y="${y0 + 3}" width="44" height="10" rx="3" fill="#26472a"/>
-    <path class="fg-fp" d="M${x0} ${y0} C${f(p1[0])} ${f(p1[1])} ${f(p2[0])} ${f(p2[1])} ${f(p3[0])} ${f(p3[1])}" fill="none" stroke="#d35400" stroke-width="4.5" stroke-linecap="round"/>
+    <rect x="${x0 - 26}" y="${y0 + 4}" width="52" height="12" rx="3" fill="#26472a"/>
+    <path class="fg-fp" d="M${x0} ${y0} C${f(p1[0])} ${f(p1[1])} ${f(p2[0])} ${f(p2[1])} ${f(p3[0])} ${f(p3[1])}" fill="none" stroke="#d35400" stroke-width="5.5" stroke-linecap="round"/>
     <g class="fg-fp-disc" transform="translate(${f(p3[0])} ${f(p3[1])})">
-      <circle r="12" fill="${color}" stroke="rgba(255,255,255,.4)" stroke-width="1.5"/>
-      <circle r="6.5" fill="none" stroke="rgba(0,0,0,.35)" stroke-width="1.5"/>
-      <circle cy="-9.2" r="1.8" fill="rgba(0,0,0,.5)"/>
+      <circle r="15" fill="${color}" stroke="rgba(255,255,255,.4)" stroke-width="1.8"/>
+      <circle r="8" fill="none" stroke="rgba(0,0,0,.35)" stroke-width="1.8"/>
+      <circle cy="-11.6" r="2.3" fill="rgba(0,0,0,.5)"/>
     </g>
-    <text class="fg-fp__dist" x="${f(p3[0] + side * 20)}" y="${f(p3[1] + 3.5)}" text-anchor="${side < 0 ? 'end' : 'start'}">≈${feet} ft</text>
+    <text class="fg-fp__dist" x="${f(p3[0] + side * 25)}" y="${f(p3[1] + 4)}" text-anchor="${side < 0 ? 'end' : 'start'}">≈${feet} ft</text>
   </svg>`;
 }
 
@@ -472,7 +474,8 @@ function pathSection(d) {
       <button class="chip fg-replay" type="button" data-replay>↻ Replay</button>
     </div>
     <div class="fg-path">
-      <div class="fg-stage">${flightPath(d, paint(d).c, cw, wind)}${windControls()}</div>
+      ${flightPath(d, paint(d).c, cw, wind)}
+      ${windControls()}
       <p>${cw ? 'Spins clockwise · fade finishes left' : 'Spins counter-clockwise · fade finishes right'}${windNote(wind)}</p>
     </div>`;
 }
