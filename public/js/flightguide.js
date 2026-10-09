@@ -179,13 +179,13 @@ function paint(d) {
   return state.color === 'type' ? TYPE[d.cat] : GRADE[d.col];
 }
 
-function discHTML(d) {
+function discHTML(d, label = d.name) { // not safe to pass straight to .map(): the index would become the label
   const b = brands[d.b];
   const pc = paint(d);
-  const n = d.name.length;
+  const n = label.length;
   const fs = n <= 5 ? 1 : n <= 7 ? 0.88 : n <= 9 ? 0.68 : n <= 11 ? 0.6 : 0.52;
   const nums = `${d.speed} / ${d.glide} / ${fmtTurn(d.turn)} / ${d.fade}`;
-  return `<button class="disc" type="button" data-id="${d.id}" style="--c:${pc.c};--t:${pc.t};--fs:${fs}" aria-pressed="${state.selected === d.id}" title="${esc(b.n)} ${esc(d.name)} · ${nums}" aria-label="${esc(b.n)} ${esc(d.name)}, flight numbers ${nums}"><span class="disc__n">${esc(d.name)}</span></button>`;
+  return `<button class="disc" type="button" data-id="${d.id}" style="--c:${pc.c};--t:${pc.t};--fs:${fs}" aria-pressed="${state.selected === d.id}" title="${esc(b.n)} ${esc(d.name)} · ${nums}" aria-label="${esc(b.n)} ${esc(d.name)}, flight numbers ${nums}"><span class="disc__n">${esc(label)}</span></button>`;
 }
 
 const GUTTER = 10;       // page margin the chart leaves, total
@@ -253,7 +253,7 @@ function render() {
     h += `<div class="fg-rowhead"><b>${sp}</b><small>speed</small></div>`;
     groups.forEach((g, gi) => {
       const items = buckets.get(`${sp}|${gi}`) || [];
-      h += `<div class="fg-cell" data-alt="${g.band % 2}">${items.map(discHTML).join('')}</div>`;
+      h += `<div class="fg-cell" data-alt="${g.band % 2}">${items.map((disc) => discHTML(disc)).join('')}</div>`;
     });
   }
 
@@ -265,24 +265,121 @@ function render() {
 
 /* ---------- drawer ---------- */
 
+// Flight drawn on a measured field. Carry is a rough estimate from speed and glide (an average arm,
+// 160-400 ft across the catalog), and the grid is 100 ft a square. Not physics: a way to compare discs.
+const FP = { w: 360, h: 230, x0: 200, y0: 205, k: 0.42, left: 52, right: 352 };
+const estFeet = (d) => Math.round((140 + d.speed * 16 + d.glide * 6) / 10) * 10;
+
+function flightGeometry(d, cw) {
+  const { x0, y0, k } = FP;
+  const dir = cw ? 1 : -1; // counter-clockwise spin mirrors everything
+  const len = estFeet(d) * k;
+  const clampX = (x) => Math.max(FP.left + 10, Math.min(FP.right - 10, x));
+  const turnX = -d.turn * 33 * k * dir;
+  const fadeX = -Math.max(0, d.fade) * 28 * k * dir;
+  return {
+    p1: [x0, y0 - len * 0.32],
+    p2: [clampX(x0 + turnX), y0 - len * 0.72],
+    p3: [clampX(x0 + turnX * 0.85 + fadeX), y0 - len],
+  };
+}
+
 function flightPath(d, color, cw) {
-  const x0 = 110, y0 = 188;
-  const len = Math.min(164, 64 + d.speed * 6 + d.glide * 3);
-  const dir = cw ? 1 : -1;
-  const turnX = -d.turn * 13 * dir;
-  const fadeX = -Math.max(0, d.fade) * 11 * dir;
-  const clampX = (x) => Math.max(20, Math.min(200, x));
-  const y1 = y0 - len;
-  const p1 = [x0, y0 - len * 0.32];
-  const p2 = [clampX(x0 + turnX), y0 - len * 0.72];
-  const p3 = [clampX(x0 + turnX * 0.85 + fadeX), y1];
-  return `<svg viewBox="0 0 220 204" role="img" aria-label="Stylized flight path">
-    <line x1="${x0}" y1="${y0}" x2="${x0}" y2="14" stroke="rgba(238,241,232,.12)" stroke-dasharray="3 7"/>
-    <rect x="${x0 - 20}" y="${y0 + 2}" width="40" height="10" rx="3" fill="#26472a"/>
-    <path d="M${x0} ${y0} C${p1[0]} ${p1[1]} ${p2[0]} ${p2[1]} ${p3[0]} ${p3[1]}" fill="none" stroke="#d35400" stroke-width="5" stroke-linecap="round"/>
-    <circle cx="${p3[0]}" cy="${p3[1]}" r="13" fill="${color}" stroke="rgba(255,255,255,.35)" stroke-width="1.5"/>
-    <circle cx="${p3[0]}" cy="${p3[1]}" r="6.5" fill="none" stroke="rgba(0,0,0,.35)" stroke-width="1.6"/>
+  const { x0, y0, k, left, right } = FP;
+  const { p1, p2, p3 } = flightGeometry(d, cw);
+  const feet = estFeet(d);
+  const f = (n) => n.toFixed(1);
+  const top = y0 - 450 * k;
+
+  let grid = '';
+  for (let ft = 50; ft <= 450; ft += 50) {
+    const y = y0 - ft * k;
+    const major = ft % 100 === 0;
+    grid += `<line class="fp-grid${major ? '' : ' fp-grid--minor'}" x1="${left}" y1="${f(y)}" x2="${right}" y2="${f(y)}"/>`;
+    if (major && ft <= 400) grid += `<text class="fp-axis" x="${left - 6}" y="${f(y + 3)}" text-anchor="end">${ft} ft</text>`;
+  }
+  for (const ft of [100, 200, 300]) {
+    for (const side of [-1, 1]) {
+      const x = x0 + side * ft * k;
+      grid += `<line class="fp-grid fp-grid--minor" x1="${f(x)}" y1="${f(top)}" x2="${f(x)}" y2="${y0}"/>`;
+    }
+  }
+
+  const side = p3[0] >= x0 ? -1 : 1; // keep the distance label on the roomy side of the disc
+  return `<svg class="fg-fp-svg" viewBox="0 0 ${FP.w} ${FP.h}" role="img" aria-label="Flight path, about ${feet} feet">
+    ${grid}
+    <line class="fp-center" x1="${x0}" y1="${y0}" x2="${x0}" y2="${f(top)}"/>
+    <rect x="${x0 - 22}" y="${y0 + 3}" width="44" height="10" rx="3" fill="#26472a"/>
+    <path class="fg-fp" d="M${x0} ${y0} C${f(p1[0])} ${f(p1[1])} ${f(p2[0])} ${f(p2[1])} ${f(p3[0])} ${f(p3[1])}" fill="none" stroke="#d35400" stroke-width="4.5" stroke-linecap="round"/>
+    <g class="fg-fp-disc" transform="translate(${f(p3[0])} ${f(p3[1])})">
+      <circle r="12" fill="${color}" stroke="rgba(255,255,255,.4)" stroke-width="1.5"/>
+      <circle r="6.5" fill="none" stroke="rgba(0,0,0,.35)" stroke-width="1.5"/>
+      <circle cy="-9.2" r="1.8" fill="rgba(0,0,0,.5)"/>
+    </g>
+    <text class="fg-fp__dist" x="${f(p3[0] + side * 20)}" y="${f(p3[1] + 3.5)}" text-anchor="${side < 0 ? 'end' : 'start'}">≈${feet} ft</text>
   </svg>`;
+}
+
+// Throws the disc down the line. Plays on open, on every change of hand or throw, and on Replay.
+let flightFrame = 0;
+function playFlight(d) {
+  cancelAnimationFrame(flightFrame);
+  const svg = document.querySelector('#fg-path-wrap .fg-fp-svg');
+  if (!svg) return;
+  const path = svg.querySelector('.fg-fp');
+  const disc = svg.querySelector('.fg-fp-disc');
+  const tag = svg.querySelector('.fg-fp__dist');
+  const length = path.getTotalLength();
+  const spin = spinsClockwise() ? 1 : -1;
+
+  const draw = (t) => {
+    const pt = path.getPointAtLength(length * t);
+    path.style.strokeDasharray = `${length}`;
+    path.style.strokeDashoffset = `${length * (1 - t)}`;
+    disc.setAttribute('transform', `translate(${pt.x.toFixed(2)} ${pt.y.toFixed(2)}) rotate(${(spin * t * 1080).toFixed(1)})`);
+    tag.style.opacity = String(Math.max(0, Math.min(1, (t - 0.85) / 0.15)));
+  };
+
+  // nobody to watch (background tab), or someone who asked for less motion: just show where it lands
+  if (document.hidden || window.matchMedia('(prefers-reduced-motion: reduce)').matches) { draw(1); return; }
+
+  const ms = 1500 + estFeet(d) * 2; // longer throws hang in the air longer
+  const start = performance.now();
+  const tick = (now) => {
+    const raw = Math.min(1, (now - start) / ms);
+    draw(1 - (1 - raw) ** 3); // leaves the hand fast, then hangs and settles
+    if (raw < 1) flightFrame = requestAnimationFrame(tick);
+  };
+  draw(0);
+  flightFrame = requestAnimationFrame(tick);
+}
+
+// "Name (Variant)" breaks cleanly into the name and a line of its own for the variant.
+function splitName(name) {
+  const m = name.match(/^(.*?)\s*\(([^()]*)\)\s*$/);
+  return m && m[1] ? { main: m[1], variant: m[2] } : { main: name, variant: '' };
+}
+
+// Shrink text until it fits its box; if even the smallest size can't hold one long word, let it break rather than spill.
+function fitText(el, minPx, { height = false } = {}) {
+  el.style.fontSize = '';
+  el.classList.remove('is-tight');
+  let size = parseFloat(getComputedStyle(el).fontSize);
+  // width is what breaks a layout: a line that wraps is fine. (Height only matters for the clipped disc face,
+  // because a tight line-height makes a heading's own glyphs read as overflow.)
+  const over = () => el.scrollWidth > el.clientWidth + 1 || (height && el.scrollHeight > el.clientHeight + 1);
+  while (over() && size > minPx) {
+    size -= 0.5;
+    el.style.fontSize = `${size}px`;
+  }
+  if (over()) el.classList.add('is-tight');
+}
+
+function fitDrawerText() {
+  const name = document.querySelector('.fg-d-name');
+  const face = document.querySelector('.fg-d-top .disc__n');
+  if (name) fitText(name, 20);
+  if (face) fitText(face, 8, { height: true });
 }
 
 function pathSection(d) {
@@ -292,8 +389,9 @@ function pathSection(d) {
     <div class="fg-throw" role="group" aria-label="How you throw">
       <div class="fg-seg">${chip('hand', 'right', 'Right hand')}${chip('hand', 'left', 'Left hand')}</div>
       <div class="fg-seg">${chip('style', 'backhand', 'Backhand')}${chip('style', 'forehand', 'Forehand')}</div>
+      <button class="chip fg-replay" type="button" data-replay>↻ Replay</button>
     </div>
-    <div class="fg-path">${flightPath(d, paint(d).c, cw)}<p>${cw ? 'Spins clockwise · fade finishes left' : 'Spins counter-clockwise · fade finishes right'} · stylized, not to scale</p></div>`;
+    <div class="fg-path">${flightPath(d, paint(d).c, cw)}<p>${cw ? 'Spins clockwise · fade finishes left' : 'Spins counter-clockwise · fade finishes right'} · distances are rough estimates</p></div>`;
 }
 
 function gauge(label, shown, pct, ring) {
@@ -318,12 +416,14 @@ function openDrawer(id, trigger) {
 
   const href = d.link ? (d.link.startsWith('http') ? d.link : DATA.source + d.link) : '';
 
+  const { main, variant } = splitName(d.name);
   $('#fg-d-body').innerHTML = `
     <div class="fg-d-top">
-      ${discHTML(d).replace('class="disc"', 'class="disc" tabindex="-1"')}
-      <div>
+      ${discHTML(d, main).replace('class="disc"', 'class="disc" tabindex="-1"')}
+      <div class="fg-d-id">
         <p class="fg-d-brand">${esc(b.n)}</p>
-        <h2 class="fg-d-name" id="fg-d-name">${esc(d.name)}</h2>
+        <h2 class="fg-d-name" id="fg-d-name">${esc(main)}</h2>
+        ${variant ? `<p class="fg-d-variant">${esc(variant)}</p>` : ''}
         <div class="fg-d-tags">
           <span class="fg-tag">${esc(DATA.cats[d.cat])}</span>
           <span class="fg-tag fg-tag--band" style="--tint:${band.tint}">${band.label} · ${LETTERS[d.col]}</span>
@@ -350,9 +450,13 @@ function openDrawer(id, trigger) {
   $('#fg-scrim').classList.add('is-open');
   $('#fg-drawer').setAttribute('aria-hidden', 'false');
   $('#fg-drawer').focus({ preventScroll: true });
+  fitDrawerText();
+  document.fonts?.ready.then(() => { if (state.selected === id) fitDrawerText(); }); // measured again once the display font is in
+  playFlight(d);
 }
 
 function closeDrawer() {
+  cancelAnimationFrame(flightFrame);
   $('#fg-drawer').classList.remove('is-open');
   $('#fg-scrim').classList.remove('is-open');
   $('#fg-drawer').setAttribute('aria-hidden', 'true');
@@ -467,7 +571,13 @@ function wire() {
       if (d) {
         $('#fg-path-wrap').innerHTML = pathSection(d);
         $('#fg-path-wrap').querySelector(`[data-${key}="${state[key]}"]`)?.focus({ preventScroll: true });
+        playFlight(d);
       }
+      return;
+    }
+    if (e.target.closest('[data-replay]')) {
+      const d = discs.find((x) => x.id === state.selected);
+      if (d) playFlight(d);
       return;
     }
     const only = e.target.closest('[data-only-brand]');

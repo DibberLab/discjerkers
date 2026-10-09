@@ -257,7 +257,11 @@
 .fg-d-top .disc { --d: 118px; cursor: default; }
 .fg-d-top .disc:hover { transform: none; box-shadow: 0 0 0 1px rgba(255,255,255,.22), 0 3px 0 rgba(0,0,0,.55), 0 9px 12px -6px rgba(0,0,0,.85); }
 .fg-d-brand { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--lime); margin: 0 0 4px; }
-.fg-d-name { font-size: clamp(2rem, 6vw, 2.7rem); margin: 0; line-height: 1; overflow-wrap: anywhere; }
+.fg-d-id { flex: 1; min-width: 0; }
+.fg-d-name { font-size: clamp(2rem, 6vw, 2.7rem); margin: 0; line-height: 1; overflow-wrap: normal; text-wrap: balance; }
+.fg-d-name.is-tight, .fg-d-top .disc__n.is-tight { overflow-wrap: anywhere; }
+.fg-d-variant { margin: 7px 0 0; font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; line-height: 1.45; color: var(--bone-dim); overflow-wrap: break-word; }
+.fg-d-top .disc__n { display: block; -webkit-line-clamp: unset; max-width: 82%; overflow-wrap: normal; word-break: normal; }
 .fg-d-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .fg-tag {
   font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.12em; text-transform: uppercase;
@@ -279,7 +283,13 @@
 .fg-throw { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
 .fg-throw .chip { padding: 8px 14px; font-size: 0.72rem; white-space: nowrap; }
 .fg-path { margin-bottom: 24px; border: 1px solid var(--hair); border-radius: var(--radius); background: var(--void); padding: 10px 10px 8px; }
-.fg-path svg { display: block; width: 100%; height: 188px; }
+.fg-path svg { display: block; width: 100%; height: auto; }
+.fg-replay { margin-left: auto; }
+.fp-grid { stroke: rgba(238, 241, 232, 0.11); stroke-width: 1; }
+.fp-grid--minor { stroke: rgba(238, 241, 232, 0.05); }
+.fp-center { stroke: rgba(238, 241, 232, 0.2); stroke-width: 1; stroke-dasharray: 3 6; }
+.fp-axis, .fg-fp__dist { font-family: var(--mono); font-size: 9px; letter-spacing: 0.06em; fill: var(--bone-faint); }
+.fg-fp__dist { fill: var(--bone); font-weight: 700; }
 .fg-path p { margin: 6px 4px 0; font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--bone-faint); }
 
 .fg-specs { list-style: none; padding: 0; margin: 0 0 26px; border-top: 1px solid var(--hair); }
