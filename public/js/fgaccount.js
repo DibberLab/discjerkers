@@ -15,6 +15,9 @@ const remember = (id) => { try { localStorage.setItem('dj_fg_bag', id); } catch 
 
 export const activeBag = () => account.bags.find((b) => b.id === account.activeId) || null;
 export const inBag = (discId, bag = activeBag()) => !!bag && bag.discs.includes(discId);
+// what the owner has said about a disc in a bag: { color, plastic, photo }, or null
+export const itemOf = (discId, bag = activeBag()) => bag?.items?.[discId] || null;
+export const photoUrl = (name) => `/api/account/photos/${name}`;
 
 async function api(path, { method = 'GET', body } = {}) {
   const res = await fetch(`/api/account${path}`, {
@@ -76,6 +79,55 @@ async function change(path, opts, after) {
 
 export const addDisc = (discId, bagId = account.activeId) => change(`/bags/${bagId}/discs/${discId}`, { method: 'PUT' });
 export const removeDisc = (discId, bagId = account.activeId) => change(`/bags/${bagId}/discs/${discId}`, { method: 'DELETE' });
+export const setItem = (discId, fields, bagId = account.activeId) => change(`/bags/${bagId}/discs/${discId}`, { method: 'PATCH', body: fields });
+export const clearPhoto = (discId, bagId = account.activeId) => change(`/bags/${bagId}/discs/${discId}/photo`, { method: 'DELETE' });
+
+export async function setPhoto(discId, blob, bagId = account.activeId) {
+  const res = await fetch(`/api/account/bags/${bagId}/discs/${discId}/photo`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'image/jpeg' },
+    body: blob,
+    credentials: 'same-origin',
+    cache: 'no-store',
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(res.status === 413 ? 'That photo is too big.' : data.error || `Something went wrong (${res.status}).`);
+  account.bags = data.bags;
+  settle();
+  emit();
+}
+
+// A phone photo is several megabytes of picture plus where it was taken. Crop it to a square, shrink it, and re-encode
+// it as a small JPEG in the browser; that also leaves the location data behind.
+export async function photoToJpeg(file, size = 640) {
+  if (!file.type.startsWith('image/')) throw new Error('Pick a photo.');
+  if (file.size > 30 * 1024 * 1024) throw new Error('That file is too big.');
+  let img;
+  try {
+    img = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  } catch {
+    img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("Couldn't read that photo. Try a JPEG or PNG."));
+      el.src = URL.createObjectURL(file);
+    });
+  }
+  const side = Math.min(img.width, img.height);
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, size, size);
+  ctx.drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
+  for (const quality of [0.85, 0.72, 0.6, 0.5]) {
+    const blob = await new Promise((resolve) => { canvas.toBlob(resolve, 'image/jpeg', quality); });
+    if (blob && blob.size <= 380 * 1024) return blob;
+  }
+  throw new Error('That photo is too big.');
+}
+
 export const createBag = (name) => change('/bags', { method: 'POST', body: { name } }, (d) => { account.activeId = d.bagId; remember(d.bagId); });
 export const renameBag = (id, name) => change(`/bags/${id}`, { method: 'PATCH', body: { name } });
 export const makeMain = (id) => change(`/bags/${id}`, { method: 'PATCH', body: { main: true } });

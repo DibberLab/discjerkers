@@ -23,6 +23,9 @@ const LIMITS = {
   bagName: 40,
   bagsPerUser: 25,
   discsPerBag: 80,
+  plastic: 30,
+  photoBytes: 400 * 1024,
+  photosPerUser: 150,
   maxUsers: 5000,
   sessionsPerUser: 8,
   sessionDays: 30,
@@ -77,7 +80,10 @@ async function checkPassword(password, stored) {
   return want.length === got.length && crypto.timingSafeEqual(want, got);
 }
 
-function createAccountStore(file, { now = () => Date.now() } = {}) {
+const PHOTO_NAME = /^[a-f0-9]{24}\.jpg$/;
+const isJpeg = (buf) => Buffer.isBuffer(buf) && buf.length >= 128 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+
+function createAccountStore(file, { now = () => Date.now(), photoDir = path.join(path.dirname(file), 'photos') } = {}) {
   let unavailable = false;
 
   function load() {
@@ -138,7 +144,18 @@ function createAccountStore(file, { now = () => Date.now() } = {}) {
   }
 
   const findByName = (key) => db.users.find((u) => u.key === key);
-  const bagsView = (u) => u.bags.map((b) => ({ id: b.id, name: b.name, main: !!b.main, discs: b.discs.slice() }));
+  // a bag lists disc ids; `items` holds what the owner says about each one: { color, plastic, photo }
+  const bagsView = (u) => u.bags.map((b) => ({ id: b.id, name: b.name, main: !!b.main, discs: b.discs.slice(), items: structuredClone(b.items || {}) }));
+
+  // photos live in data/photos/<user id>/<random>.jpg and are only ever read back by their owner
+  const photoPath = (userId, name) => (PHOTO_NAME.test(String(name)) && /^u\d+$/.test(String(userId)) ? path.join(photoDir, userId, name) : null);
+  const dropPhotos = (userId, names) => {
+    for (const name of names) {
+      const f = photoPath(userId, name);
+      if (f) { try { fs.unlinkSync(f); } catch { /* already gone */ } }
+    }
+  };
+  const photosOf = (bag) => Object.values(bag.items || {}).map((it) => it.photo).filter(Boolean);
   const view = (u) => ({ name: u.name, bags: bagsView(u) });
 
   function cleanName(label, value, max) {
@@ -277,11 +294,14 @@ function createAccountStore(file, { now = () => Date.now() } = {}) {
     },
 
     deleteBag(userId, bagId) {
+      let photos = [];
       const user = changeUser(userId, (u) => {
         const bag = findBag(u, bagId);
         if (bag.main) throw new AccountError('That is your main bag. Make another bag main before deleting it.', 409);
+        photos = photosOf(bag);
         u.bags = u.bags.filter((b) => b.id !== bag.id);
       });
+      dropPhotos(userId, photos);
       return bagsView(user);
     },
 
@@ -296,12 +316,92 @@ function createAccountStore(file, { now = () => Date.now() } = {}) {
     },
 
     removeDisc(userId, bagId, discId) {
+      let photos = [];
       const user = changeUser(userId, (u) => {
         const bag = findBag(u, bagId);
         bag.discs = bag.discs.filter((d) => d !== discId);
+        photos = [bag.items?.[discId]?.photo].filter(Boolean);
+        if (bag.items) delete bag.items[discId];
+      });
+      dropPhotos(userId, photos);
+      return bagsView(user);
+    },
+
+    // What the owner says about a disc in one bag: its color and plastic. Photos are separate.
+    setItem(userId, bagId, discId, { color, plastic } = {}) {
+      const user = changeUser(userId, (u) => {
+        const bag = findBag(u, bagId);
+        if (!bag.discs.includes(discId)) throw new AccountError('That disc is not in this bag.', 404);
+        bag.items ||= {};
+        const item = { ...(bag.items[discId] || {}) };
+        if (color !== undefined) {
+          if (color === null || color === '') delete item.color;
+          else if (/^#[0-9a-f]{6}$/i.test(String(color))) item.color = String(color).toLowerCase();
+          else throw new AccountError('That is not a color.');
+        }
+        if (plastic !== undefined) {
+          const p = tidy(plastic);
+          if (p.length > LIMITS.plastic) throw new AccountError(`Plastic is too long (max ${LIMITS.plastic} characters).`);
+          if (p) item.plastic = p; else delete item.plastic;
+        }
+        if (Object.keys(item).length) bag.items[discId] = item; else delete bag.items[discId];
       });
       return bagsView(user);
     },
+
+    // The browser sends a small JPEG it made itself (resized, location data gone). We only check it looks like one.
+    setPhoto(userId, bagId, discId, buffer) {
+      writable();
+      if (!isJpeg(buffer)) throw new AccountError('Send a JPEG photo.', 415);
+      if (buffer.length > LIMITS.photoBytes) throw new AccountError('That photo is too big.', 413);
+
+      const name = `${crypto.randomBytes(12).toString('hex')}.jpg`;
+      const target = photoPath(userId, name);
+      if (!target) throw new AccountError('Sign in first.', 401);
+      let old;
+      let user;
+      try {
+        user = changeUser(userId, (u) => {
+          const bag = findBag(u, bagId);
+          if (!bag.discs.includes(discId)) throw new AccountError('That disc is not in this bag.', 404);
+          bag.items ||= {};
+          const item = (bag.items[discId] ||= {});
+          old = item.photo;
+          if (!old && u.bags.reduce((n, b) => n + photosOf(b).length, 0) >= LIMITS.photosPerUser) {
+            throw new AccountError(`That is ${LIMITS.photosPerUser} photos. Remove some first.`, 409);
+          }
+          item.photo = name;
+          // write the file as part of the change: if it cannot be written, the change does not happen
+          fs.mkdirSync(path.dirname(target), { recursive: true });
+          fs.writeFileSync(`${target}.tmp`, buffer, { mode: 0o600 });
+          fs.renameSync(`${target}.tmp`, target);
+        });
+      } catch (err) {
+        try { fs.unlinkSync(target); } catch { /* never written */ }
+        try { fs.unlinkSync(`${target}.tmp`); } catch { /* never written */ }
+        if (err instanceof AccountError) throw err;
+        throw new AccountError('Could not save that photo. Try again.', 500);
+      }
+      dropPhotos(userId, [old].filter(Boolean));
+      return bagsView(user);
+    },
+
+    clearPhoto(userId, bagId, discId) {
+      let old;
+      const user = changeUser(userId, (u) => {
+        const bag = findBag(u, bagId);
+        const item = bag.items?.[discId];
+        old = item?.photo;
+        if (item) {
+          delete item.photo;
+          if (!Object.keys(item).length) delete bag.items[discId];
+        }
+      });
+      dropPhotos(userId, [old].filter(Boolean));
+      return bagsView(user);
+    },
+
+    photoPath,
   };
 }
 

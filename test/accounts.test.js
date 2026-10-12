@@ -11,6 +11,7 @@ const { createAccountRouter } = require('../server/routes/account');
 
 const tmpFile = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dj-accounts-')), 'accounts.json');
 const PW = 'correct horse battery';
+const jpeg = (n = 300) => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(n, 7)]);
 
 /* ---------- the store ---------- */
 
@@ -171,6 +172,85 @@ test('a burst of logins all finish, and extras past the queue are turned away in
   assert.strictEqual((await store.login('Dana', PW)).name, 'Dana'); // and it still works afterwards
 });
 
+
+test('a disc in a bag can have a color and a plastic; both can be cleared; junk is refused', async () => {
+  const store = createAccountStore(tmpFile());
+  const { id, bags } = await store.signup('Dana', PW);
+  const bag = bags[0].id;
+  assert.throws(() => store.setItem(id, bag, 7, { color: '#ff0000' }), (e) => e.status === 404); // not in the bag yet
+  store.addDisc(id, bag, 7);
+  let b = store.setItem(id, bag, 7, { color: '#FF8A3D', plastic: '  Star   Champion ' })[0];
+  assert.deepStrictEqual(b.items['7'], { color: '#ff8a3d', plastic: 'Star Champion' });
+  assert.throws(() => store.setItem(id, bag, 7, { color: 'red' }), /not a color/);
+  assert.throws(() => store.setItem(id, bag, 7, { color: '#12345' }), /not a color/);
+  assert.throws(() => store.setItem(id, bag, 7, { plastic: 'x'.repeat(LIMITS.plastic + 1) }), /too long/);
+  b = store.setItem(id, bag, 7, { color: null })[0];
+  assert.deepStrictEqual(b.items['7'], { plastic: 'Star Champion' });
+  b = store.setItem(id, bag, 7, { plastic: '' })[0];
+  assert.deepStrictEqual(b.items, {}); // nothing left to remember
+});
+
+test('photos: stored per user, replaced cleanly, and removed with the disc or the bag', async () => {
+  const file = tmpFile();
+  const store = createAccountStore(file);
+  const { id, bags } = await store.signup('Dana', PW);
+  const dir = path.join(path.dirname(file), 'photos', id);
+  const mainBag = bags[0].id;
+  store.addDisc(id, mainBag, 7);
+  assert.throws(() => store.setPhoto(id, mainBag, 9, jpeg()), (e) => e.status === 404);
+  assert.throws(() => store.setPhoto(id, mainBag, 7, Buffer.from('<html>not a jpeg at all, but long enough to pass the size check............................................................................................</html>')), (e) => e.status === 415);
+  assert.throws(() => store.setPhoto(id, mainBag, 7, jpeg(LIMITS.photoBytes + 10)), (e) => e.status === 413);
+  assert.ok(!fs.existsSync(dir) || fs.readdirSync(dir).length === 0);
+
+  const first = store.setPhoto(id, mainBag, 7, jpeg())[0].items['7'].photo;
+  assert.match(first, /^[a-f0-9]{24}\.jpg$/);
+  assert.ok(fs.existsSync(store.photoPath(id, first)));
+  const second = store.setPhoto(id, mainBag, 7, jpeg(400))[0].items['7'].photo;
+  assert.notStrictEqual(first, second);
+  assert.ok(!fs.existsSync(store.photoPath(id, first))); // the old one is gone
+  assert.deepStrictEqual(fs.readdirSync(dir), [second]);
+
+  store.clearPhoto(id, mainBag, 7);
+  assert.deepStrictEqual(fs.readdirSync(dir), []);
+
+  // taking a disc out of a bag, or deleting a bag, takes its photos with it
+  store.setPhoto(id, mainBag, 7, jpeg());
+  store.removeDisc(id, mainBag, 7);
+  assert.deepStrictEqual(fs.readdirSync(dir), []);
+  const other = store.createBag(id, 'Putters').bagId;
+  store.addDisc(id, other, 3);
+  store.setPhoto(id, other, 3, jpeg());
+  assert.strictEqual(fs.readdirSync(dir).length, 1);
+  store.deleteBag(id, other);
+  assert.deepStrictEqual(fs.readdirSync(dir), []);
+  assert.strictEqual(store.photoPath(id, '../../etc/passwd'), null);
+});
+
+test('a user has a photo allowance, and a failed save keeps no stray file', async () => {
+  const file = tmpFile();
+  const store = createAccountStore(file);
+  const { id, bags } = await store.signup('Dana', PW);
+  const bagA = bags[0].id;
+  const bagB = store.createBag(id, 'More').bagId;
+  const dir = path.join(path.dirname(file), 'photos', id);
+  for (let d = 1; d <= LIMITS.photosPerUser; d++) {
+    const bag = d <= LIMITS.discsPerBag ? bagA : bagB; // a bag holds fewer discs than the photo allowance
+    store.addDisc(id, bag, d);
+    store.setPhoto(id, bag, d, jpeg(150));
+  }
+  assert.strictEqual(fs.readdirSync(dir).length, LIMITS.photosPerUser);
+  store.addDisc(id, bagB, 9000);
+  assert.throws(() => store.setPhoto(id, bagB, 9000, jpeg()), (e) => e.status === 409);
+  assert.strictEqual(fs.readdirSync(dir).length, LIMITS.photosPerUser);
+  store.setPhoto(id, bagA, 1, jpeg(200)); // replacing one is still fine at the limit
+  assert.strictEqual(fs.readdirSync(dir).length, LIMITS.photosPerUser);
+
+  fs.mkdirSync(`${file}.tmp`); // every save fails now
+  assert.throws(() => store.setPhoto(id, bagA, 2, jpeg(250)), /Could not save/);
+  fs.rmdirSync(`${file}.tmp`);
+  assert.strictEqual(fs.readdirSync(dir).length, LIMITS.photosPerUser);
+});
+
 /* ---------- the HTTP layer ---------- */
 
 async function serve(options = {}) {
@@ -301,5 +381,47 @@ test('wrong passwords are rate limited per address and per account; sign-ups are
     assert.strictEqual((await s.call('POST', '/signup', { username: 'One', password: PW })).status, 201);
     assert.strictEqual((await s.call('POST', '/signup', { username: 'Two', password: PW })).status, 201);
     assert.strictEqual((await s.call('POST', '/signup', { username: 'Three', password: PW })).status, 429);
+  } finally { close(); }
+});
+
+test('over HTTP: color, plastic and a photo for a bagged disc, and only the owner can see the photo', async () => {
+  const { browser, close, port } = await serve();
+  try {
+    const a = browser('10.0.0.1');
+    const bag = (await a.call('POST', '/signup', { username: 'Dana', password: PW })).json.bags[0].id;
+    await a.call('PUT', `/bags/${bag}/discs/2`);
+
+    const patched = await a.call('PATCH', `/bags/${bag}/discs/2`, { color: '#38c8e8', plastic: 'Z' });
+    assert.deepStrictEqual(patched.json.bags[0].items['2'], { color: '#38c8e8', plastic: 'Z' });
+    assert.strictEqual((await a.call('PATCH', `/bags/${bag}/discs/2`, { color: 'nope' })).status, 400);
+
+    const put = (token, type = 'image/jpeg', body = jpeg()) => fetch(`http://127.0.0.1:${port}/api/account/bags/${bag}/discs/2/photo`, {
+      method: 'PUT', headers: { 'Content-Type': type, 'X-Real-IP': '10.0.0.1', Cookie: token }, body,
+    });
+    const cookie = a.cookie();
+    assert.strictEqual((await put(cookie, 'text/plain')).status, 415);
+    assert.strictEqual((await put(cookie, 'image/jpeg', jpeg(LIMITS.photoBytes + 50))).status, 413);
+    assert.strictEqual((await put('')).status, 401);
+    const up = await put(cookie);
+    assert.strictEqual(up.status, 200);
+    const name = (await up.json()).bags[0].items['2'].photo;
+
+    const read = (token) => fetch(`http://127.0.0.1:${port}/api/account/photos/${name}`, { headers: { Cookie: token } });
+    const mine = await read(cookie);
+    assert.strictEqual(mine.status, 200);
+    assert.strictEqual(mine.headers.get('content-type'), 'image/jpeg');
+    assert.strictEqual(mine.headers.get('x-content-type-options'), 'nosniff');
+    assert.match(mine.headers.get('cache-control'), /private/);
+    assert.strictEqual((await mine.arrayBuffer()).byteLength, jpeg().length);
+    assert.strictEqual((await read('')).status, 401);
+
+    const s = browser('10.0.0.2');
+    await s.call('POST', '/signup', { username: 'Sam', password: PW });
+    assert.strictEqual((await read(s.cookie())).status, 404); // someone else's photo does not exist for Sam
+    assert.strictEqual((await read(cookie).then(() => fetch(`http://127.0.0.1:${port}/api/account/photos/..%2f..%2fx.jpg`, { headers: { Cookie: cookie } }))).status, 404);
+
+    const gone = await a.call('DELETE', `/bags/${bag}/discs/2/photo`);
+    assert.strictEqual(gone.json.bags[0].items['2'].photo, undefined);
+    assert.strictEqual((await read(cookie)).status, 404);
   } finally { close(); }
 });

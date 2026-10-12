@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('node:fs');
 const express = require('express');
 const { AccountError, LIMITS } = require('../lib/accounts');
 const { createLimiter } = require('../lib/ratelimit');
@@ -42,6 +43,9 @@ function sameOrigin(req) {
  *   DELETE /bags/:id
  *   PUT    /bags/:id/discs/:disc        add a disc
  *   DELETE /bags/:id/discs/:disc        take it out
+ *   PATCH  /bags/:id/discs/:disc        that disc's color and plastic, in this bag
+ *   PUT    /bags/:id/discs/:disc/photo  a JPEG (the page makes it small); DELETE removes it
+ *   GET    /photos/:name                a photo, to its owner only
  * Every response is no-store: it is about one person.
  */
 function createAccountRouter({
@@ -50,12 +54,14 @@ function createAccountRouter({
   signup = { windowMs: HOUR, max: 5 },
   login = { windowMs: 15 * 60 * 1000, max: 10 },
   acting = { windowMs: HOUR, max: 600 },
+  uploads = { windowMs: HOUR, max: 60 },
 }) {
   const router = express.Router();
   const signupLimit = createLimiter(signup);
   const loginByIp = createLimiter(login);
   const loginByName = createLimiter({ ...login, max: Math.max(5, login.max - 2) });
   const actingLimit = createLimiter(acting);
+  const uploadLimit = createLimiter(uploads);
 
   const gate = (limiter, key, message) => {
     const verdict = limiter.peek(key);
@@ -172,6 +178,36 @@ function createAccountRouter({
   router.delete('/bags/:id/discs/:disc', writing(async (req, res, user) => {
     res.json({ bags: store.removeDisc(user.id, req.params.id, discId(req.params.disc)) });
   }));
+
+  router.patch('/bags/:id/discs/:disc', writing(async (req, res, user) => {
+    const { color, plastic } = req.body || {};
+    res.json({ bags: store.setItem(user.id, req.params.id, discId(req.params.disc), { color, plastic }) });
+  }));
+
+  router.put('/bags/:id/discs/:disc/photo', express.raw({ type: 'image/jpeg', limit: LIMITS.photoBytes }), writing(async (req, res, user) => {
+    if (!Buffer.isBuffer(req.body)) throw new AccountError('Send a JPEG photo.', 415);
+    gate(uploadLimit, `u:${user.id}`, 'That is a lot of photos.');
+    uploadLimit.hit(`u:${user.id}`);
+    res.json({ bags: store.setPhoto(user.id, req.params.id, discId(req.params.disc), req.body) });
+  }));
+
+  router.delete('/bags/:id/discs/:disc/photo', writing(async (req, res, user) => {
+    res.json({ bags: store.clearPhoto(user.id, req.params.id, discId(req.params.disc)) });
+  }));
+
+  // photos are private: only the signed-in owner can read their own
+  router.get('/photos/:name', wrap(async (req, res) => {
+    const user = needUser(req);
+    const file = store.photoPath(user.id, req.params.name);
+    if (!file || !fs.existsSync(file)) throw new AccountError('No such photo.', 404);
+    res.set({ 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff' });
+    res.sendFile(file, { cacheControl: false, dotfiles: 'allow' });
+  }));
+
+  // a photo past the size limit is a 413 from the body parser: say it plainly
+  router.use((err, req, res, next) => {
+    next(err.type === 'entity.too.large' ? new AccountError('That photo is too big.', 413) : err);
+  });
 
   return router;
 }

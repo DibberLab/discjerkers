@@ -1,6 +1,6 @@
 /* Flight guide: speed rows x stability columns, every disc a round chip. */
 
-import { account, activeBag, inBag, onAccountChange, loadAccount, mountBar, openSignIn, openBags, addDisc as bagAdd, removeDisc as bagRemove, setActive } from './fgaccount.js?v=2';
+import { account, activeBag, inBag, onAccountChange, loadAccount, mountBar, openSignIn, openBags, addDisc as bagAdd, removeDisc as bagRemove, setActive, setItem, setPhoto, clearPhoto, photoToJpeg, photoUrl } from './fgaccount.js?v=3';
 
 const BANDS = [
   { label: 'Very overstable',  cols: [0, 1, 2],        tint: 'var(--rust)' },
@@ -64,6 +64,7 @@ const state = {
   mph: 56, // arm speed: release speed in mph, in 2 mph steps
   spin: null, // release spin in rpm; null = what is typical for that speed
   panel: 'disc', // what the side panel is showing: one disc, or the comparison
+  fromBag: false, // the disc panel was opened from the bag view, so it can go back
   bagFilter: null, // the chart's bag filter: a bag id, ALL_BAGS for every disc in any of your bags, or null for no filter
   bagOff: new Set(), // `${bagId}:${discId}` of bag discs switched off in the bag's flight view
   cmp: [], // comparison throws, up to MAX_CMP: { uid, id, hand, style, arm, angle }
@@ -151,6 +152,20 @@ function buildFilters() {
 let bagFilterIds = null; // the discs of the bag the chart is narrowed to, set at the start of each render
 let wasBagFiltered = false;
 const ALL_BAGS = '*';
+let colorBeforeBag = null; // the color mode to go back to when the bag filter comes off
+
+function setColorMode(mode) {
+  state.color = mode;
+  document.querySelectorAll('#fg-colorby [data-color]').forEach((el) => el.setAttribute('aria-pressed', String(el.dataset.color === mode)));
+}
+
+// Narrowing the chart to a bag switches it to the bag's own colors; taking the filter off puts the old colors back.
+function setBagFilter(value) {
+  const was = state.bagFilter;
+  state.bagFilter = value;
+  if (value && !was && state.color !== 'mine') { colorBeforeBag = state.color; setColorMode('mine'); }
+  if (!value && was && state.color === 'mine' && colorBeforeBag) { setColorMode(colorBeforeBag); colorBeforeBag = null; }
+}
 // the bag (or the combined bags) the chart is narrowed to, or null
 function filterBag() {
   if (!state.bagFilter || !account.user) return null;
@@ -190,6 +205,8 @@ function renderLegend() {
     h = `<span class="fg-lg fg-lg--bar"><span>Fights the wind</span><b style="background:linear-gradient(90deg,${GRADE.map((g) => g.c).join(',')})"></b><span>Flips over</span></span>`;
   } else if (state.color === 'type') {
     h = DATA.cats.map((c, i) => dot(TYPE[i].c, c)).join('');
+  } else if (state.color === 'mine') {
+    h = '<span class="fg-lg">Your colors and photos on the discs in your bags. Everything else is in stability colors.</span>';
   } else {
     h = '<span class="fg-lg">Each manufacturer\'s own color</span>';
   }
@@ -204,13 +221,31 @@ function paint(d) {
   return state.color === 'type' ? TYPE[d.cat] : GRADE[d.col];
 }
 
-function discHTML(d, label = d.name) { // not safe to pass straight to .map(): the index would become the label
+// What the signed-in user has said about a disc, for the chart's "My discs" colors: from the bag the chart is
+// narrowed to, else the active bag, else any bag that has something to show for it.
+function bagItem(discId) {
+  if (!account.user) return null;
+  const f = filterBag();
+  if (f && !f.all) return f.items?.[discId] || null;
+  for (const b of [activeBag(), ...account.bags]) {
+    const it = b?.items?.[discId];
+    if (it && (it.color || it.photo)) return it;
+  }
+  return null;
+}
+const ownItem = (discId) => (account.user ? activeBag()?.items?.[discId] || null : null);
+// a bag disc in the color its owner gave it; otherwise whatever color the chart is using
+const ownPaint = (d, item) => (item?.color ? swatch(item.color) : paint(d));
+
+function discHTML(d, label = d.name, item = state.color === 'mine' ? bagItem(d.id) : null) { // not safe to pass straight to .map(): the index would become the label
   const b = brands[d.b];
-  const pc = paint(d);
+  const pc = item?.color ? swatch(item.color) : (state.color === 'mine' ? GRADE[d.col] : paint(d)); // a disc given its owner's item wears it in any mode
   const n = label.length;
   const fs = n <= 5 ? 1 : n <= 7 ? 0.88 : n <= 9 ? 0.68 : n <= 11 ? 0.6 : 0.52;
   const nums = `${d.speed} / ${d.glide} / ${fmtTurn(d.turn)} / ${d.fade}`;
-  return `<button class="disc" type="button" data-id="${d.id}" style="--c:${pc.c};--t:${pc.t};--fs:${fs}" aria-pressed="${state.selected === d.id}" title="${esc(b.n)} ${esc(d.name)} · ${nums}" aria-label="${esc(b.n)} ${esc(d.name)}, flight numbers ${nums}"><span class="disc__n">${esc(label)}</span></button>`;
+  const photo = item?.photo ? `;--fill:url('${photoUrl(item.photo)}') center/cover` : '';
+  const plastic = item?.plastic ? `, ${esc(item.plastic)}` : '';
+  return `<button class="disc" type="button" data-id="${d.id}"${photo ? ' data-photo' : ''} style="--c:${pc.c};--t:${pc.t};--fs:${fs}${photo}" aria-pressed="${state.selected === d.id}" title="${esc(b.n)} ${esc(d.name)}${plastic} · ${nums}" aria-label="${esc(b.n)} ${esc(d.name)}${plastic}, flight numbers ${nums}"><span class="disc__n">${esc(label)}</span></button>`;
 }
 
 const GUTTER = 10;       // page margin the chart leaves, total
@@ -724,7 +759,7 @@ function gauge(label, shown, pct, ring) {
   return `<div class="fg-gauge" style="--p:${pct <= 0 ? 0 : Math.max(5, Math.min(100, pct)).toFixed(0)};--ring:${ring}"><div class="fg-gauge__ring"><b>${shown}</b></div><span>${label}</span></div>`;
 }
 
-function openDrawer(id, trigger) {
+function openDrawer(id, trigger, { fromBag = false } = {}) {
   const d = discs.find((x) => x.id === id);
   if (!d) return;
   const b = brands[d.b];
@@ -732,6 +767,7 @@ function openDrawer(id, trigger) {
 
   state.selected = id;
   state.panel = 'disc';
+  state.fromBag = fromBag;
   document.querySelectorAll('.disc[aria-pressed="true"]').forEach((el) => el.setAttribute('aria-pressed', 'false'));
   const chip = document.querySelector(`#fg-chart .disc[data-id="${id}"]`);
   if (chip) chip.setAttribute('aria-pressed', 'true');
@@ -745,8 +781,9 @@ function openDrawer(id, trigger) {
 
   const { main, variant } = splitName(d.name);
   $('#fg-d-body').innerHTML = panelLayout(`
+    ${fromBag ? '<button class="fg-back" type="button" data-back-bag>← Your bag</button>' : ''}
     <div class="fg-d-top">
-      ${discHTML(d, main).replace('class="disc"', 'class="disc" tabindex="-1"')}
+      ${discHTML(d, main, ownItem(d.id)).replace('class="disc"', 'class="disc" tabindex="-1"')}
       <div class="fg-d-id">
         <p class="fg-d-brand">${esc(b.n)}</p>
         <h2 class="fg-d-name" id="fg-d-name">${esc(main)}</h2>
@@ -766,6 +803,7 @@ function openDrawer(id, trigger) {
   `<div id="fg-path-wrap">${pathSection(d)}</div>`,
   `<div class="fg-d-save">
       <div class="fg-d-cmp" id="fg-bag-row" aria-live="polite">${bagRow(d)}</div>
+      <div class="fg-own" id="fg-own">${ownSection(d)}</div>
       <div class="fg-d-cmp" id="fg-cmp-btn" aria-live="polite">${cmpButtons()}</div>
     </div>
     <ul class="fg-specs">${specs.map(([k, v, u]) => `<li><span>${k}</span><b>${esc(v)}${u ? ` ${u}` : ''}</b></li>`).join('')}</ul>
@@ -793,6 +831,7 @@ function closeDrawer() {
   $('#fg-drawer').setAttribute('aria-hidden', 'true');
   document.querySelectorAll('.disc[aria-pressed="true"]').forEach((el) => el.setAttribute('aria-pressed', 'false'));
   state.selected = null;
+  state.fromBag = false;
   if (lastFocus && document.contains(lastFocus)) lastFocus.focus({ preventScroll: true });
 }
 
@@ -810,10 +849,81 @@ function bagRow(d) {
       <span class="fg-d-cmp__full" id="fg-bag-msg" role="status"></span>`;
 }
 
+const SWATCHES = ['#e53935', '#fb8c00', '#fdd835', '#7cb342', '#00897b', '#1e88e5', '#5e35b1', '#d81b60', '#f5f5f5', '#212121', '#9e9e9e'];
+
+// "Your copy": the color, plastic and photo of this disc in the active bag
+function ownSection(d) {
+  const bag = account.user ? activeBag() : null;
+  if (!bag || !inBag(d.id, bag)) return '';
+  const it = bag.items?.[d.id] || {};
+  const custom = it.color && !SWATCHES.includes(it.color);
+  const swatches = SWATCHES.map((c) => `<button class="fg-sw${it.color === c ? ' is-on' : ''}" type="button" data-own-color="${c}" style="--c:${c}" aria-label="Color ${c}" aria-pressed="${it.color === c}"></button>`).join('');
+  return `<p class="fg-own__h">Your copy <span>· ${esc(bag.name)}</span></p>
+    <div class="fg-own__colors" role="group" aria-label="Disc color">
+      ${swatches}
+      <label class="fg-sw fg-sw--custom${custom ? ' is-on' : ''}" title="Pick any color" style="${custom ? `--c:${it.color}` : ''}"><input type="color" data-own-color-input value="${it.color || '#fb8c00'}" aria-label="Pick any color"></label>
+      ${it.color ? '<button class="fg-rng__auto" type="button" data-own-color="" title="Back to the chart color">No color</button>' : ''}
+    </div>
+    <label class="fg-own__plastic"><span class="fg-wind__l">Plastic</span><input data-own-plastic list="fg-plastics" maxlength="30" value="${esc(it.plastic || '')}" placeholder="Champion, Star, Z…" autocomplete="off" spellcheck="false"></label>
+    <div class="fg-own__photo">
+      ${it.photo ? `<img src="${photoUrl(it.photo)}" alt="Your photo of this disc" width="64" height="64">` : ''}
+      <label class="chip fg-cmpbtn fg-filebtn">${it.photo ? 'Change photo' : 'Add photo'}<input class="sr-only" type="file" accept="image/*" data-own-photo></label>
+      ${it.photo ? '<button class="chip fg-cmpbtn" type="button" data-own-photo-clear>Remove photo</button>' : ''}
+      <span class="fg-d-cmp__full" id="fg-own-msg" role="status"></span>
+    </div>`;
+}
+
+const ownSay = (text) => { const el = $('#fg-own-msg'); if (el) el.textContent = text; };
+
+// the disc's own face in the panel header, and the bag row and "your copy" box under it
 function refreshBagRow() {
   const d = discs.find((x) => x.id === state.selected);
   const row = $('#fg-bag-row');
-  if (d && row) row.innerHTML = bagRow(d);
+  if (!d || !row) return;
+  row.innerHTML = bagRow(d);
+  const own = $('#fg-own');
+  if (own) own.innerHTML = ownSection(d);
+  const face = $('.fg-d-top .disc');
+  if (face) {
+    const fresh = document.createElement('div');
+    fresh.innerHTML = discHTML(d, splitName(d.name).main, ownItem(d.id)).replace('class="disc"', 'class="disc" tabindex="-1"');
+    face.replaceWith(fresh.firstElementChild);
+    fitDrawerText();
+  }
+}
+
+// edits to the disc in the panel: they go to the active bag
+async function ownEdit(fn, working) {
+  const id = state.selected;
+  const bag = activeBag();
+  if (!id || !bag) return;
+  if (working) ownSay(working);
+  try {
+    await fn(id, bag.id);
+    ownSay('');
+  } catch (err) {
+    ownSay(err.message);
+  }
+}
+
+function handleOwnClick(e) {
+  const color = e.target.closest('[data-own-color]');
+  if (color) { ownEdit((id, bag) => setItem(id, { color: color.dataset.ownColor || null }, bag)); return true; }
+  if (e.target.closest('[data-own-photo-clear]')) { ownEdit((id, bag) => clearPhoto(id, bag)); return true; }
+  return false;
+}
+
+function handleOwnChange(e) {
+  const t = e.target;
+  if (t.matches('[data-own-color-input]')) { ownEdit((id, bag) => setItem(id, { color: t.value }, bag)); return true; }
+  if (t.matches('[data-own-plastic]')) { ownEdit((id, bag) => setItem(id, { plastic: t.value }, bag)); return true; }
+  if (t.matches('[data-own-photo]')) {
+    const file = t.files?.[0];
+    t.value = '';
+    if (file) ownEdit(async (id, bag) => setPhoto(id, await photoToJpeg(file), bag), 'Uploading…');
+    return true;
+  }
+  return false;
 }
 
 const bagSay = (text) => { const el = $('#fg-bag-msg'); if (el) el.textContent = text; };
@@ -846,8 +956,9 @@ function bagRows() {
 
 // every switched-on disc in the bag on one field, in its own chip color
 function bagPath(rows, wind) {
+  const bag = activeBag();
   const runs = rows.filter((r) => r.on).map(({ d, i }) => {
-    const c = paint(d).c;
+    const c = ownPaint(d, bag?.items?.[d.id]).c;
     return flightRun(d, state, wind, c, c, { run: i, stroke: 3, r: 8, quiet: true });
   });
   const total = rows.filter((r) => r.on).length;
@@ -859,13 +970,16 @@ function bagPath(rows, wind) {
 }
 
 function bagRowHTML({ d, i, on, feet }) {
-  const pc = paint(d);
+  const it = activeBag()?.items?.[d.id];
+  const pc = ownPaint(d, it);
   const b = brands[d.b];
+  const fill = it?.photo ? `;--fill:url('${photoUrl(it.photo)}') center/cover` : '';
   return `<li class="fg-bagrow${on ? '' : ' is-off'}" data-bd="${d.id}" data-run="${i}">
       <button class="fg-switch" type="button" role="switch" aria-checked="${on}" data-bag-sw aria-label="Show ${esc(d.name)} in the flight path"></button>
-      <span class="fg-bagrow__dot" style="--c:${pc.c}" aria-hidden="true"></span>
-      <div class="fg-bagrow__id"><b>${esc(splitName(d.name).main)}</b><small>${esc(b.n)} · ${d.speed} / ${d.glide} / ${fmtTurn(d.turn)} / ${d.fade}</small></div>
+      <span class="fg-bagrow__thumb" style="--c:${pc.c}${fill}" aria-hidden="true"></span>
+      <div class="fg-bagrow__id"><b>${esc(splitName(d.name).main)}</b><small>${esc(b.n)}${it?.plastic ? ` · ${esc(it.plastic)}` : ''} · ${d.speed} / ${d.glide} / ${fmtTurn(d.turn)} / ${d.fade}</small></div>
       <span class="fg-bagrow__ft">${on ? `≈${feet} ft` : 'off'}</span>
+      <button class="fg-bagrow__edit" type="button" data-bag-edit aria-label="Edit ${esc(d.name)}: color, plastic, photo">Edit</button>
       <button class="fg-bagrow__x" type="button" data-bag-remove aria-label="Remove ${esc(d.name)} from this bag">×</button>
     </li>`;
 }
@@ -952,6 +1066,8 @@ async function handleBagClick(e) {
     renderBag({ animate: false, focusSel: `[data-bag-all="${all.dataset.bagAll}"]` });
     return true;
   }
+  const edit = e.target.closest('[data-bag-edit]');
+  if (edit) { openDrawer(Number(edit.closest('[data-bd]').dataset.bd), edit, { fromBag: true }); return true; }
   const rm = e.target.closest('[data-bag-remove]');
   if (rm) {
     const id = Number(rm.closest('[data-bd]').dataset.bd);
@@ -981,6 +1097,8 @@ function focusRun(run) {
 function renderBagFilter() {
   const row = $('#fg-bags-row');
   row.hidden = !account.user;
+  const mine = $('#fg-colorby [data-color="mine"]');
+  if (mine) mine.hidden = !account.user;
   if (!account.user) return;
   const chip = (id, label, count) => `<button class="chip" type="button" data-bagf="${esc(id)}" aria-pressed="${state.bagFilter === id}">${label} <small style="opacity:.55">${count}</small></button>`;
   const everything = new Set(account.bags.flatMap((b) => b.discs)).size;
@@ -992,9 +1110,10 @@ function renderBagFilter() {
 
 // the account changed (sign in/out, a bag edited): keep everything that shows a bag in step
 function onAccount() {
-  if (state.bagFilter && !filterBag()) state.bagFilter = null; // that bag is gone, or we signed out
+  if (state.bagFilter && !filterBag()) setBagFilter(null); // that bag is gone, or we signed out
+  if (!account.user && state.color === 'mine') { colorBeforeBag = null; setColorMode('stability'); }
   renderBagFilter();
-  if (state.bagFilter || wasBagFiltered) render(); // the chart follows the bag
+  if (state.bagFilter || wasBagFiltered || state.color === 'mine') render(); // the chart follows the bag
   markBag();
   const open = $('#fg-drawer').classList.contains('is-open');
   if (state.panel === 'disc' && state.selected) refreshBagRow();
@@ -1190,6 +1309,8 @@ function stepWind(btn) {
 
 // Buttons that belong to a single disc's panel. Returns true if it handled the click.
 function handleDiscClick(e) {
+  if (handleOwnClick(e)) return true;
+  if (e.target.closest('[data-back-bag]')) { openBag(); return true; }
   if (e.target.closest('[data-cmp-add]')) {
     addToCompare(state.selected);
     $('#fg-cmp-btn').querySelector('[data-cmp-add],[data-cmp-open]')?.focus({ preventScroll: true });
@@ -1378,7 +1499,7 @@ function wire() {
   $('#fg-brand-clear').addEventListener('click', () => { state.brands.clear(); syncBrandButtons(); render(); });
 
   $('#fg-reset').addEventListener('click', () => {
-    state.q = ''; state.brands.clear(); state.cats.clear(); state.bands.clear(); state.bagFilter = null;
+    state.q = ''; state.brands.clear(); state.cats.clear(); state.bands.clear(); setBagFilter(null);
     renderBagFilter();
     $('#fg-q').value = '';
     document.querySelectorAll('#fg-cats .chip, #fg-stabs .chip').forEach((el) => el.setAttribute('aria-pressed', 'false'));
@@ -1402,6 +1523,7 @@ function wire() {
   });
   body.addEventListener('change', (e) => {
     if (applyRange(e)) return;
+    if (state.panel === 'disc' && handleOwnChange(e)) return;
     if (!e.target.matches('[data-bag-pick]')) return;
     if (e.target.value === NEW_BAG) {
       openBags({ focusNew: true });
@@ -1432,13 +1554,13 @@ function wire() {
     if (e.target.closest('[data-bagf-manage]')) { openBags(); return; }
     let focus = '[data-bagf-clear]';
     if (e.target.closest('[data-bagf-clear]')) {
-      state.bagFilter = null;
+      setBagFilter(null);
       focus = '[data-bagf]';
     } else {
       const chip = e.target.closest('[data-bagf]');
       if (!chip) return;
       const id = chip.dataset.bagf;
-      state.bagFilter = state.bagFilter === id ? null : id; // tapping the lit chip turns the filter off too
+      setBagFilter(state.bagFilter === id ? null : id); // tapping the lit chip turns the filter off too
       if (state.bagFilter && state.bagFilter !== ALL_BAGS) { setActive(state.bagFilter); return; } // the active bag follows; that change redraws everything
       focus = state.bagFilter ? `[data-bagf="${ALL_BAGS}"]` : '[data-bagf]';
     }

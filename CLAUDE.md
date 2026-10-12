@@ -84,6 +84,12 @@ that way; don't introduce React/Vite/Tailwind here.
   read-only (never fails startup), a failed save rolls back, and at most 2 password hashes run at once.
 - Limits live in `LIMITS` (25 bags a user, 80 discs a bag, 5000 users). Wrong passwords are limited
   per address and per username; sign-ups per address. Never put user text in `innerHTML` without `esc()`.
+- Per disc in a bag the owner can set a color, a plastic type and a photo (`bag.items[discId]`).
+  Photos: the page crops and re-encodes them to a ~640px JPEG (that also strips location data) and
+  PUTs the bytes; the server only accepts a JPEG under 400KB (magic-byte check), keeps 150 per user,
+  and stores them in `data/photos/<user id>/` (not under `public/`). They are served only to their
+  owner by `GET /api/account/photos/:name`, `Cache-Control: private`. Removing a disc or deleting a
+  bag deletes its photos. Back up `data/photos` along with `accounts.json`.
 - A bag stores disc ids from `public/data/flightguide.json`. If that snapshot is ever regenerated,
   keep the ids stable or old bags will lose discs.
 
