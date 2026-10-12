@@ -64,7 +64,7 @@ const state = {
   mph: 56, // arm speed: release speed in mph, in 2 mph steps
   spin: null, // release spin in rpm; null = what is typical for that speed
   panel: 'disc', // what the side panel is showing: one disc, or the comparison
-  bagFilter: null, // id of the bag the chart is narrowed to, or null for every disc
+  bagFilter: null, // the chart's bag filter: a bag id, ALL_BAGS for every disc in any of your bags, or null for no filter
   bagOff: new Set(), // `${bagId}:${discId}` of bag discs switched off in the bag's flight view
   cmp: [], // comparison throws, up to MAX_CMP: { uid, id, hand, style, arm, angle }
   angle: 0, // release angle in steps of ANGLE_STEP degrees: + is hyzer, - is anhyzer
@@ -150,7 +150,13 @@ function buildFilters() {
 
 let bagFilterIds = null; // the discs of the bag the chart is narrowed to, set at the start of each render
 let wasBagFiltered = false;
-const filterBag = () => (state.bagFilter && account.user ? account.bags.find((b) => b.id === state.bagFilter) || null : null);
+const ALL_BAGS = '*';
+// the bag (or the combined bags) the chart is narrowed to, or null
+function filterBag() {
+  if (!state.bagFilter || !account.user) return null;
+  if (state.bagFilter === ALL_BAGS) return { id: ALL_BAGS, all: true, name: 'all your bags', discs: [...new Set(account.bags.flatMap((b) => b.discs))] };
+  return account.bags.find((b) => b.id === state.bagFilter) || null;
+}
 
 function matches(d, q) {
   if (bagFilterIds && !bagFilterIds.has(d.id)) return false;
@@ -243,7 +249,7 @@ function render() {
   slider.value = L.size;
   if (!list.length) {
     chart.innerHTML = inBagFilter && !inBagFilter.discs.length
-      ? `<div class="fg-empty"><b>${esc(inBagFilter.name)} is empty</b>Open any disc and tap Add to bag.</div>`
+      ? `<div class="fg-empty"><b>${inBagFilter.all ? 'Your bags are empty' : `${esc(inBagFilter.name)} is empty`}</b>Open any disc and tap Add to bag.</div>`
       : '<div class="fg-empty"><b>Nothing out there</b>No discs match. Blame the filters.</div>';
     return;
   }
@@ -970,15 +976,18 @@ function focusRun(run) {
   if (run !== null) svg.querySelectorAll(`[data-run="${run}"]`).forEach((el) => el.classList.add('is-focus'));
 }
 
-// the Bags row of the filters: every bag as a chip, so one tap narrows the chart to that bag
+// the Bags row of the filters: all your bags together, or any one bag, so one tap narrows the chart to those discs.
+// Clear (only there while a bag filter is on) takes the bag filter off.
 function renderBagFilter() {
   const row = $('#fg-bags-row');
   row.hidden = !account.user;
   if (!account.user) return;
-  const chip = (id, label, count) => `<button class="chip" type="button" data-bagf="${esc(id)}" aria-pressed="${(state.bagFilter || '') === id}">${label}${count === undefined ? '' : ` <small style="opacity:.55">${count}</small>`}</button>`;
-  $('#fg-bags').innerHTML = chip('', 'All discs')
+  const chip = (id, label, count) => `<button class="chip" type="button" data-bagf="${esc(id)}" aria-pressed="${state.bagFilter === id}">${label} <small style="opacity:.55">${count}</small></button>`;
+  const everything = new Set(account.bags.flatMap((b) => b.discs)).size;
+  $('#fg-bags').innerHTML = chip(ALL_BAGS, 'All my bags', everything)
     + account.bags.map((b) => chip(b.id, `${b.main ? '★ ' : ''}${esc(b.name)}`, b.discs.length)).join('')
-    + '<button class="chip" type="button" data-bagf-manage>Manage bags</button>';
+    + '<button class="chip" type="button" data-bagf-manage>Manage bags</button>'
+    + (state.bagFilter ? '<button class="chip" type="button" data-bagf-clear title="Show every disc again">Clear</button>' : '');
 }
 
 // the account changed (sign in/out, a bag edited): keep everything that shows a bag in step
@@ -1421,13 +1430,21 @@ function wire() {
 
   $('#fg-bags').addEventListener('click', (e) => {
     if (e.target.closest('[data-bagf-manage]')) { openBags(); return; }
-    const chip = e.target.closest('[data-bagf]');
-    if (!chip) return;
-    const id = chip.dataset.bagf;
-    state.bagFilter = id && state.bagFilter !== id ? id : null; // tapping the lit bag turns the filter off
-    if (state.bagFilter) { setActive(state.bagFilter); return; } // the active bag follows; the change redraws everything
+    let focus = '[data-bagf-clear]';
+    if (e.target.closest('[data-bagf-clear]')) {
+      state.bagFilter = null;
+      focus = '[data-bagf]';
+    } else {
+      const chip = e.target.closest('[data-bagf]');
+      if (!chip) return;
+      const id = chip.dataset.bagf;
+      state.bagFilter = state.bagFilter === id ? null : id; // tapping the lit chip turns the filter off too
+      if (state.bagFilter && state.bagFilter !== ALL_BAGS) { setActive(state.bagFilter); return; } // the active bag follows; that change redraws everything
+      focus = state.bagFilter ? `[data-bagf="${ALL_BAGS}"]` : '[data-bagf]';
+    }
     renderBagFilter();
     render();
+    $(`#fg-bags ${focus}`)?.focus({ preventScroll: true });
   });
 
   loadAccount();
