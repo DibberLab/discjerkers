@@ -64,6 +64,7 @@ const state = {
   mph: 56, // arm speed: release speed in mph, in 2 mph steps
   spin: null, // release spin in rpm; null = what is typical for that speed
   panel: 'disc', // what the side panel is showing: one disc, or the comparison
+  bagFilter: null, // id of the bag the chart is narrowed to, or null for every disc
   bagOff: new Set(), // `${bagId}:${discId}` of bag discs switched off in the bag's flight view
   cmp: [], // comparison throws, up to MAX_CMP: { uid, id, hand, style, arm, angle }
   angle: 0, // release angle in steps of ANGLE_STEP degrees: + is hyzer, - is anhyzer
@@ -147,7 +148,12 @@ function buildFilters() {
     .join('');
 }
 
+let bagFilterIds = null; // the discs of the bag the chart is narrowed to, set at the start of each render
+let wasBagFiltered = false;
+const filterBag = () => (state.bagFilter && account.user ? account.bags.find((b) => b.id === state.bagFilter) || null : null);
+
 function matches(d, q) {
+  if (bagFilterIds && !bagFilterIds.has(d.id)) return false;
   if (state.cats.size && !state.cats.has(d.cat)) return false;
   if (state.brands.size && !state.brands.has(d.b)) return false;
   if (state.bands.size && !state.bands.has(d.band)) return false;
@@ -220,10 +226,13 @@ function layout(grades) {
 function render() {
   renderLegend();
   const q = parseQuery(state.q);
+  const inBagFilter = filterBag();
+  bagFilterIds = inBagFilter ? new Set(inBagFilter.discs) : null;
+  wasBagFiltered = !!inBagFilter;
   const list = discs.filter((d) => matches(d, q));
   const grades = state.view === 'grades';
 
-  $('#fg-count').innerHTML = `Showing <b>${nf.format(list.length)}</b> of ${nf.format(discs.length)} discs`;
+  $('#fg-count').innerHTML = `Showing <b>${nf.format(list.length)}</b> of ${nf.format(discs.length)} discs${inBagFilter ? ` · in ${esc(inBagFilter.name)}` : ''}`;
   $('#fg-brand-count').textContent = state.brands.size ? `· ${state.brands.size} picked` : `· all ${brands.length}`;
 
   const chart = $('#fg-chart');
@@ -233,7 +242,9 @@ function render() {
   slider.max = L.fit ? Math.max(24, L.cap) : 74;
   slider.value = L.size;
   if (!list.length) {
-    chart.innerHTML = '<div class="fg-empty"><b>Nothing out there</b>No discs match. Blame the filters.</div>';
+    chart.innerHTML = inBagFilter && !inBagFilter.discs.length
+      ? `<div class="fg-empty"><b>${esc(inBagFilter.name)} is empty</b>Open any disc and tap Add to bag.</div>`
+      : '<div class="fg-empty"><b>Nothing out there</b>No discs match. Blame the filters.</div>';
     return;
   }
 
@@ -959,8 +970,22 @@ function focusRun(run) {
   if (run !== null) svg.querySelectorAll(`[data-run="${run}"]`).forEach((el) => el.classList.add('is-focus'));
 }
 
+// the Bags row of the filters: every bag as a chip, so one tap narrows the chart to that bag
+function renderBagFilter() {
+  const row = $('#fg-bags-row');
+  row.hidden = !account.user;
+  if (!account.user) return;
+  const chip = (id, label, count) => `<button class="chip" type="button" data-bagf="${esc(id)}" aria-pressed="${(state.bagFilter || '') === id}">${label}${count === undefined ? '' : ` <small style="opacity:.55">${count}</small>`}</button>`;
+  $('#fg-bags').innerHTML = chip('', 'All discs')
+    + account.bags.map((b) => chip(b.id, `${b.main ? '★ ' : ''}${esc(b.name)}`, b.discs.length)).join('')
+    + '<button class="chip" type="button" data-bagf-manage>Manage bags</button>';
+}
+
 // the account changed (sign in/out, a bag edited): keep everything that shows a bag in step
 function onAccount() {
+  if (state.bagFilter && !filterBag()) state.bagFilter = null; // that bag is gone, or we signed out
+  renderBagFilter();
+  if (state.bagFilter || wasBagFiltered) render(); // the chart follows the bag
   markBag();
   const open = $('#fg-drawer').classList.contains('is-open');
   if (state.panel === 'disc' && state.selected) refreshBagRow();
@@ -1344,7 +1369,8 @@ function wire() {
   $('#fg-brand-clear').addEventListener('click', () => { state.brands.clear(); syncBrandButtons(); render(); });
 
   $('#fg-reset').addEventListener('click', () => {
-    state.q = ''; state.brands.clear(); state.cats.clear(); state.bands.clear();
+    state.q = ''; state.brands.clear(); state.cats.clear(); state.bands.clear(); state.bagFilter = null;
+    renderBagFilter();
     $('#fg-q').value = '';
     document.querySelectorAll('#fg-cats .chip, #fg-stabs .chip').forEach((el) => el.setAttribute('aria-pressed', 'false'));
     syncBrandButtons();
@@ -1392,6 +1418,17 @@ function wire() {
   body.addEventListener('mouseleave', () => { if (state.panel === 'bag') focusRun(null); });
   body.addEventListener('focusin', (e) => { if (state.panel === 'bag') focusRun(rowRun(e)); });
   body.addEventListener('focusout', () => { if (state.panel === 'bag') focusRun(null); });
+
+  $('#fg-bags').addEventListener('click', (e) => {
+    if (e.target.closest('[data-bagf-manage]')) { openBags(); return; }
+    const chip = e.target.closest('[data-bagf]');
+    if (!chip) return;
+    const id = chip.dataset.bagf;
+    state.bagFilter = id && state.bagFilter !== id ? id : null; // tapping the lit bag turns the filter off
+    if (state.bagFilter) { setActive(state.bagFilter); return; } // the active bag follows; the change redraws everything
+    renderBagFilter();
+    render();
+  });
 
   loadAccount();
   mountBar($('#fg-acct'), { onFly: () => openBag($('#fg-acct [data-acct="fly"]')) });

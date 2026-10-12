@@ -578,3 +578,5 @@
 .fg-rng__bar input[type="range"] { flex: 1; min-width: 0; height: 28px; margin: 0; background: transparent; cursor: pointer; accent-color: var(--lime); }
 .fg-rng__bar input[type="range"]:focus-visible, .fg-rng__auto:focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; }
 .fg-ccard__ranges { margin-top: 2px; }
+
+.fg-row[hidden] { display: none; }
