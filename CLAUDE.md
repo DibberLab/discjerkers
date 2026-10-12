@@ -70,6 +70,23 @@ that way; don't introduce React/Vite/Tailwind here.
 - No delete in the UI. To remove an entry, edit `data/changes.json` and restart the container
   (the server holds the log in memory).
 
+## Accounts and bags (/flightguide)
+
+- Optional sign-in for the flight guide only; checkout never touches it. Username + password, no
+  email, so there is **no password reset** (a forgotten password means editing `data/accounts.json`
+  by hand: delete the user, or have them make a new account). `server/lib/accounts.js`,
+  `server/routes/account.js`, `public/js/fgaccount.js`; records live in `data/accounts.json`
+  (gitignored, mode 0600, in the data volume: back it up like orders).
+- Passwords are scrypt hashes (node:crypto, no dependency). Sessions are random tokens in an
+  HttpOnly, SameSite=Lax cookie (`dj_session`, Secure behind the proxy); the file keeps only a hash
+  of each token. Mutating routes also refuse a cross-site `Origin`.
+- Like the change log it shares the process with checkout, so: an unreadable file makes accounts
+  read-only (never fails startup), a failed save rolls back, and at most 2 password hashes run at once.
+- Limits live in `LIMITS` (25 bags a user, 80 discs a bag, 5000 users). Wrong passwords are limited
+  per address and per username; sign-ups per address. Never put user text in `innerHTML` without `esc()`.
+- A bag stores disc ids from `public/data/flightguide.json`. If that snapshot is ever regenerated,
+  keep the ids stable or old bags will lose discs.
+
 ## Deploy
 
 Droplet, `/var/www/discjerkers`, docker compose behind nginx on 127.0.0.1:3040.

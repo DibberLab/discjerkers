@@ -1,5 +1,7 @@
 /* Flight guide: speed rows x stability columns, every disc a round chip. */
 
+import { account, activeBag, inBag, onAccountChange, loadAccount, mountBar, openSignIn, addDisc as bagAdd, removeDisc as bagRemove, setActive } from './fgaccount.js?v=1';
+
 const BANDS = [
   { label: 'Very overstable',  cols: [0, 1, 2],        tint: 'var(--rust)' },
   { label: 'Overstable',       cols: [3, 4, 5, 6],     tint: 'var(--rust-lift)' },
@@ -61,6 +63,7 @@ const state = {
   windMph: 0,
   arm: 2, // index into ARM
   panel: 'disc', // what the side panel is showing: one disc, or the comparison
+  bagOff: new Set(), // `${bagId}:${discId}` of bag discs switched off in the bag's flight view
   cmp: [], // comparison throws, up to MAX_CMP: { uid, id, hand, style, arm, angle }
   angle: 0, // release angle in steps of ANGLE_STEP degrees: + is hyzer, - is anhyzer
 };
@@ -269,6 +272,7 @@ function render() {
   const scrollMin = grades && !L.fit ? `;min-width:calc(${ROWHEAD}px + ${w.length} * (var(--disc) + 22px))` : '';
   chart.innerHTML = `<div class="fg-grid${L.size < BARE_BELOW ? ' is-bare' : ''}${L.fit ? ' is-fit' : ''}" style="--disc:${L.size}px;grid-template-columns:${cols}${scrollMin}">${h}</div>`;
   markCompared();
+  markBag();
 }
 
 /* ---------- drawer ---------- */
@@ -514,7 +518,7 @@ function fieldMarkup(wind) {
 
 // One throw: its path, the disc at the end of it, and its distance. t is a throw: the page's own settings,
 // or a comparison entry. playFlight animates whatever it finds, matched up by data-run.
-function flightRun(d, t, wind, pathColor, discColor, { run = 0, badge = '', stroke = 5.5, r = 15, labelDy = 0 } = {}) {
+function flightRun(d, t, wind, pathColor, discColor, { run = 0, badge = '', stroke = 5.5, r = 15, labelDy = 0, quiet = false } = {}) {
   const { x0, y0 } = FP;
   const f = (n) => n.toFixed(1);
   const cw = spinsClockwise(t);
@@ -531,7 +535,7 @@ function flightRun(d, t, wind, pathColor, discColor, { run = 0, badge = '', stro
       ${badge ? `<text class="fg-fp-badge" y="4.5" text-anchor="middle" fill="${bestInk(discColor)}">${badge}</text>` : ''}
     </g>`;
   // returned apart so a comparison can draw every label on top of every path
-  const label = `<text class="fg-fp__dist" data-run="${run}" x="${f(p3[0] + side * (r + 10))}" y="${f(p3[1] + 4 + labelDy)}" text-anchor="${side < 0 ? 'end' : 'start'}">≈${feet} ft</text>`;
+  const label = `<text class="fg-fp__dist${quiet ? ' fg-fp__dist--quiet' : ''}" data-run="${run}" x="${f(p3[0] + side * (r + 10))}" y="${f(p3[1] + 4 + labelDy)}" text-anchor="${side < 0 ? 'end' : 'start'}">≈${feet} ft</text>`;
   return { body, label };
 }
 
@@ -566,7 +570,7 @@ function comparePath(wind) {
 
 // Throws the discs down the line. Plays on open, on every change of hand or throw, and on Replay.
 let flightFrame = 0;
-function playFlight(root = '#fg-path-wrap') {
+function playFlight(root = '#fg-path-wrap', { instant = false } = {}) {
   cancelAnimationFrame(flightFrame);
   const svg = document.querySelector(`${root} .fg-fp-svg`);
   if (!svg) return;
@@ -582,11 +586,11 @@ function playFlight(root = '#fg-path-wrap') {
     r.path.style.strokeDashoffset = `${r.length * (1 - t)}`;
     r.disc.setAttribute('transform', `translate(${pt.x.toFixed(2)} ${pt.y.toFixed(2)})`);
     r.spinEl.setAttribute('transform', `rotate(${(r.spin * t * 1080).toFixed(1)})`);
-    r.tag.style.opacity = String(Math.max(0, Math.min(1, (t - 0.85) / 0.15)));
+    if (r.tag) r.tag.style.opacity = String(Math.max(0, Math.min(1, (t - 0.85) / 0.15)));
   };
 
   // nobody to watch (background tab), or someone who asked for less motion: just show where they land
-  if (document.hidden || window.matchMedia('(prefers-reduced-motion: reduce)').matches) { runs.forEach((r) => draw(r, 1)); return; }
+  if (instant || document.hidden || window.matchMedia('(prefers-reduced-motion: reduce)').matches) { runs.forEach((r) => draw(r, 1)); return; }
 
   const start = performance.now();
   const tick = (now) => {
@@ -630,24 +634,35 @@ function fitDrawerText() {
   if (face) fitText(face, 8, { height: true });
 }
 
-function pathSection(d) {
-  const cw = spinsClockwise();
-  const wind = windVector();
+// hand, throw, wind, arm and angle: the settings every flight view shares
+function throwControls() {
   const chip = (key, val, label, title = label) => `<button class="chip" type="button" data-${key}="${val}" aria-pressed="${state[key] === val}" title="${title}">${label}</button>`;
-  return `
-    <div class="fg-path">
-      ${flightPath(d, paint(d).c, wind)}
-      <div class="fg-throw" role="group" aria-label="How you throw">
+  return `<div class="fg-throw" role="group" aria-label="How you throw">
         <div class="fg-seg">${chip('hand', 'right', 'Right', 'Right hand')}${chip('hand', 'left', 'Left', 'Left hand')}</div>
         <div class="fg-seg">${chip('style', 'backhand', 'Backhand')}${chip('style', 'forehand', 'Forehand')}</div>
         <button class="chip fg-replay" type="button" data-replay aria-label="Replay the throw" title="Replay">↻</button>
       </div>
       ${windControls()}
       ${armControls()}
-      ${angleControls()}
-      <p>${cw ? 'Spins clockwise · fade finishes left' : 'Spins counter-clockwise · fade finishes right'}${windNote(wind)}${armNote(d)}${angleNote(d)}</p>
+      ${angleControls()}`;
+}
+
+const spinLine = () => (spinsClockwise() ? 'Spins clockwise · fade finishes left' : 'Spins counter-clockwise · fade finishes right');
+
+function pathSection(d) {
+  const wind = windVector();
+  return `
+    <div class="fg-path">
+      ${flightPath(d, paint(d).c, wind)}
+      ${throwControls()}
+      <p>${spinLine()}${windNote(wind)}${armNote(d)}${angleNote(d)}</p>
     </div>`;
 }
+
+// The modal's three areas: A (who or what), the chart, and B (everything else). Side by side on a wide
+// screen, stacked A / chart / B on a phone.
+const panelLayout = (a, chart, b) =>
+  `<div class="fg-d-cols"><div class="fg-d-a">${a}</div><div class="fg-d-chart">${chart}</div><div class="fg-d-b">${b}</div></div>`;
 
 function gauge(label, shown, pct, ring) {
   return `<div class="fg-gauge" style="--p:${pct <= 0 ? 0 : Math.max(5, Math.min(100, pct)).toFixed(0)};--ring:${ring}"><div class="fg-gauge__ring"><b>${shown}</b></div><span>${label}</span></div>`;
@@ -673,7 +688,7 @@ function openDrawer(id, trigger) {
   const href = d.link ? (d.link.startsWith('http') ? d.link : DATA.source + d.link) : '';
 
   const { main, variant } = splitName(d.name);
-  $('#fg-d-body').innerHTML = `
+  $('#fg-d-body').innerHTML = panelLayout(`
     <div class="fg-d-top">
       ${discHTML(d, main).replace('class="disc"', 'class="disc" tabindex="-1"')}
       <div class="fg-d-id">
@@ -691,16 +706,19 @@ function openDrawer(id, trigger) {
       ${gauge('Glide', d.glide, (d.glide / 7) * 100, 'var(--grey)')}
       ${gauge('Turn', fmtTurn(d.turn), (Math.min(5, Math.abs(d.turn)) / 5) * 100, 'var(--lime)')}
       ${gauge('Fade', d.fade, (Math.max(0, d.fade) / 6) * 100, 'var(--rust-lift)')}
+    </div>`,
+  `<div id="fg-path-wrap">${pathSection(d)}</div>`,
+  `<div class="fg-d-save">
+      <div class="fg-d-cmp" id="fg-bag-row" aria-live="polite">${bagRow(d)}</div>
+      <div class="fg-d-cmp" id="fg-cmp-btn" aria-live="polite">${cmpButtons()}</div>
     </div>
-    <div id="fg-path-wrap">${pathSection(d)}</div>
-    <div class="fg-d-cmp" id="fg-cmp-btn" aria-live="polite">${cmpButtons()}</div>
     <ul class="fg-specs">${specs.map(([k, v, u]) => `<li><span>${k}</span><b>${esc(v)}${u ? ` ${u}` : ''}</b></li>`).join('')}</ul>
     <div class="fg-d-actions">
       ${href
         ? `<a class="btn" href="${esc(href)}" target="_blank" rel="noopener">See it at Marshall Street →</a>`
         : '<p class="fg-d-nolink">No store link for this one</p>'}
       <button class="btn btn--ghost" type="button" data-only-brand="${d.b}">All ${esc(b.n)} discs</button>
-    </div>`;
+    </div>`);
 
   lastFocus = trigger || chip || null;
   $('#fg-drawer').classList.add('is-open');
@@ -720,6 +738,194 @@ function closeDrawer() {
   document.querySelectorAll('.disc[aria-pressed="true"]').forEach((el) => el.setAttribute('aria-pressed', 'false'));
   state.selected = null;
   if (lastFocus && document.contains(lastFocus)) lastFocus.focus({ preventScroll: true });
+}
+
+/* ---------- bags ---------- */
+
+// the save-to-bag row in a disc's panel
+function bagRow(d) {
+  if (!account.ready) return '';
+  if (!account.user) return '<button class="chip fg-cmpbtn" type="button" data-bag-signin>Sign in to save to a bag</button>';
+  const bag = activeBag();
+  const options = account.bags.map((b) => `<option value="${esc(b.id)}"${b.id === account.activeId ? ' selected' : ''}>${b.main ? '★ ' : ''}${esc(b.name)} (${b.discs.length})</option>`).join('');
+  const has = inBag(d.id, bag);
+  return `<label class="fg-bagpick"><span class="fg-wind__l">Bag</span><select data-bag-pick aria-label="Which bag">${options}</select></label>
+      <button class="chip fg-cmpbtn${has ? ' fg-cmpbtn--go' : ''}" type="button" data-bag-toggle aria-pressed="${has}">${has ? '✓ In this bag · Remove' : '+ Add to bag'}</button>
+      <span class="fg-d-cmp__full" id="fg-bag-msg" role="status"></span>`;
+}
+
+function refreshBagRow() {
+  const d = discs.find((x) => x.id === state.selected);
+  const row = $('#fg-bag-row');
+  if (d && row) row.innerHTML = bagRow(d);
+}
+
+const bagSay = (text) => { const el = $('#fg-bag-msg'); if (el) el.textContent = text; };
+
+// a ring on every chart disc that is in the active bag
+function markBag() {
+  const bag = account.user ? activeBag() : null;
+  const mine = new Set(bag ? bag.discs : []);
+  document.querySelectorAll('#fg-chart .disc').forEach((el) => {
+    if (mine.has(Number(el.dataset.id))) el.setAttribute('data-bag', ''); else el.removeAttribute('data-bag');
+  });
+}
+
+const bagKey = (bag, d) => `${bag.id}:${d.id}`;
+let bagShown = null; // which bag the bag view is showing, so switching bags can replay the throw
+
+function bagRows() {
+  const bag = activeBag();
+  if (!bag) return [];
+  const wind = windVector();
+  return bag.discs
+    .map((id) => discs.find((d) => d.id === id))
+    .filter(Boolean)
+    .sort((a, b) => b.speed - a.speed || a.name.localeCompare(b.name))
+    .map((d, i) => ({ d, i, on: !state.bagOff.has(bagKey(bag, d)), feet: carryFeet(d, wind) }));
+}
+
+// every switched-on disc in the bag on one field, in its own chip color
+function bagPath(rows, wind) {
+  const runs = rows.filter((r) => r.on).map(({ d, i }) => {
+    const c = paint(d).c;
+    return flightRun(d, state, wind, c, c, { run: i, stroke: 3, r: 8, quiet: true });
+  });
+  const total = rows.filter((r) => r.on).length;
+  return `<svg class="fg-fp-svg" viewBox="0 0 ${FP.w} ${FP.h}" role="img" aria-label="Flight paths for ${total} discs">
+    ${fieldMarkup(wind)}
+    ${runs.map((x) => x.body).join('')}
+    ${runs.map((x) => x.label).join('')}
+  </svg>`;
+}
+
+function bagRowHTML({ d, i, on, feet }) {
+  const pc = paint(d);
+  const b = brands[d.b];
+  return `<li class="fg-bagrow${on ? '' : ' is-off'}" data-bd="${d.id}" data-run="${i}">
+      <button class="fg-switch" type="button" role="switch" aria-checked="${on}" data-bag-sw aria-label="Show ${esc(d.name)} in the flight path"></button>
+      <span class="fg-bagrow__dot" style="--c:${pc.c}" aria-hidden="true"></span>
+      <div class="fg-bagrow__id"><b>${esc(splitName(d.name).main)}</b><small>${esc(b.n)} · ${d.speed} / ${d.glide} / ${fmtTurn(d.turn)} / ${d.fade}</small></div>
+      <span class="fg-bagrow__ft">${on ? `≈${feet} ft` : 'off'}</span>
+      <button class="fg-bagrow__x" type="button" data-bag-remove aria-label="Remove ${esc(d.name)} from this bag">×</button>
+    </li>`;
+}
+
+function renderBag({ animate = true, focusSel } = {}) {
+  const bag = activeBag();
+  if (!bag) return;
+  const drawer = $('#fg-drawer');
+  const scroll = drawer.scrollTop;
+  const listScroll = $('.fg-bag-list')?.scrollTop || 0;
+  const wind = windVector();
+  const rows = bagRows();
+  const flying = rows.filter((r) => r.on).length;
+  const options = account.bags.map((b) => `<option value="${esc(b.id)}"${b.id === bag.id ? ' selected' : ''}>${b.main ? '★ ' : ''}${esc(b.name)} (${b.discs.length})</option>`).join('');
+
+  $('#fg-d-body').innerHTML = panelLayout(`
+      <p class="fg-d-brand">Your bag</p>
+      <h2 class="fg-d-name" id="fg-d-name">${esc(bag.name)}</h2>
+      <div class="fg-d-tags">
+        <span class="fg-tag fg-tag--band" style="--tint:var(--lime)">${bag.main ? '★ Main bag' : 'Bag'}</span>
+        <span class="fg-tag">${flying} of ${rows.length} flying</span>
+      </div>
+      <div class="fg-bag-tools">
+        <label class="fg-bagpick"><span class="fg-wind__l">Bag</span><select data-bag-pick aria-label="Which bag">${options}</select></label>
+        <button class="chip" type="button" data-bag-all="on"${rows.length && flying < rows.length ? '' : ' disabled'}>All on</button>
+        <button class="chip" type="button" data-bag-all="off"${flying ? '' : ' disabled'}>All off</button>
+      </div>`,
+  `<div id="fg-bag-wrap">
+      <div class="fg-path">
+        ${bagPath(rows, wind)}
+        ${throwControls()}
+        <p>${spinLine()}${windNote(wind)}</p>
+      </div>
+    </div>`,
+  rows.length
+    ? `<ul class="fg-bag-list" aria-label="Discs in ${esc(bag.name)}">${rows.map(bagRowHTML).join('')}</ul>
+       <p class="fg-d-cmp__full" id="fg-bag-msg" role="status"></p>`
+    : `<p class="fg-bag-empty"><b>This bag is empty.</b> Open any disc on the chart and tap Add to bag.</p>`);
+
+  drawer.scrollTop = scroll;
+  const list = $('.fg-bag-list');
+  if (list) list.scrollTop = listScroll;
+  if (focusSel) refocus($('#fg-d-body'), focusSel);
+  const replay = animate || bagShown !== bag.id;
+  bagShown = bag.id;
+  playFlight('#fg-bag-wrap', { instant: !replay });
+}
+
+function showDrawer() {
+  $('#fg-drawer').classList.add('is-open');
+  $('#fg-scrim').classList.add('is-open');
+  $('#fg-drawer').setAttribute('aria-hidden', 'false');
+  $('#fg-drawer').focus({ preventScroll: true });
+  $('#fg-drawer').scrollTop = 0;
+}
+
+function openBag(trigger) {
+  if (!account.user || !activeBag()) return;
+  state.panel = 'bag';
+  state.selected = null;
+  document.querySelectorAll('.disc[aria-pressed="true"]').forEach((el) => el.setAttribute('aria-pressed', 'false'));
+  bagShown = null;
+  renderBag();
+  if (trigger) lastFocus = trigger;
+  showDrawer();
+}
+
+// only the bag's own buttons live here; the throw settings are handled with the single disc's
+async function handleBagClick(e) {
+  const bag = activeBag();
+  if (!bag) return false;
+  const sw = e.target.closest('[data-bag-sw]');
+  if (sw) {
+    const key = `${bag.id}:${sw.closest('[data-bd]').dataset.bd}`;
+    if (state.bagOff.has(key)) state.bagOff.delete(key); else state.bagOff.add(key);
+    renderBag({ animate: false, focusSel: `[data-bd="${sw.closest('[data-bd]').dataset.bd}"] [data-bag-sw]` });
+    return true;
+  }
+  const all = e.target.closest('[data-bag-all]');
+  if (all) {
+    for (const id of bag.discs) {
+      if (all.dataset.bagAll === 'on') state.bagOff.delete(`${bag.id}:${id}`); else state.bagOff.add(`${bag.id}:${id}`);
+    }
+    renderBag({ animate: false, focusSel: `[data-bag-all="${all.dataset.bagAll}"]` });
+    return true;
+  }
+  const rm = e.target.closest('[data-bag-remove]');
+  if (rm) {
+    const id = Number(rm.closest('[data-bd]').dataset.bd);
+    rm.disabled = true;
+    try {
+      await bagRemove(id, bag.id); // the account change redraws the view
+    } catch (err) {
+      rm.disabled = false;
+      bagSay(err.message);
+    }
+    return true;
+  }
+  return false;
+}
+
+// highlight one disc's path while its row is hovered or focused
+function focusRun(run) {
+  const svg = $('#fg-bag-wrap .fg-fp-svg');
+  if (!svg) return;
+  svg.classList.toggle('has-focus', run !== null);
+  svg.querySelectorAll('.is-focus').forEach((el) => el.classList.remove('is-focus'));
+  if (run !== null) svg.querySelectorAll(`[data-run="${run}"]`).forEach((el) => el.classList.add('is-focus'));
+}
+
+// the account changed (sign in/out, a bag edited): keep everything that shows a bag in step
+function onAccount() {
+  markBag();
+  const open = $('#fg-drawer').classList.contains('is-open');
+  if (state.panel === 'disc' && state.selected) refreshBagRow();
+  if (state.panel === 'bag' && open) {
+    if (!account.user || !activeBag()) { closeDrawer(); return; }
+    renderBag({ animate: false });
+  }
 }
 
 /* ---------- comparison ---------- */
@@ -810,26 +1016,24 @@ function renderCompare(focusSel) {
   const drawer = $('#fg-drawer');
   const scroll = drawer.scrollTop;
   const wind = windVector();
-  $('#fg-d-body').innerHTML = `
-    <div class="fg-cmp-head">
+  $('#fg-d-body').innerHTML = panelLayout(`
       <p class="fg-d-brand">Side by side</p>
-      <h2 class="fg-d-name" id="fg-d-name">Compare</h2>
-    </div>
-    <div id="fg-cmp-wrap">
+      <h2 class="fg-d-name" id="fg-d-name">Compare</h2>`,
+  `<div id="fg-cmp-wrap">
       <div class="fg-path">
         ${comparePath(wind)}
         <div class="fg-throw fg-throw--bar"><span class="fg-wind__l">Same wind for everyone</span><button class="chip fg-replay" type="button" data-replay aria-label="Replay the throws" title="Replay">↻</button></div>
         ${windControls()}
         ${windNoteLine(wind)}
       </div>
-      <div class="fg-cmp-cards">${state.cmp.map(compareCard).join('')}</div>
+    </div>`,
+  `<div class="fg-cmp-cards">${state.cmp.map(compareCard).join('')}</div>
       <div class="fg-d-cmp">
         ${state.cmp.length < MAX_CMP ? '<button class="chip fg-cmpbtn" type="button" data-cmp-more>+ Add another disc</button>' : ''}
         <button class="fg-tray__clear" type="button" data-cmp-clear>Clear all</button>
-      </div>
-    </div>`;
+      </div>`);
   drawer.scrollTop = scroll;
-  if (focusSel) refocus($('#fg-cmp-wrap'), focusSel);
+  if (focusSel) refocus($('#fg-d-body'), focusSel);
 }
 
 const windNoteLine = (wind) => (wind.mph ? `<p>${windNote(wind).replace(/^ · /, '')}</p>` : '');
@@ -837,7 +1041,7 @@ const windNoteLine = (wind) => (wind.mph ? `<p>${windNote(wind).replace(/^ · /,
 // put focus back on the control that was just used; if it has hit its limit and is disabled, on its partner
 function refocus(root, sel) {
   const el = root.querySelector(sel);
-  const target = el && !el.disabled ? el : (el?.closest('.fg-mph')?.querySelector('button:not([disabled])') || root.querySelector('.fg-ccard button'));
+  const target = el && !el.disabled ? el : (el?.closest('.fg-mph')?.querySelector('button:not([disabled])') || root.querySelector('.fg-ccard button, button'));
   target?.focus({ preventScroll: true });
 }
 
@@ -907,6 +1111,84 @@ function stepWind(btn) {
   const i = WIND_STEPS.indexOf(state.windMph);
   state.windMph = WIND_STEPS[clamp(i + Number(btn.dataset.windStep), 0, WIND_STEPS.length - 1)];
   return `[data-wind-step="${btn.dataset.windStep}"]`;
+}
+
+// Buttons that belong to a single disc's panel. Returns true if it handled the click.
+function handleDiscClick(e) {
+  if (e.target.closest('[data-cmp-add]')) {
+    addToCompare(state.selected);
+    $('#fg-cmp-btn').querySelector('[data-cmp-add],[data-cmp-open]')?.focus({ preventScroll: true });
+    return true;
+  }
+  if (e.target.closest('[data-cmp-open]')) { openCompare($('#fg-cmp-btn')); return true; }
+
+  if (e.target.closest('[data-bag-signin]')) {
+    const id = state.selected;
+    // someone who signs in from a disc came to save it: do that for them
+    openSignIn({ onDone: () => { if (state.selected === id && activeBag()) bagAdd(id).catch((err) => bagSay(err.message)); } });
+    return true;
+  }
+  const toggle = e.target.closest('[data-bag-toggle]');
+  if (toggle) {
+    const id = state.selected;
+    const bag = activeBag();
+    if (!bag) return true;
+    toggle.disabled = true;
+    bagSay('');
+    (inBag(id, bag) ? bagRemove(id, bag.id) : bagAdd(id, bag.id))
+      .then(() => $('#fg-bag-row [data-bag-toggle]')?.focus({ preventScroll: true }))
+      .catch((err) => { toggle.disabled = false; bagSay(err.message); });
+    return true;
+  }
+
+  const only = e.target.closest('[data-only-brand]');
+  if (only) {
+    state.brands = new Set([Number(only.dataset.onlyBrand)]);
+    syncBrandButtons();
+    closeDrawer();
+    render();
+    $('.fg-controls').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return true;
+  }
+  return false;
+}
+
+// Throw settings shared by a single disc and the whole bag: they live in `state`, so redraw whichever is showing.
+function redrawPanel(focusSel) {
+  if (state.panel === 'bag') { renderBag({ animate: true, focusSel }); return; }
+  const d = discs.find((x) => x.id === state.selected);
+  if (!d) return;
+  const wrap = $('#fg-path-wrap');
+  wrap.innerHTML = pathSection(d);
+  if (focusSel) refocus(wrap, focusSel);
+  playFlight();
+}
+
+function handleThrowClick(e) {
+  const pick = e.target.closest('[data-hand],[data-style]');
+  if (pick) {
+    const key = pick.dataset.hand ? 'hand' : 'style';
+    state[key] = pick.dataset[key];
+    saveThrow();
+    redrawPanel(`[data-${key}="${state[key]}"]`);
+    return;
+  }
+  const windBtn = e.target.closest('[data-wind-dir],[data-wind-step]');
+  if (windBtn) { redrawPanel(stepWind(windBtn)); return; }
+  const armBtn = e.target.closest('[data-arm-step]');
+  if (armBtn) {
+    state.arm = clamp(state.arm + Number(armBtn.dataset.armStep), 0, ARM.length - 1);
+    saveThrow();
+    redrawPanel(`[data-arm-step="${armBtn.dataset.armStep}"]`);
+    return;
+  }
+  const angleBtn = e.target.closest('[data-angle-step]');
+  if (angleBtn) {
+    state.angle = clamp(state.angle + Number(angleBtn.dataset.angleStep), -ANGLE_MAX, ANGLE_MAX);
+    redrawPanel(`[data-angle-step="${angleBtn.dataset.angleStep}"]`);
+    return;
+  }
+  if (e.target.closest('[data-replay]')) playFlight(state.panel === 'bag' ? '#fg-bag-wrap' : '#fg-path-wrap');
 }
 
 /* ---------- wiring ---------- */
@@ -1014,86 +1296,34 @@ function wire() {
   });
   $('#fg-d-close').addEventListener('click', closeDrawer);
   $('#fg-scrim').addEventListener('click', closeDrawer);
-  $('#fg-d-body').addEventListener('click', (e) => {
+  const body = $('#fg-d-body');
+  body.addEventListener('click', async (e) => {
     if (state.panel === 'compare') { handleCompareClick(e); return; }
-    if (e.target.closest('[data-cmp-add]')) {
-      addToCompare(state.selected);
-      $('#fg-cmp-btn').querySelector('[data-cmp-add],[data-cmp-open]')?.focus({ preventScroll: true });
-      return;
-    }
-    if (e.target.closest('[data-cmp-open]')) { openCompare($('#fg-cmp-btn')); return; }
-    const pick = e.target.closest('[data-hand],[data-style]');
-    if (pick) {
-      const key = pick.dataset.hand ? 'hand' : 'style';
-      state[key] = pick.dataset[key];
-      saveThrow();
-      const d = discs.find((x) => x.id === state.selected);
-      if (d) {
-        $('#fg-path-wrap').innerHTML = pathSection(d);
-        $('#fg-path-wrap').querySelector(`[data-${key}="${state[key]}"]`)?.focus({ preventScroll: true });
-        playFlight();
-      }
-      return;
-    }
-    const windBtn = e.target.closest('[data-wind-dir],[data-wind-step]');
-    if (windBtn) {
-      const same = stepWind(windBtn);
-      const d = discs.find((x) => x.id === state.selected);
-      if (d) {
-        const wrap = $('#fg-path-wrap');
-        wrap.innerHTML = pathSection(d);
-        const next = wrap.querySelector(same);
-        // a stepper button that just hit its limit is disabled now: hand focus to its partner, not the page
-        (next && !next.disabled
-          ? next
-          : wrap.querySelector('[data-wind-step]:not([disabled])') || wrap.querySelector(`[data-wind-dir="${state.windDir}"]`))?.focus({ preventScroll: true });
-        playFlight();
-      }
-      return;
-    }
-    const armBtn = e.target.closest('[data-arm-step]');
-    if (armBtn) {
-      state.arm = clamp(state.arm + Number(armBtn.dataset.armStep), 0, ARM.length - 1);
-      saveThrow();
-      const d = discs.find((x) => x.id === state.selected);
-      if (d) {
-        const wrap = $('#fg-path-wrap');
-        wrap.innerHTML = pathSection(d);
-        const same = wrap.querySelector(`[data-arm-step="${armBtn.dataset.armStep}"]`);
-        // the button that just hit its limit is disabled now: hand focus to its partner, not the page
-        (same && !same.disabled ? same : wrap.querySelector('[data-arm-step]:not([disabled])'))?.focus({ preventScroll: true });
-        playFlight();
-      }
-      return;
-    }
-    const angleBtn = e.target.closest('[data-angle-step]');
-    if (angleBtn) {
-      state.angle = clamp(state.angle + Number(angleBtn.dataset.angleStep), -ANGLE_MAX, ANGLE_MAX);
-      const d = discs.find((x) => x.id === state.selected);
-      if (d) {
-        const wrap = $('#fg-path-wrap');
-        wrap.innerHTML = pathSection(d);
-        const same = wrap.querySelector(`[data-angle-step="${angleBtn.dataset.angleStep}"]`);
-        (same && !same.disabled ? same : wrap.querySelector('[data-angle-step]:not([disabled])'))?.focus({ preventScroll: true });
-        playFlight();
-      }
-      return;
-    }
-    if (e.target.closest('[data-replay]')) {
-      const d = discs.find((x) => x.id === state.selected);
-      if (d) playFlight();
-      return;
-    }
-    const only = e.target.closest('[data-only-brand]');
-    if (!only) return;
-    state.brands = new Set([Number(only.dataset.onlyBrand)]);
-    syncBrandButtons();
-    closeDrawer();
-    render();
-    $('.fg-controls').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (state.panel === 'bag' && await handleBagClick(e)) return;
+    if (state.panel === 'disc' && handleDiscClick(e)) return;
+    handleThrowClick(e);
   });
+  body.addEventListener('change', (e) => {
+    if (!e.target.matches('[data-bag-pick]')) return;
+    setActive(e.target.value);
+    $('[data-bag-pick]')?.focus({ preventScroll: true }); // the panel redraws around it
+  });
+  // hovering or tabbing to a row in the bag list lights up that disc's path
+  const rowRun = (e) => {
+    const row = state.panel === 'bag' && e.target.closest ? e.target.closest('.fg-bagrow') : null;
+    return row && !row.classList.contains('is-off') ? row.dataset.run : null;
+  };
+  body.addEventListener('mouseover', (e) => { if (state.panel === 'bag') focusRun(rowRun(e)); });
+  body.addEventListener('mouseleave', () => { if (state.panel === 'bag') focusRun(null); });
+  body.addEventListener('focusin', (e) => { if (state.panel === 'bag') focusRun(rowRun(e)); });
+  body.addEventListener('focusout', () => { if (state.panel === 'bag') focusRun(null); });
+
+  loadAccount();
+  mountBar($('#fg-acct'), { onFly: () => openBag($('#fg-acct [data-acct="fly"]')) });
+  onAccountChange(onAccount);
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+      if (document.querySelector('dialog[open]')) return; // the dialog handles its own Escape
       if (!$('#fg-brand-panel').hidden) { $('#fg-brand-btn').click(); return; }
       if ($('#fg-drawer').classList.contains('is-open')) closeDrawer();
     }

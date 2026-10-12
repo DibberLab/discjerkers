@@ -1,13 +1,26 @@
 'use strict';
 
+const fs = require('node:fs');
 const path = require('node:path');
 const express = require('express');
 const config = require('./config');
 const printify = require('./lib/printify');
 const { createChangeStore } = require('./lib/changes');
 const { createChangesRouter } = require('./routes/changes');
+const { createAccountStore } = require('./lib/accounts');
+const { createAccountRouter } = require('./routes/account');
 
 const changes = createChangesRouter({ store: createChangeStore(path.join(__dirname, '..', 'data', 'changes.json')) });
+
+// the flight guide's disc ids, so a bag can only hold discs that exist (if the file can't be read, any id passes)
+let knownDiscs = null;
+try {
+  const guide = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'public', 'data', 'flightguide.json'), 'utf8'));
+  knownDiscs = new Set(guide.discs.map((row) => row[0]));
+} catch (err) {
+  console.error('[accounts] could not read the disc list:', err.message);
+}
+const accounts = createAccountRouter({ store: createAccountStore(path.join(__dirname, '..', 'data', 'accounts.json')), knownDiscs });
 
 const app = express();
 app.disable('x-powered-by');
@@ -18,6 +31,7 @@ app.use('/webhook', require('./routes/webhook'));
 
 app.use(express.json({ limit: '128kb' }));
 app.use('/api/changes', changes);
+app.use('/api/account', accounts);
 app.use('/api', require('./routes/api'));
 
 app.get('/healthz', (req, res) => res.json({ ok: true, demoMode: config.demoMode }));
