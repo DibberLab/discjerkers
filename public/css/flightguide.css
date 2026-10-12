@@ -322,10 +322,6 @@
 .fg-mph button[disabled] { opacity: 0.25; cursor: default; }
 .fg-mph output { min-width: 62px; text-align: center; font: 700 0.8rem/1 var(--mono); letter-spacing: 0.04em; color: var(--bone); }
 .fg-arm { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 20px; margin: 6px 2px 4px; padding-top: 12px; border-top: 1px solid var(--hair); }
-.fg-mph--arm output { display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 128px; }
-.fg-pips { display: flex; gap: 4px; }
-.fg-pips i { width: 14px; height: 3px; border-radius: 2px; background: var(--hair); transition: background 0.2s ease; }
-.fg-pips i.is-on { background: var(--lime); }
 .fg-angle { margin-top: 4px; }
 .fg-mph--angle output { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 150px; }
 .fg-mph--angle svg { width: 40px; height: 18px; flex: none; overflow: visible; }
@@ -567,3 +563,18 @@
 @media (prefers-reduced-motion: reduce) { .fg-fp, .fg-fp-disc, .fg-switch, .fg-switch::after { transition: none; } }
 
 .fg-acct .chip[disabled], .fg-bag-tools .chip[disabled] { text-decoration: none; }
+
+/* ---------- arm speed and spin: a slider with steppers ---------- */
+.fg-rng { margin: 6px 2px 4px; padding-top: 12px; border-top: 1px solid var(--hair); }
+.fg-rng__top { display: flex; align-items: baseline; gap: 10px; }
+.fg-rng__top output { margin-left: auto; font: 700 0.8rem/1.2 var(--mono); letter-spacing: 0.04em; color: var(--bone); text-align: right; }
+.fg-rng__top output small { margin-left: 8px; font-weight: 400; font-size: 0.62rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--bone-faint); }
+.fg-rng__auto {
+  padding: 3px 8px; background: none; border: 1px solid var(--hair); border-radius: 999px;
+  color: var(--bone-dim); font: 0.58rem/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; cursor: pointer;
+}
+.fg-rng__auto:hover { border-color: var(--lime); color: var(--lime); }
+.fg-rng__bar { margin-top: 8px; gap: 10px; }
+.fg-rng__bar input[type="range"] { flex: 1; min-width: 0; height: 28px; margin: 0; background: transparent; cursor: pointer; accent-color: var(--lime); }
+.fg-rng__bar input[type="range"]:focus-visible, .fg-rng__auto:focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; }
+.fg-ccard__ranges { margin-top: 2px; }

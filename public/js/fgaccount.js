@@ -246,12 +246,19 @@ function buildManager() {
   dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
   onAccountChange(() => { if (dlg.open) { if (account.user) draw(); else dlg.close(); } });
 
-  return { open() { say(''); draw(); dlg.showModal(); } };
+  return {
+    open(focusNew) {
+      say('');
+      draw();
+      dlg.showModal();
+      if (focusNew) $('.fg-bagnew input', dlg).focus();
+    },
+  };
 }
 
-export function openBags() {
+export function openBags({ focusNew = false } = {}) {
   manager ||= buildManager();
-  manager.open();
+  manager.open(focusNew);
 }
 
 /* ---------- the bar above the chart ---------- */
@@ -266,7 +273,7 @@ export function mountBar(el, { onFly }) {
       return;
     }
     const bag = activeBag();
-    const options = account.bags.map((b) => `<option value="${esc(b.id)}"${b.id === account.activeId ? ' selected' : ''}>${b.main ? '★ ' : ''}${esc(b.name)} (${b.discs.length})</option>`).join('');
+    const options = account.bags.map((b) => `<option value="${esc(b.id)}"${b.id === account.activeId ? ' selected' : ''}>${b.main ? '★ ' : ''}${esc(b.name)} (${b.discs.length})</option>`).join('') + '<option value="__new">+ New bag…</option>';
     const n = bag ? bag.discs.length : 0;
     el.innerHTML = `
       <span class="fg-acct__who"><span class="fg-wind__l">Signed in</span> <b>${esc(account.user.name)}</b></span>
@@ -285,7 +292,11 @@ export function mountBar(el, { onFly }) {
     else if (act === 'fly') onFly();
     else if (act === 'signout') signOut();
   });
-  el.addEventListener('change', (e) => { if (e.target.matches('[data-acct="bag"]')) setActive(e.target.value); });
+  el.addEventListener('change', (e) => {
+    if (!e.target.matches('[data-acct="bag"]')) return;
+    if (e.target.value === '__new') { openBags({ focusNew: true }); draw(); return; } // draw() puts the picker back
+    setActive(e.target.value);
+  });
   onAccountChange(draw);
   draw();
 }

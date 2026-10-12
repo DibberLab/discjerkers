@@ -1,6 +1,6 @@
 /* Flight guide: speed rows x stability columns, every disc a round chip. */
 
-import { account, activeBag, inBag, onAccountChange, loadAccount, mountBar, openSignIn, addDisc as bagAdd, removeDisc as bagRemove, setActive } from './fgaccount.js?v=1';
+import { account, activeBag, inBag, onAccountChange, loadAccount, mountBar, openSignIn, openBags, addDisc as bagAdd, removeDisc as bagRemove, setActive } from './fgaccount.js?v=2';
 
 const BANDS = [
   { label: 'Very overstable',  cols: [0, 1, 2],        tint: 'var(--rust)' },
@@ -61,7 +61,8 @@ const state = {
   style: 'backhand',
   windDir: 0, // where the wind comes FROM; you always throw north, so 0 (north) is a headwind
   windMph: 0,
-  arm: 2, // index into ARM
+  mph: 56, // arm speed: release speed in mph, in 2 mph steps
+  spin: null, // release spin in rpm; null = what is typical for that speed
   panel: 'disc', // what the side panel is showing: one disc, or the comparison
   bagOff: new Set(), // `${bagId}:${discId}` of bag discs switched off in the bag's flight view
   cmp: [], // comparison throws, up to MAX_CMP: { uid, id, hand, style, arm, angle }
@@ -76,11 +77,13 @@ function loadThrow() {
   try {
     const t = JSON.parse(localStorage.getItem('dj_fg_throw'));
     if (t && ['right', 'left'].includes(t.hand) && ['backhand', 'forehand'].includes(t.style)) { state.hand = t.hand; state.style = t.style; }
-    if (t && Number.isInteger(t.arm) && t.arm >= 0 && t.arm < ARM.length) state.arm = t.arm;
+    if (t && Number.isInteger(t.mph) && t.mph >= MPH.min && t.mph <= MPH.max && t.mph % MPH.step === 0) state.mph = t.mph;
+    else if (t && Number.isInteger(t.arm) && t.arm >= 0 && t.arm < 6) state.mph = [40, 48, 56, 62, 70, 78][t.arm]; // the old six levels
+    if (t && Number.isInteger(t.spin) && t.spin >= SPIN.min && t.spin <= SPIN.max) state.spin = t.spin;
   } catch { /* private mode / blocked storage: keep the defaults */ }
 }
 function saveThrow() {
-  try { localStorage.setItem('dj_fg_throw', JSON.stringify({ hand: state.hand, style: state.style, arm: state.arm })); } catch { /* not persisted */ }
+  try { localStorage.setItem('dj_fg_throw', JSON.stringify({ hand: state.hand, style: state.style, mph: state.mph, spin: state.spin })); } catch { /* not persisted */ }
 }
 
 async function init() {
@@ -281,32 +284,53 @@ function render() {
 // arm, and the grid is 100 ft a square. Not physics: a way to compare discs.
 const FP = { w: 360, h: 417, x0: 200, y0: 392, k: 0.74, left: 52, right: 352 };
 const GRID_FT = 500; // far enough for nearly every throw; the longest are held just inside it
-// cap: the disc speed this arm can get fully up to speed. power: how much distance the arm adds on top.
-const ARM = [
-  { name: 'Beginner', cap: 6, power: 0.74 },
-  { name: 'Beginner Plus', cap: 8, power: 0.87 },
-  { name: 'Intermediate', cap: 10, power: 1 },
-  { name: 'Intermediate Plus', cap: 11.5, power: 1.05 },
-  { name: 'Advanced', cap: 13, power: 1.1 },
-  { name: 'Pro', cap: 15, power: 1.14 },
-];
+// Arm speed is release speed in mph, in 2 mph steps. Spin is release rpm. Both match what a Tech Disc reports.
+const MPH = { min: 30, max: 90, step: 2 };
+const SPIN = { min: 400, max: 1600, step: 50 };
+const RPM_PER_MPH = 15; // a typical throw spins about this many rpm for every mph it leaves the hand at
+// mph -> cap (the disc speed that arm can get fully up to speed) and power (the distance the arm adds on top);
+// a straight line between these points
+const ARM_ANCHORS = [[30, 4, 0.62], [40, 6, 0.74], [48, 8, 0.87], [56, 10, 1], [62, 11.5, 1.05], [70, 13, 1.1], [78, 15, 1.14], [90, 15, 1.16]];
+function armAt(mph) {
+  const pts = ARM_ANCHORS;
+  if (mph <= pts[0][0]) return { cap: pts[0][1], power: pts[0][2] };
+  for (let i = 1; i < pts.length; i++) {
+    if (mph <= pts[i][0]) {
+      const [m0, c0, p0] = pts[i - 1];
+      const [m1, c1, p1] = pts[i];
+      const f = (mph - m0) / (m1 - m0);
+      return { cap: c0 + (c1 - c0) * f, power: p0 + (p1 - p0) * f };
+    }
+  }
+  const last = pts.at(-1);
+  return { cap: last[1], power: last[2] };
+}
+const TIERS = [[44, 'Beginner'], [52, 'Beginner Plus'], [59, 'Intermediate'], [66, 'Intermediate Plus'], [74, 'Advanced'], [Infinity, 'Pro']];
+const tierName = (mph) => TIERS.find(([max]) => mph < max)[1];
+const typicalSpin = (mph) => Math.round((mph * RPM_PER_MPH) / SPIN.step) * SPIN.step;
+const spinOf = (t) => (t.spin == null ? typicalSpin(t.mph) : t.spin);
 
-// How this arm and this disc get along. A disc faster than the arm can power never gets up to speed: it carries
-// less and fades early. A slow disc on a strong arm is overpowered: it turns over more.
+// How this arm, this spin and this disc get along. A disc faster than the arm can power never gets up to speed: it
+// carries less and fades early. A slow disc on a strong arm is overpowered: it turns over more. Spin past what
+// the throw would normally have steadies the disc (less turn and fade, a touch farther); less lets it wobble.
 function armEffects(d, t = state) {
-  const a = ARM[t.arm];
+  const a = armAt(t.mph);
   const ratio = Math.min(1, a.cap / d.speed);
   const over = clamp(a.cap / d.speed, 1, 2);
+  const q = t.spin == null ? 1 : clamp(t.spin / (RPM_PER_MPH * t.mph), 0.5, 1.7);
+  const steady = q ** -0.7;
   return {
     ratio,
-    turn: (0.4 + 0.6 * ratio) * (1 + (over - 1) * 0.25),
-    fade: (1 + (1 - ratio) * 1.5) * (1 - (over - 1) * 0.15),
+    cap: a.cap,
+    power: a.power,
+    carry: clamp(0.82 + 0.18 * q, 0.85, 1.07),
+    turn: (0.4 + 0.6 * ratio) * (1 + (over - 1) * 0.25) * steady,
+    fade: (1 + (1 - ratio) * 1.5) * (1 - (over - 1) * 0.15) * steady,
   };
 }
 const estFeet = (d, t = state) => {
-  const a = ARM[t.arm];
-  const { ratio } = armEffects(d, t);
-  return Math.round(((140 + Math.min(d.speed, a.cap) * 16 + d.glide * 6) * a.power * (0.85 + 0.15 * ratio)) / 10) * 10;
+  const { ratio, cap, power, carry } = armEffects(d, t);
+  return Math.round(((140 + Math.min(d.speed, cap) * 16 + d.glide * 6) * power * (0.85 + 0.15 * ratio) * carry) / 10) * 10;
 };
 
 // Comparison: up to three throws, each in its own color.
@@ -427,19 +451,26 @@ function windControls() {
     </div>`;
 }
 
-// Arm speed: a stepper like the wind's, with a pip for each of the six levels.
-function armControls() {
-  const last = ARM.length - 1;
-  const pips = ARM.map((_, i) => `<i${i <= state.arm ? ' class="is-on"' : ''}></i>`).join('');
-  return `<div class="fg-arm" role="group" aria-label="Arm speed">
-      <span class="fg-wind__l">Arm speed</span>
-      <div class="fg-mph fg-mph--arm">
-        <button type="button" data-arm-step="-1" aria-label="Slower arm"${state.arm === 0 ? ' disabled' : ''}>−</button>
-        <output aria-live="polite"><span>${ARM[state.arm].name}</span><span class="fg-pips" aria-hidden="true">${pips}</span></output>
-        <button type="button" data-arm-step="1" aria-label="Faster arm"${state.arm === last ? ' disabled' : ''}>+</button>
+// Arm speed (mph) and spin (rpm): a slider with steppers. t is the page's own throw or a comparison entry.
+function rangeRow(kind, t = state) {
+  const arm = kind === 'mph';
+  const cfg = arm ? MPH : SPIN;
+  const value = arm ? t.mph : spinOf(t);
+  const text = arm
+    ? `${t.mph} mph<small>${tierName(t.mph)}</small>`
+    : (t.spin == null ? `Auto<small>${typicalSpin(t.mph)} rpm</small>` : `${t.spin} rpm`);
+  const label = arm ? 'Arm speed' : 'Spin';
+  const auto = !arm && t.spin != null ? '<button class="fg-rng__auto" type="button" data-spin-auto title="Use the typical spin for this arm speed">Auto</button>' : '';
+  return `<div class="fg-rng" role="group" aria-label="${label}">
+      <div class="fg-rng__top"><span class="fg-wind__l">${label}</span>${auto}<output aria-live="polite">${text}</output></div>
+      <div class="fg-rng__bar fg-mph">
+        <button type="button" data-rng-step="${kind}" data-dir="-1" aria-label="${arm ? 'Slower arm' : 'Less spin'}"${value <= cfg.min ? ' disabled' : ''}>−</button>
+        <input type="range" data-rng="${kind}" min="${cfg.min}" max="${cfg.max}" step="${cfg.step}" value="${value}" aria-label="${label}" aria-valuetext="${value} ${arm ? 'mph' : 'rpm'}">
+        <button type="button" data-rng-step="${kind}" data-dir="1" aria-label="${arm ? 'Faster arm' : 'More spin'}"${value >= cfg.max ? ' disabled' : ''}>+</button>
       </div>
     </div>`;
 }
+const armControls = (t = state) => rangeRow('mph', t) + rangeRow('spin', t);
 
 // A disc seen from behind: hyzer drops the fade-side edge, anhyzer the turn-side edge.
 function angleControls() {
@@ -473,9 +504,17 @@ function angleNote(d, t = state) {
   return ' · anhyzer: turns more, softer finish';
 }
 
+function spinNote(t = state) {
+  if (t.spin == null) return '';
+  const q = t.spin / (RPM_PER_MPH * t.mph);
+  if (q < 0.8) return ' · low spin: wobbles, turns and fades more, comes up short';
+  if (q > 1.25) return ' · lots of spin: holds its line, carries a touch farther';
+  return '';
+}
+
 function armNote(d, t = state) {
   const { ratio } = armEffects(d, t);
-  const over = ARM[t.arm].cap / d.speed;
+  const over = armAt(t.mph).cap / d.speed;
   if (ratio < 0.8) return ' · too fast for this arm: comes up short and fades early';
   if (over >= 1.7) return ' · plenty of arm: turns over more';
   return '';
@@ -655,7 +694,7 @@ function pathSection(d) {
     <div class="fg-path">
       ${flightPath(d, paint(d).c, wind)}
       ${throwControls()}
-      <p>${spinLine()}${windNote(wind)}${armNote(d)}${angleNote(d)}</p>
+      <p>${spinLine()}${windNote(wind)}${armNote(d)}${spinNote()}${angleNote(d)}</p>
     </div>`;
 }
 
@@ -747,7 +786,7 @@ function bagRow(d) {
   if (!account.ready) return '';
   if (!account.user) return '<button class="chip fg-cmpbtn" type="button" data-bag-signin>Sign in to save to a bag</button>';
   const bag = activeBag();
-  const options = account.bags.map((b) => `<option value="${esc(b.id)}"${b.id === account.activeId ? ' selected' : ''}>${b.main ? '★ ' : ''}${esc(b.name)} (${b.discs.length})</option>`).join('');
+  const options = bagOptions();
   const has = inBag(d.id, bag);
   return `<label class="fg-bagpick"><span class="fg-wind__l">Bag</span><select data-bag-pick aria-label="Which bag">${options}</select></label>
       <button class="chip fg-cmpbtn${has ? ' fg-cmpbtn--go' : ''}" type="button" data-bag-toggle aria-pressed="${has}">${has ? '✓ In this bag · Remove' : '+ Add to bag'}</button>
@@ -770,6 +809,9 @@ function markBag() {
     if (mine.has(Number(el.dataset.id))) el.setAttribute('data-bag', ''); else el.removeAttribute('data-bag');
   });
 }
+
+const NEW_BAG = '__new';
+const bagOptions = () => account.bags.map((b) => `<option value="${esc(b.id)}"${b.id === account.activeId ? ' selected' : ''}>${b.main ? '★ ' : ''}${esc(b.name)} (${b.discs.length})</option>`).join('') + `<option value="${NEW_BAG}">+ New bag…</option>`;
 
 const bagKey = (bag, d) => `${bag.id}:${d.id}`;
 let bagShown = null; // which bag the bag view is showing, so switching bags can replay the throw
@@ -820,7 +862,7 @@ function renderBag({ animate = true, focusSel } = {}) {
   const wind = windVector();
   const rows = bagRows();
   const flying = rows.filter((r) => r.on).length;
-  const options = account.bags.map((b) => `<option value="${esc(b.id)}"${b.id === bag.id ? ' selected' : ''}>${b.main ? '★ ' : ''}${esc(b.name)} (${b.discs.length})</option>`).join('');
+  const options = bagOptions();
 
   $('#fg-d-body').innerHTML = panelLayout(`
       <p class="fg-d-brand">Your bag</p>
@@ -974,7 +1016,7 @@ function syncCompare() {
 
 function addToCompare(id) {
   if (state.cmp.length >= MAX_CMP) return;
-  state.cmp.push({ uid: ++cmpUid, id, hand: state.hand, style: state.style, arm: state.arm, angle: state.angle });
+  state.cmp.push({ uid: ++cmpUid, id, hand: state.hand, style: state.style, mph: state.mph, spin: state.spin, angle: state.angle });
   syncCompare();
 }
 
@@ -988,12 +1030,12 @@ function compareCard(e, i) {
   const step = (kind, label, text, min, max) => `<div class="fg-cstep">
       <span class="fg-wind__l">${label}</span>
       <div class="fg-mph">
-        <button type="button" data-cact="${kind}" data-cval="-1" aria-label="${kind === 'arm' ? 'Slower arm' : 'More anhyzer'}"${e[kind] <= min ? ' disabled' : ''}>${kind === 'arm' ? '−' : '‹'}</button>
+        <button type="button" data-cact="${kind}" data-cval="-1" aria-label="More anhyzer"${e[kind] <= min ? ' disabled' : ''}>‹</button>
         <output aria-live="polite">${text}</output>
-        <button type="button" data-cact="${kind}" data-cval="1" aria-label="${kind === 'arm' ? 'Faster arm' : 'More hyzer'}"${e[kind] >= max ? ' disabled' : ''}>${kind === 'arm' ? '+' : '›'}</button>
+        <button type="button" data-cact="${kind}" data-cval="1" aria-label="More hyzer"${e[kind] >= max ? ' disabled' : ''}>›</button>
       </div>
     </div>`;
-  const notes = [armNote(d, e), angleNote(d, e)].map((n) => n.replace(/^ · /, '')).filter(Boolean);
+  const notes = [armNote(d, e), spinNote(e), angleNote(d, e)].map((n) => n.replace(/^ · /, '')).filter(Boolean);
   return `<article class="fg-ccard" data-cu="${e.uid}" style="--c:${SLOT[i]}" aria-label="${i + 1}: ${esc(b.n)} ${esc(d.name)}">
     <header class="fg-ccard__head">
       <span class="fg-ccard__n" aria-hidden="true">${i + 1}</span>
@@ -1004,8 +1046,8 @@ function compareCard(e, i) {
       <div class="fg-seg">${chip('hand', 'right', 'Right')}${chip('hand', 'left', 'Left')}</div>
       <div class="fg-seg">${chip('style', 'backhand', 'Backhand')}${chip('style', 'forehand', 'Forehand')}</div>
     </div>
+    <div class="fg-ccard__ranges">${armControls(e)}</div>
     <div class="fg-ccard__steps">
-      ${step('arm', 'Arm', ARM[e.arm].name, 0, ARM.length - 1)}
       ${step('angle', 'Angle', angleName(e), -ANGLE_MAX, ANGLE_MAX)}
     </div>
     <p class="fg-ccard__note"><b>≈${carryFeet(d, wind, e)} ft</b>${notes.length ? ` · ${esc(notes.join(' · '))}` : ''}</p>
@@ -1061,6 +1103,7 @@ function openCompare(trigger) {
 }
 
 function handleCompareClick(e) {
+  if (applyRange(e)) return;
   let focusSel = null;
   const act = e.target.closest('[data-cact]');
   const windBtn = e.target.closest('[data-wind-dir],[data-wind-step]');
@@ -1075,8 +1118,6 @@ function handleCompareClick(e) {
       if (state.cmp.length < 2) { closeDrawer(); return; } // one throw is not a comparison
     } else if (kind === 'hand' || kind === 'style') {
       entry[kind] = val;
-    } else if (kind === 'arm') {
-      entry.arm = clamp(entry.arm + Number(val), 0, ARM.length - 1);
     } else if (kind === 'angle') {
       entry.angle = clamp(entry.angle + Number(val), -ANGLE_MAX, ANGLE_MAX);
     }
@@ -1164,7 +1205,35 @@ function redrawPanel(focusSel) {
   playFlight();
 }
 
+// Arm speed and spin, for the page's own throw or one comparison entry. Slider releases and stepper taps both land here.
+const RNG = { mph: MPH, spin: SPIN };
+function applyRange(e) {
+  const stepBtn = e.type === 'click' ? e.target.closest('[data-rng-step]') : null;
+  const auto = e.type === 'click' ? e.target.closest('[data-spin-auto]') : null;
+  const input = e.type === 'change' ? e.target.closest('[data-rng]') : null;
+  const src = stepBtn || auto || input;
+  if (!src) return false;
+  const card = src.closest('[data-cu]');
+  const t = card ? state.cmp.find((x) => x.uid === Number(card.dataset.cu)) : state;
+  if (!t) return true;
+  const kind = auto ? 'spin' : (stepBtn ? stepBtn.dataset.rngStep : input.dataset.rng);
+  if (auto) {
+    t.spin = null;
+  } else {
+    const cfg = RNG[kind];
+    const now = kind === 'mph' ? t.mph : spinOf(t);
+    const next = stepBtn ? now + Number(stepBtn.dataset.dir) * cfg.step : Number(input.value);
+    const v = clamp(Math.round(next / cfg.step) * cfg.step, cfg.min, cfg.max);
+    if (kind === 'mph') t.mph = v; else t.spin = v;
+  }
+  if (t === state) saveThrow();
+  const sel = `${card ? `[data-cu="${card.dataset.cu}"] ` : ''}[data-rng="${kind}"]`;
+  if (card) { renderCompare(sel); playFlight('#fg-cmp-wrap'); } else redrawPanel(sel);
+  return true;
+}
+
 function handleThrowClick(e) {
+  if (applyRange(e)) return;
   const pick = e.target.closest('[data-hand],[data-style]');
   if (pick) {
     const key = pick.dataset.hand ? 'hand' : 'style';
@@ -1175,13 +1244,6 @@ function handleThrowClick(e) {
   }
   const windBtn = e.target.closest('[data-wind-dir],[data-wind-step]');
   if (windBtn) { redrawPanel(stepWind(windBtn)); return; }
-  const armBtn = e.target.closest('[data-arm-step]');
-  if (armBtn) {
-    state.arm = clamp(state.arm + Number(armBtn.dataset.armStep), 0, ARM.length - 1);
-    saveThrow();
-    redrawPanel(`[data-arm-step="${armBtn.dataset.armStep}"]`);
-    return;
-  }
   const angleBtn = e.target.closest('[data-angle-step]');
   if (angleBtn) {
     state.angle = clamp(state.angle + Number(angleBtn.dataset.angleStep), -ANGLE_MAX, ANGLE_MAX);
@@ -1304,9 +1366,22 @@ function wire() {
     handleThrowClick(e);
   });
   body.addEventListener('change', (e) => {
+    if (applyRange(e)) return;
     if (!e.target.matches('[data-bag-pick]')) return;
+    if (e.target.value === NEW_BAG) {
+      openBags({ focusNew: true });
+      if (state.panel === 'bag') renderBag({ animate: false }); else refreshBagRow(); // put the picker back
+      return;
+    }
     setActive(e.target.value);
     $('[data-bag-pick]')?.focus({ preventScroll: true }); // the panel redraws around it
+  });
+  // while a slider is being dragged, keep its number honest; the chart redraws when it is let go
+  body.addEventListener('input', (e) => {
+    const r = e.target.closest && e.target.closest('[data-rng]');
+    if (!r) return;
+    const v = Number(r.value);
+    r.closest('.fg-rng').querySelector('output').innerHTML = r.dataset.rng === 'mph' ? `${v} mph<small>${tierName(v)}</small>` : `${v} rpm`;
   });
   // hovering or tabbing to a row in the bag list lights up that disc's path
   const rowRun = (e) => {
