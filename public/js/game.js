@@ -704,35 +704,72 @@ function panelSwipe() {
   return `<div class="gm-meter ${drive ? '' : 'gm-meter--putt'}">
       <p class="gm-meter__t"><span>${drive ? 5 : 2} ·</span> Swipe</p>
       <div class="gm-meter__h"><p>${drive
-    ? 'Flick up the screen to throw. Stay inside the lime lines and stop in the lime band: off line steers the throw, too soft loses distance, too hard makes it loose.'
-    : 'Flick from the disc toward the basket. Keep it straight inside the lime lines, and stop inside the lime band: too soft dies short, too hard runs long, and off line misses.'}</p></div>
+    ? 'One quick, smooth flick up the screen to throw (pause or pull back and it counts where you stopped). Stay inside the lime lines and stop in the lime band: off line steers the throw, too soft loses distance, too hard makes it loose.'
+    : 'One quick, smooth flick from the disc toward the basket (pause or pull back and it counts where you stopped). Keep it straight inside the lime lines, and stop inside the lime band: too soft dies short, too hard runs long, and off line misses.'}</p></div>
     </div>`;
 }
 function swipePoint(e) {
   const r = cv.getBoundingClientRect();
   return { x: e.clientX - r.left, y: e.clientY - r.top };
 }
+/* One smooth motion. A swipe is judged where the motion ends, and the motion ends the moment you stop moving, pull back, or lift: you
+   cannot stop at the end and nudge it. A pause of about a tenth of a second commits it where you paused; pulling back commits it at the
+   farthest point you reached; and a swipe too slow to be a swipe is thrown out (try again). */
+const SWIPE = { minLen: 28, minPeak: 260, slow: 150, pauseMs: 110, backPx: 14 }; // px, px per second, ms
+const now2 = () => performance.now();
 function beginSwipe(e) {
   const p = swipePoint(e);
-  S.meter.drag = { x0: p.x, y0: p.y, x: p.x, y: p.y };
+  const t = now2();
+  S.meter.drag = { x0: p.x, y0: p.y, x: p.x, y: p.y, samples: [{ x: p.x, y: p.y, t }], peak: 0, maxLen: 0, maxPt: { x: p.x, y: p.y }, slowPt: null, slowT: 0, lastMove: t };
   cv.setPointerCapture?.(e.pointerId);
 }
 function moveSwipe(e) {
   const d = S.meter?.drag;
   if (!d) return;
   const p = swipePoint(e);
+  const t = now2();
   d.x = p.x;
   d.y = p.y;
+  d.lastMove = t;
+  d.samples.push({ x: p.x, y: p.y, t });
+  while (d.samples.length > 2 && t - d.samples[0].t > 400) d.samples.shift();
+  const len = Math.hypot(p.x - d.x0, p.y - d.y0);
+  if (len > d.maxLen) { d.maxLen = len; d.maxPt = { x: p.x, y: p.y }; }
+  // how fast the finger is going: over the last 60 to 120 ms
+  const ref = [...d.samples].reverse().find((q) => t - q.t >= 60) || d.samples[0];
+  const speed = t - ref.t > 0 ? (Math.hypot(p.x - ref.x, p.y - ref.y) / (t - ref.t)) * 1000 : 0;
+  d.speed = speed;
+  if (speed > d.peak) d.peak = speed;
+  if (d.peak >= SWIPE.minPeak && speed < SWIPE.slow) { if (!d.slowPt) { d.slowPt = { x: p.x, y: p.y }; d.slowT = t; } } else d.slowPt = null;
+  if (d.maxLen > SWIPE.minLen && len < d.maxLen - SWIPE.backPx) commitSwipe(d.maxPt); // pulling back: it counts where it got to
+}
+// every frame: a finger that has stopped (or is holding still, so sends nothing) ends the swipe where it stopped
+function tickSwipe() {
+  const d = S.phase === 'swipe' ? S.meter?.drag : null;
+  if (!d || d.peak < SWIPE.minPeak) return;
+  const t = now2();
+  if (d.slowPt && t - d.slowT > SWIPE.pauseMs) commitSwipe(d.slowPt);
+  else if (t - d.lastMove > SWIPE.pauseMs + 30) commitSwipe({ x: d.x, y: d.y });
 }
 function endSwipe() {
+  const d = S.meter?.drag;
+  if (S.phase !== 'swipe' || !d) return;
+  if (d.peak < SWIPE.minPeak) { // a drag, not a swipe: too slow to count, and you may try again
+    S.meter.drag = null;
+    if (d.maxLen > SWIPE.minLen) S.meter.tooSlow = now2() + 1400;
+    return;
+  }
+  commitSwipe(d.maxLen > Math.hypot(d.x - d.x0, d.y - d.y0) + SWIPE.backPx ? d.maxPt : { x: d.x, y: d.y });
+}
+function commitSwipe(pt) {
   const m = S.meter;
   const d = m?.drag;
   if (S.phase !== 'swipe' || !d) return;
   m.drag = null;
-  const dx = d.x - d.x0;
-  const dy = d.y - d.y0;
+  const dx = pt.x - d.x0;
+  const dy = pt.y - d.y0;
   const len = Math.hypot(dx, dy);
-  if (len < 28) return; // a tap, not a swipe: try again
+  if (len < SWIPE.minLen) return; // a tap, not a swipe: try again
   const swipe = { aim: Math.round(((Math.atan2(dx, -dy) * 180) / Math.PI) * 10) / 10, power: Math.round((len / swipeNeed()) * 1000) / 1000 };
   if (m.throwEx) {
     const ex = G.withSwipe(m.throwEx, swipe);
@@ -745,8 +782,9 @@ function endSwipe() {
 
 // the guide you swipe by: the cone to stay inside, the band to stop in, and your own line as you draw it
 function drawSwipeGuide() {
+  tickSwipe();
   const m = S.meter;
-  if (!m || m.kind !== 'swipe') return;
+  if (!m || m.kind !== 'swipe' || S.phase !== 'swipe') return;
   const need = swipeNeed();
   const tol = swipeTol();
   const d = m.drag;
@@ -777,6 +815,15 @@ function drawSwipeGuide() {
     ctx.stroke();
   }
   ctx.setLineDash([]);
+  if (!d && m.tooSlow > now2()) { // thrown out for being slow
+    ctx.font = '400 26px "Anton", Impact, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#f2c14e';
+    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+    ctx.lineWidth = 5;
+    ctx.strokeText('TOO SLOW: ONE QUICK SWIPE', W / 2, ay + 34);
+    ctx.fillText('TOO SLOW: ONE QUICK SWIPE', W / 2, ay + 34);
+  }
   if (!d) { // waiting: chevrons pulsing up the way to swipe
     const pulse = (performance.now() / 700) % 1;
     for (let i = 0; i < 3; i++) {
@@ -794,9 +841,11 @@ function drawSwipeGuide() {
     ctx.fillStyle = '#eef1e8';
     ctx.strokeStyle = 'rgba(0,0,0,0.8)';
     ctx.lineWidth = 5;
-    const word = m.throwEx ? 'SWIPE UP TO THROW' : 'SWIPE UP TO PUTT';
-    ctx.strokeText(word, ax, ay + 34);
-    ctx.fillText(word, ax, ay + 34);
+    if (!(m.tooSlow > now2())) {
+      const word = m.throwEx ? 'SWIPE UP TO THROW' : 'SWIPE UP TO PUTT';
+      ctx.strokeText(word, ax, ay + 34);
+      ctx.fillText(word, ax, ay + 34);
+    }
   } else { // your line, coloured by how true it is right now
     const dx = d.x - d.x0;
     const dy = d.y - d.y0;

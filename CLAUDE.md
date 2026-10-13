@@ -182,6 +182,10 @@ that way; don't introduce React/Vite/Tailwind here.
   misses short (`why: 'weak'`), long (`'strong'`, and more likely a nasty roll), left or right, or lips out if only just off. A
   swipe near the limit still counts as true, and tap-ins need none. With no swipe (an older page, a test) it counts as true.
   The server takes `body.swipe` (`sanitizeSwipe`) and, like the meters, trusts the player about the gesture.
+- **A swipe is one smooth motion** (`SWIPE` in `game.js`): it is judged where the motion ends, and the motion ends the moment you stop
+  moving. A pause of ~110 ms commits it where you paused (checked every frame by `tickSwipe`, so a held finger counts too), pulling
+  back more than 14 px commits it at the farthest point reached, and a swipe whose peak speed never reached 260 px/s is thrown out
+  ("TOO SLOW") so nobody can crawl and adjust. Timing uses `performance.now()`, not the game clock.
 - **A drive ends with a swipe too** (phase `swipe`, after the release tap): a flick up the screen as long as the arm speed needs
   (`swipeNeed()`). It is **graded**, not pass or fail (`withSwipe` in `gamecore.js`): inside `DRIVE_SWIPE` (12 deg, 25% power) it
   changes nothing; past it, off line steers the throw the same way (`swipeAim`, up to 25 deg), too soft slows it (`swipeSpeed`,
