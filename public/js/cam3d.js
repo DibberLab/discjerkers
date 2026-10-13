@@ -223,9 +223,16 @@ function drawTree(ctx, cam, b, view, t) {
 }
 
 // the basket: a pole, a ring with its chains, and a tall flag so you can find it from a long way off
-export const RING_H = 4.4; // the top band the chains hang from
-export const TRAY_H = 3.0; // the lip of the catch tray, about three feet off the ground
-export const TRAY_R = 1.05;
+/* A basket to scale. The PDGA certifies baskets in centimetres; a typical championship one (the DGA Mach X, PDGA certification 13-66):
+   the tray's rim is 79 cm off the ground, 66.5 cm across inside and 24.5 cm deep; the chains hang from a band 56 cm wide (16 outer and
+   8 inner chains) over a zone 50 cm tall; the pole is 4.8 cm across. Here in feet. */
+export const TRAY_H = 2.65; // the tray's rim, off the ground
+export const TRAY_R = 1.08; // the tray's inside radius (66 cm across)
+export const TRAY_FLOOR = TRAY_H - 0.8; // 24.5 cm deep
+export const BAND_R = 0.92; // the top band, 56 cm across: narrower than the tray
+export const CHAIN_BOTTOM = TRAY_H + 0.22; // where the chains end, just over the rim
+export const RING_H = CHAIN_BOTTOM + 1.64; // the top band: the chains are 50 cm long
+export const POLE_R = 0.079; // 4.8 cm across
 
 // a circle of the given size and height around a point, projected (or null if any of it is behind the camera)
 function ringAt(cam, view, x, y, r, z, n = 22) {
@@ -239,8 +246,7 @@ function ringAt(cam, view, x, y, r, z, n = 22) {
 }
 const fillRing = (ctx, pts, color) => { ctx.beginPath(); pts.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y))); ctx.closePath(); ctx.fillStyle = color; ctx.fill(); };
 
-// The basket: a pole, a catch tray three feet up, chains hanging from the top band down to the tray, and a tall flag so you can find
-// it from a long way off. It is drawn in layers (the base and the far chains, then the disc, then the near chains and the top band),
+// The basket (see the measures above), drawn in layers (the base and the far chains, then the disc, then the near chains and the top),
 // so a disc that has gone in is inside the cage, behind the front chains, not on top of them.
 //   part: 'all' (a basket far away is one piece), 'base', 'back' or 'front'
 function drawBasket(ctx, cam, b, view, hole, jiggle = 0, t = 0, part = 'all') {
@@ -249,34 +255,39 @@ function drawBasket(ctx, cam, b, view, hole, jiggle = 0, t = 0, part = 'all') {
   if (!g || g.d > 2500) return;
   const near = g.d < 220;
   if (part !== 'all' && !near) { if (part === 'base') part = 'all'; else return; } // far off, the base layer draws everything
-  const poleH = Math.max(9, Math.min(30, 8 + g.d * 0.1)) * ZS; // a tall flag far off, a short one when you are standing at it
-  const top = project(cam, view, x, y, poleH);
-  const ring = project(cam, view, x, y, RING_H);
-  const pole = () => {
-    ctx.strokeStyle = 'rgba(238,241,232,0.85)';
-    ctx.lineWidth = Math.max(1, 0.18 * g.s);
+  const top = project(cam, view, x, y, RING_H + 0.12);
+  // a flag on a staff so you can find it from far off; standing at the basket, it is only a short staff
+  const staffH = RING_H + 0.3 + Math.min(24, Math.max(0, (g.d - 40) * 0.12));
+  const flagTop = project(cam, view, x, y, staffH * ZS + (RING_H + 0.3) * (1 - ZS));
+  if (part === 'all' || part === 'base') {
+    // the pole
+    ctx.strokeStyle = 'rgba(214,219,225,0.95)';
+    ctx.lineWidth = Math.max(1, POLE_R * 2 * g.s);
     ctx.beginPath();
     ctx.moveTo(g.x, g.y);
-    ctx.lineTo((top || ring || g).x, (top || ring || g).y);
+    ctx.lineTo((top || g).x, (top || g).y);
     ctx.stroke();
-  };
-  if (part === 'all' || part === 'base') {
-    pole();
-    if (top) {
-      ctx.fillStyle = '#d35400';
-      const fl = Math.max(5, Math.min(9, 1.4 + g.d * 0.05) * g.s * ZS);
+    if (flagTop && top && staffH > RING_H + 0.35) {
+      ctx.lineWidth = Math.max(1, 0.06 * g.s);
+      ctx.strokeStyle = 'rgba(238,241,232,0.85)';
       ctx.beginPath();
       ctx.moveTo(top.x, top.y);
-      ctx.lineTo(top.x + fl * 1.5, top.y + fl * 0.5);
-      ctx.lineTo(top.x, top.y + fl);
+      ctx.lineTo(flagTop.x, flagTop.y);
+      ctx.stroke();
+      const fl = Math.max(5, Math.min(9, 0.7 + g.d * 0.05) * g.s * ZS);
+      ctx.fillStyle = '#d35400';
+      ctx.beginPath();
+      ctx.moveTo(flagTop.x, flagTop.y);
+      ctx.lineTo(flagTop.x + fl * 1.5, flagTop.y + fl * 0.5);
+      ctx.lineTo(flagTop.x, flagTop.y + fl);
       ctx.closePath();
       ctx.fill();
     }
-    // the tray: a shallow dish with a bright lip, where a disc comes to rest
+    // the tray: a steel dish, 66 cm across and 24.5 cm deep, with radial rods and a bright lip
     const lip = g.d < 700 ? ringAt(cam, view, x, y, TRAY_R, TRAY_H) : null;
-    const floor = lip ? ringAt(cam, view, x, y, TRAY_R * 0.82, TRAY_H - 0.35) : null;
+    const floor = lip ? ringAt(cam, view, x, y, TRAY_R * 0.8, TRAY_FLOOR) : null;
     if (lip && floor) {
-      ctx.fillStyle = '#23272e';
+      ctx.fillStyle = '#262a31';
       for (let i = 0; i < lip.length; i++) {
         const j = (i + 1) % lip.length;
         ctx.beginPath();
@@ -287,44 +298,60 @@ function drawBasket(ctx, cam, b, view, hole, jiggle = 0, t = 0, part = 'all') {
         ctx.closePath();
         ctx.fill();
       }
-      fillRing(ctx, floor, '#14171c');
-      ctx.strokeStyle = '#c9ced6';
-      ctx.lineWidth = Math.max(1, 0.1 * g.s);
+      fillRing(ctx, floor, '#15181d');
+      if (g.d < 160) { // the rods running down the wall
+        ctx.strokeStyle = 'rgba(190,196,204,0.55)';
+        ctx.lineWidth = Math.max(0.6, 0.04 * g.s);
+        for (let i = 0; i < lip.length; i += 2) { ctx.beginPath(); ctx.moveTo(lip[i].x, lip[i].y); ctx.lineTo(floor[i].x, floor[i].y); ctx.stroke(); }
+      }
+      ctx.strokeStyle = '#d3d8de';
+      ctx.lineWidth = Math.max(1, 0.09 * g.s);
       ctx.beginPath();
       lip.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
       ctx.closePath();
       ctx.stroke();
-      pole(); // the pole stands in the middle of it
+      ctx.strokeStyle = 'rgba(214,219,225,0.95)'; // the pole through the middle of the tray
+      ctx.lineWidth = Math.max(1, POLE_R * 2 * g.s);
+      ctx.beginPath();
+      ctx.moveTo(g.x, g.y);
+      ctx.lineTo((top || g).x, (top || g).y);
+      ctx.stroke();
     }
   }
-  if (!ring) return;
-  // the chains hang from the top band down to the tray's lip; the far ones are drawn before the disc, the near ones after
+  // the chains: 16 outer and 8 inner, hanging from the top band to just over the tray's rim; the far ones are drawn before the disc, the near ones after
   if (near && part !== 'base') {
     const cd = toCam(cam, b, x, y, 0)[2];
-    ctx.strokeStyle = 'rgba(210,214,206,0.78)';
-    ctx.lineWidth = Math.max(0.8, 0.07 * g.s);
-    for (let i = 0; i < 9; i++) {
-      const a = (i / 9) * Math.PI * 2;
-      const bx = x + Math.cos(a) * 1.45;
-      const by = y + Math.sin(a) * 1.45;
-      const isNear = toCam(cam, b, bx, by, 0)[2] < cd; // this chain is on the camera's side of the middle
-      if ((part === 'front') !== isNear && part !== 'all') continue;
-      const up = project(cam, view, bx, by, RING_H);
-      const sway = jiggle * 0.5 * Math.sin(t / 38 + i * 1.9); // the chains rattle when something has gone through
-      const dn = project(cam, view, x + Math.cos(a) * TRAY_R * 0.92 + sway, y + Math.sin(a) * TRAY_R * 0.92 - sway * 0.6, TRAY_H + 0.1);
-      if (!up || !dn) continue;
+    const chain = (n, rTop, rBot, i, width) => {
+      const a = (i / n) * Math.PI * 2 + (n === 8 ? Math.PI / 8 : 0);
+      const isNear = toCam(cam, b, x + Math.cos(a) * rTop, y + Math.sin(a) * rTop, 0)[2] < cd; // on the camera's side of the middle
+      if (part !== 'all' && (part === 'front') !== isNear) return;
+      const sway = jiggle * 0.5 * Math.sin(t / 38 + i * 1.9 + n); // the chains rattle when something has gone through
+      const up = project(cam, view, x + Math.cos(a) * rTop, y + Math.sin(a) * rTop, RING_H);
+      const dn = project(cam, view, x + Math.cos(a) * rBot + sway, y + Math.sin(a) * rBot - sway * 0.6, CHAIN_BOTTOM);
+      if (!up || !dn) return;
+      ctx.lineWidth = width;
       ctx.beginPath();
       ctx.moveTo(up.x, up.y);
       ctx.lineTo(dn.x, dn.y);
       ctx.stroke();
-    }
+    };
+    ctx.strokeStyle = 'rgba(210,214,206,0.8)';
+    for (let i = 0; i < 16; i++) chain(16, BAND_R * 0.96, BAND_R * 0.8, i, Math.max(0.8, 0.07 * g.s));
+    ctx.strokeStyle = 'rgba(190,196,200,0.65)';
+    for (let i = 0; i < 8; i++) chain(8, BAND_R * 0.45, BAND_R * 0.34, i, Math.max(0.7, 0.06 * g.s));
   }
+  // the top: a band and a cap, over everything
   if (part === 'all' || part === 'front') {
-    ctx.strokeStyle = '#d35400';
-    ctx.lineWidth = Math.max(1.5, 0.3 * g.s);
-    ctx.beginPath();
-    ctx.ellipse(ring.x, ring.y, Math.max(3, 1.6 * g.s), Math.max(1.2, 0.5 * g.s), 0, 0, Math.PI * 2);
-    ctx.stroke();
+    const band = g.d < 700 ? ringAt(cam, view, x, y, BAND_R, RING_H, 20) : null;
+    if (band) {
+      fillRing(ctx, band, 'rgba(120,126,134,0.55)');
+      ctx.strokeStyle = '#cfd4da';
+      ctx.lineWidth = Math.max(1, 0.1 * g.s);
+      ctx.beginPath();
+      band.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+      ctx.closePath();
+      ctx.stroke();
+    }
   }
 }
 
@@ -338,7 +365,7 @@ function drawDisc(ctx, cam, view, p, color, t, dz = ZS) {
     ctx.fill();
   }
   if (!a) return;
-  const w = Math.max(6, Math.min(3.1, 0.9 + 0.022 * a.d) * a.s); // bigger than life far off, or it would be a speck; nearly true size up close
+  const w = Math.max(6, Math.min(3.1, 0.72 + 0.012 * Math.max(0, a.d - 25)) * a.s); // true size (about 0.7 ft across) near; bigger than life far off, or it would be a speck
   ctx.fillStyle = color;
   ctx.beginPath();
   ctx.ellipse(a.x, a.y, w, w * 0.34, 0, 0, Math.PI * 2);

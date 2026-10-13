@@ -80,7 +80,7 @@ test('the film of a putt: continuous, the right length, and it ends where the ru
     for (let ms = 16; ms <= s.total; ms += 16) { const p = s.at(ms); worst = Math.max(worst, Math.hypot(p.x - prev.x, p.y - prev.y, p.h - prev.h)); prev = p; assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.h) && p.h >= -0.01, `${name}: sane at ${ms}`); }
     assert.ok(worst < 2.2, `${name}: no jumps (${worst.toFixed(2)} ft in a frame)`);
     const end = s.at(s.total + 5000);
-    if (result.made) assert.ok(Math.hypot(end.x - basket.x, end.y - basket.y) < 0.3 && end.h > 2.4 && end.h < 3.2, `${name}: ends in the tray, about three feet up (${end.h.toFixed(2)})`);
+    if (result.made) assert.ok(Math.hypot(end.x - basket.x, end.y - basket.y) < 0.3 && end.h > 1.8 && end.h < 2.4, `${name}: ends on the floor of the tray, about two feet up (${end.h.toFixed(2)})`);
     else assert.ok(Math.hypot(end.x - result.lie.x, end.y - result.lie.y) < 0.3 && end.h < 0.2, `${name}: ends on the grass where the lie is`);
   }
   // a rim-out really goes round the rim: close to the ring, at the height of the cage, for a good while
@@ -89,7 +89,7 @@ test('the film of a putt: continuous, the right length, and it ends where the ru
   const lap = [];
   for (let ms = rs.marks.rimAt + 100; ms < rs.marks.spitAt - 100; ms += 50) lap.push(rs.at(ms));
   assert.ok(lap.length > 20, 'a long lap');
-  assert.ok(lap.every((p) => Math.abs(Math.hypot(p.x - basket.x, p.y - basket.y) - F.LIP_R) < 0.2 && p.h > 2.9 && p.h < 3.6), 'round the lip of the tray');
+  assert.ok(lap.every((p) => Math.abs(Math.hypot(p.x - basket.x, p.y - basket.y) - F.LIP_R) < 0.25 && p.h > 2.55 && p.h < 3.4), 'round the lip of the tray');
   assert.ok(rs.marks.spitAt - rs.marks.rimAt > 1200, 'slowly');
   // a nasty roll has a run along the ground
   const ns = F.puttScript({ from, basket, lie: cases.nasty.lie, result: cases.nasty });
