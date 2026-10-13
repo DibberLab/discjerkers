@@ -439,12 +439,14 @@ function flightGeometry(d, cw, wind, t = state) {
   const fadeX = -Math.max(0, d.fade) * fadeMul * 28 * k * dir;
   // crosswind pushes the disc downwind for as long as it hangs in the air, so the push builds toward the end
   const driftX = wind.cross * 3.2 * (feet / 300) * k;
-  // the release angle aims the disc: hyzer starts toward the fade side, anhyzer toward the turn side
+  // The release angle bends the line. Anhyzer starts toward the turn side and comes back (so its push is up front).
+  // Hyzer starts near the line and bends toward the fade side more and more as the disc slows (so its push is at the end).
   const aimX = -dir * Math.sign(a) * (Math.abs(a) * 0.9 + 0.012 * a * a); // extreme angles aim harder than they look
+  const [w1, w2, w3] = a > 0 ? [0.04, 0.4, 0.85] : [1, 0.8, 0.3];
   return {
-    p1: [x0 + driftX * 0.1 + aimX, y0 - len * 0.32],
-    p2: [clampX(x0 + turnX + driftX * 0.45 + aimX * 0.8), y0 - len * 0.72],
-    p3: [clampX(x0 + turnX * 0.85 + fadeX + driftX + aimX * 0.3), y0 - len],
+    p1: [x0 + driftX * 0.1 + aimX * w1, y0 - len * 0.32],
+    p2: [clampX(x0 + turnX + driftX * 0.45 + aimX * w2), y0 - len * 0.72],
+    p3: [clampX(x0 + turnX * 0.85 + fadeX + driftX + aimX * w3), y0 - len],
   };
 }
 
