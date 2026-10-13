@@ -892,6 +892,7 @@ const PLASTICS = {
   'Mint Discs': ['Freshmint', 'Eterna', 'Apex', 'Sublime'],
   Vibram: ['Soft', 'Medium', 'Firm', 'Ledge'],
   DGA: ['Proline', 'SP Line', 'Signature Line', 'Rubber Blend'],
+  'Doomsday Discs': ['Ration', 'Soft Ration', 'Ration Firm', 'Survival', 'Retina', 'Retina Glow', 'Isolation', 'Glow Isolation', 'Biohazard', 'Toxic Waste', 'Radioactive Waste', 'Radioactive Bologna', 'Bologna', 'Collapse', 'Landfill', 'Clandestine', 'Shockwave', 'Fatal', 'Uranium'],
 };
 const SWATCHES = ['#e53935', '#fb8c00', '#fdd835', '#7cb342', '#00897b', '#1e88e5', '#5e35b1', '#d81b60', '#f5f5f5', '#212121', '#9e9e9e'];
 
