@@ -129,6 +129,10 @@ function nearest(p, a, b) {
 }
 
 const ROLL = { fairway: 1, tee: 1, rough: 0.35 };
+// Trees are forgiving. Only the heart of one stops a disc (the canopy you see is wider than the part that matters),
+// a tree you are standing beside is behind you, not in your way, and a disc that hits one kicks out to the open side.
+export const TREE_FORGIVE = 0.75;
+const CLEAR_OF = 8; // trees this close to where you stand do not count on the next throw
 const BASKET_RADIUS = 1.5;
 const BASKET_TOP = 5.5;
 
@@ -143,7 +147,7 @@ function rollOut(hole, disc, plan, from, tangent, surface) {
     if (distance(q, hole.basket) <= BASKET_RADIUS) return { pts: [...pts, q], kind: 'basket', end: q };
     const s = surfaceAt(hole, q.x, q.y);
     if (s === 'water' || s === 'oob') return { pts: [...pts, q], kind: s, end: q };
-    const tr = hole.trees.find((t) => Math.hypot(q.x - t.x, q.y - t.y) < t.r * 0.55);
+    const tr = hole.trees.find((t) => Math.hypot(q.x - t.x, q.y - t.y) < t.r * TREE_FORGIVE * 0.7);
     if (tr) break; // stopped by the trunk
     pts.push(q);
     p = q;
@@ -160,14 +164,15 @@ function rollOut(hole, disc, plan, from, tangent, surface) {
 export function resolveThrow(hole, disc, settings, aimDeg, ex, from) {
   const plan = planThrow(hole, disc, settings, aimDeg, ex);
   const all = samplePath(plan, from);
+  const trees = hole.trees.filter((tr) => distance(from, tr) >= tr.r + CLEAR_OF); // the ones beside you are behind you
   let hit = null;
   let basket = null;
   for (let i = 1; i < all.length; i++) {
     const a = all[i - 1];
     const b = all[i];
-    for (const tr of hole.trees) {
+    for (const tr of trees) {
       const { d, u } = nearest(tr, a, b);
-      if (d < tr.r && a.h + (b.h - a.h) * u < tr.h && (!hit || i + u < hit.at)) hit = { tree: tr, at: i + u, i, u };
+      if (d < tr.r * TREE_FORGIVE && a.h + (b.h - a.h) * u < tr.h && (!hit || i + u < hit.at)) hit = { tree: tr, at: i + u, i, u };
     }
     if (b.h < BASKET_TOP && i > all.length * 0.5) {
       const { d, u } = nearest(hole.basket, a, b);
@@ -191,10 +196,21 @@ export function resolveThrow(hole, disc, settings, aimDeg, ex, from) {
 
   if (hit) {
     const { pts, p } = cut(hit);
-    // it drops at the foot of the tree, a little back along where it came from
+    // It kicks off the tree and settles beside it: back along where it came from, then out to the side, the side that
+    // faces the basket if that is clear, so the next throw has a way out instead of the same trunk in front of it.
     const back = all[Math.max(0, hit.i - 2)];
     const len = Math.hypot(back.x - p.x, back.y - p.y) || 1;
-    const drop = { x: p.x + ((back.x - p.x) / len) * (hit.tree.r + 1.5), y: p.y + ((back.y - p.y) / len) * (hit.tree.r + 1.5) };
+    const bx = (back.x - p.x) / len;
+    const by = (back.y - p.y) / len;
+    const core = hit.tree.r * TREE_FORGIVE;
+    const base = { x: p.x + bx * (core + 2.5), y: p.y + by * (core + 2.5) };
+    const sides = [{ x: -by, y: bx }, { x: by, y: -bx }].sort((m, n) => (n.x * (hole.basket.x - hit.tree.x) + n.y * (hole.basket.y - hit.tree.y)) - (m.x * (hole.basket.x - hit.tree.x) + m.y * (hole.basket.y - hit.tree.y)));
+    const open = (q) => {
+      const sf = surfaceAt(hole, q.x, q.y);
+      return sf !== 'water' && sf !== 'oob' && !hole.trees.some((t) => t !== hit.tree && Math.hypot(q.x - t.x, q.y - t.y) < t.r * TREE_FORGIVE + 2);
+    };
+    const candidates = sides.map((sd) => ({ x: base.x + sd.x * (core + 3), y: base.y + sd.y * (core + 3) }));
+    const drop = candidates.find(open) || (open(base) ? base : candidates[0]);
     const s = surfaceAt(hole, drop.x, drop.y);
     if (s === 'water' || s === 'oob') return penalty(plan, pts, s, drop, from, { tree: hit.tree, at: p });
     return { kind: 'tree', plan, pts, roll: [], end: drop, lie: drop, strokes: 1, surface: s, hit: { tree: hit.tree, at: p } };

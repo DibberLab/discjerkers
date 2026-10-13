@@ -91,14 +91,43 @@ test('trees stop a low throw and are cleared by a high one', async () => {
   const hit = G.resolveThrow(tall, DRIVER, RIGHT, 0, CLEAN, { x: 0, y: 0 });
   assert.strictEqual(hit.kind, 'tree');
   assert.strictEqual(hit.strokes, 1);
-  assert.ok(Math.hypot(hit.lie.x - mid.x, hit.lie.y - mid.y) < 10, 'it drops at the foot of the tree');
-  assert.ok(hit.lie.y < mid.y + 1, 'and on the near side');
+  assert.ok(Math.hypot(hit.lie.x - mid.x, hit.lie.y - mid.y) < 14, 'it settles beside the tree');
+  assert.ok(hit.lie.y < mid.y + 1, 'on the near side');
 
   const shrub = await field({ trees: [{ x: mid.x, y: mid.y, r: 4, h: 3 }] });
   assert.strictEqual(G.resolveThrow(shrub, DRIVER, RIGHT, 0, CLEAN, { x: 0, y: 0 }).kind, 'landed', 'a shrub is flown over');
 
   const aside = await field({ trees: [{ x: mid.x + 30, y: mid.y, r: 4, h: 200 }] });
   assert.strictEqual(G.resolveThrow(aside, DRIVER, RIGHT, 0, CLEAN, { x: 0, y: 0 }).kind, 'landed', 'a tree off the line is no problem');
+});
+
+test('a tree is never a trap: you play on from beside it, and the same trunk does not stop the next throw', async () => {
+  const G = await load();
+  const hole0 = await field();
+  const open = G.resolveThrow(hole0, DRIVER, RIGHT, 0, CLEAN, { x: 0, y: 0 });
+  const mid = open.pts[Math.floor(open.pts.length / 2)];
+  const tree = { x: mid.x, y: mid.y, r: 4.8, h: 200 };
+  const hole = await field({ trees: [tree], basket: { x: 0, y: 1500 }, bounds: { minX: -300, maxX: 300, minY: -50, maxY: 1600 } });
+
+  const hit = G.resolveThrow(hole, DRIVER, RIGHT, 0, CLEAN, { x: 0, y: 0 });
+  assert.strictEqual(hit.kind, 'tree');
+  // from where it dropped, the very same throw goes on past
+  const again = G.resolveThrow(hole, DRIVER, RIGHT, 0, CLEAN, hit.lie);
+  assert.ok(!(again.kind === 'tree' && again.hit.tree === tree), 'not the same tree again');
+  assert.ok(again.end.y > hit.lie.y + 100, 'and it is a real throw');
+  // and when you are standing beside a tree, even a tree right in front of you is behind you
+  const close = await field({ trees: [{ x: 0, y: 6, r: 4, h: 200 }] });
+  assert.strictEqual(G.resolveThrow(close, DRIVER, RIGHT, 0, CLEAN, { x: 0, y: 0 }).kind, 'landed');
+
+  // three throws in a row from a bad spot always get somewhere
+  let lie = { x: 0, y: 0 };
+  let farthest = 0;
+  for (let i = 0; i < 3; i++) {
+    const r = G.resolveThrow(hole, DRIVER, RIGHT, 0, CLEAN, lie);
+    lie = r.lie;
+    farthest = Math.max(farthest, lie.y);
+  }
+  assert.ok(farthest > tree.y + 40, `three throws and still behind the tree: ${farthest}`);
 });
 
 test('water is out of bounds: the throw and a stroke, and you throw again from where you were', async () => {
@@ -243,4 +272,27 @@ test('hole one can be solved: a careful player with a clean meter makes par or b
     strokes += 1;
   }
   assert.ok(strokes <= hole.par, `par or better with a clean meter: ${strokes}`);
+});
+
+test('hole one: after hitting a tree, no throw from where it dropped hits that same tree again', async () => {
+  const G = await load();
+  const hole = G.HOLES[0];
+  const MID = { id: 3, speed: 5, glide: 4, turn: 0, fade: 3 };
+  let checked = 0;
+  for (let aim = -50; aim <= 50; aim += 2) {
+    for (const mph of [50, 62, 74]) {
+      const first = G.resolveThrow(hole, DRIVER, { ...RIGHT, mph }, aim, CLEAN, hole.tee);
+      if (first.kind !== 'tree') continue;
+      for (const disc of [DRIVER, MID]) {
+        for (let aim2 = -40; aim2 <= 40; aim2 += 4) {
+          for (const mph2 of [20, 40, 62]) {
+            const second = G.resolveThrow(hole, disc, { ...RIGHT, mph: mph2 }, G.headingTo(first.lie, hole.basket) + aim2, CLEAN, first.lie);
+            checked++;
+            assert.ok(!(second.kind === 'tree' && second.hit.tree === first.hit.tree), `stuck behind the same tree (aim ${aim}, then ${aim2})`);
+          }
+        }
+      }
+    }
+  }
+  assert.ok(checked > 100, `the sweep actually tested things: ${checked}`);
 });

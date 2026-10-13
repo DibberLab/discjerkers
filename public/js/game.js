@@ -5,7 +5,7 @@
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, SPIN, spinOf, typicalSpin, tierName, ANGLE_MAX, angleName, angleDeg } from './flightmodel.js?v=1';
 import { HOLES } from './course.js?v=1';
-import * as G from './gamecore.js?v=1';
+import * as G from './gamecore.js?v=2';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -283,7 +283,7 @@ function resultCopy(r) {
   if (r.kind === 'water' || r.kind === 'oob') {
     return { h: r.kind === 'water' ? 'Splash!' : 'Out of bounds', tone: 'bad', p: 'That is a penalty stroke. You throw again from the same spot.' };
   }
-  if (r.kind === 'tree') return { h: 'Thunk!', tone: 'bad', p: `It hit a tree and dropped at the base. ${ft(dist)} to the basket.` };
+  if (r.kind === 'tree') return { h: 'Thunk!', tone: 'bad', p: `It hit a tree and kicked out beside it. ${ft(dist)} to the basket.` };
   if (r.made === false) return { h: 'Missed', tone: 'bad', p: `It rattled out and sits ${ft(dist)} from the basket.` };
   return { h: surfaceName(r.surface), tone: r.surface === 'rough' ? 'bad' : 'good', p: `${ft(dist)} to the basket.` };
 }
@@ -647,7 +647,7 @@ function drawTrees() {
     ctx.fillStyle = shrub ? '#63ad57' : '#2c7a38';
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(x, y, Math.max(1.5, tr.r * cam.s * 0.7), 0, Math.PI * 2); // the part that stops a disc
+    ctx.arc(x, y, Math.max(1.5, tr.r * G.TREE_FORGIVE * cam.s), 0, Math.PI * 2); // the part that stops a disc
     ctx.fillStyle = shrub ? '#3f7a3a' : '#123a1b';
     ctx.fill();
   }
