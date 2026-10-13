@@ -303,8 +303,10 @@ const HOLE_SPECS = [
   { id: 7, note: "The cliff is on your right: anything out there is out of bounds. Play left of the line.", name: 'Cliffside', par: 4, path: trail(5, 32, [[200, -6, 30], [205, -10, 28]]), wind: { mph: 9, from: 270 },
     woods: [{ side: -1, dense: 0.85, rows: 2 }], oob: [{ s0: 40, s1: 420, o0: 46, o1: 170 }], shrubs: [[240, 36]], trees: [[260, -8, 4.4, 62]] },
   // 8: a zig-zag through the pines: three bends, three shaped throws
-  { id: 8, note: "Three bends through the pines. Each throw needs a different shape.", name: 'Pinball', par: 4, path: trail(-20, 30, [[100, 0, 28], [110, 75, 26], [110, -115, 24], [100, 85, 24]]), wind: { mph: 5, from: 160 },
-    woods: [{ side: -1, dense: 0.9, rows: 2 }, { side: 1, dense: 0.9, rows: 2 }], front: 2 },
+  { id: 8, note: "A lazy S through the pines. Shape one left, then one right, or cut the corners over the shrubs.", name: 'Pinball', par: 4, path: trail(-18, 38, [[125, 0, 38], [125, 44, 36], [125, -68, 34], [115, 46, 32]]), wind: { mph: 5, from: 160 },
+    woods: [{ side: -1, dense: 0.7, rows: 1 }, { side: 1, dense: 0.7, rows: 1 }],
+    // low shrubs on the inside of each bend: you can fly the corner if you dare
+    shrubs: [[130, 50], [141, 54], [152, 50], [250, -52], [262, -56], [274, -52]], front: 2 },
   // 9: a stand of trees splits the fairway: the left is longer and safe, the right is a shortcut beside the water
   { id: 9, note: "A stand of trees splits the fairway. Left is long and safe, right is short beside the water.", name: 'Split Decision', par: 4, path: trail(28, 40, [[200, -6, 40], [200, 8, 38]]), wind: { mph: 6, from: 120 },
     woods: [{ side: -1, dense: 0.5 }, { side: 1, dense: 0.5 }], groves: [{ s: 215, o: 0, n: 11, spread: 24, h: [52, 70] }],

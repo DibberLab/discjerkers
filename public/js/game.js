@@ -4,8 +4,8 @@
 
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
-import { HOLES, holeById, holesFor } from './course.js?v=5';
-import * as G from './gamecore.js?v=15';
+import { HOLES, holeById, holesFor } from './course.js?v=6';
+import * as G from './gamecore.js?v=16';
 import * as T from './trash.js?v=1';
 
 const $ = (sel, root = document) => root.querySelector(sel);

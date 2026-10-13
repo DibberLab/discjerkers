@@ -4,7 +4,7 @@
    same model the flight guide uses. Feet; x is east, y is north; heading 0 is north, positive is clockwise. */
 
 import { clamp, carryRaw, flightCurve, spinOf, spinsClockwise, angleDeg, armAt, SPIN, ANGLE_MAX, typicalSpin } from './flightmodel.js?v=1';
-import { surfaceAt } from './course.js?v=5';
+import { surfaceAt } from './course.js?v=6';
 
 const DEG = Math.PI / 180;
 export const PUTT_RANGE = 50; // inside this you putt
