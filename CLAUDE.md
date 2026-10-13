@@ -104,10 +104,16 @@ that way; don't introduce React/Vite/Tailwind here.
 - `public/js/gamecore.js` is the rules and has no clock, randomness or drawing, so a throw always lands the same way
   and `test/gamecore.test.js` can play the hole headless (it includes a bot that has to be able to make par).
   `course.js` is hole data: add a hole by adding an entry to `HOLES`. `game.js` is only the view.
-- The course is 18 holes: hole 1 is hand-placed, 2-18 are built by `build()` in `course.js` from a short spec
-  (length, bend, woods, ponds, creek, guards). A round is a practice hole, the front nine, or all eighteen, with a
-  scorecard; discs Marebear eats stay eaten for the round. `test/gamecore.test.js` checks every hole (trees not in
-  ponds, tee and basket clear) and has a bot play each one: **a new or changed hole must stay solvable in par.**
+- The course is 18 holes, each its own layout, built by `build()` in `course.js` from a spec in the hole's own terms: a
+  route (`trail(heading, hw, legs)`: any direction, doglegs, an S, a U-turn) and features placed by `s` (feet along the
+  route) and `o` (feet right of its centerline): `woods`, `trees`, `shrubs` (low, throw over), `groves`, `rows`, `walls`
+  with gates, `ponds`, `creeks` with a dry ford, `oob` zones, a `note` the caddy shows on the first throw. A disc is a
+  point and a trunk stops it within 3/4 of its radius, so a solid wall needs a tree every ~5 ft. `routeLeft(hole, x, y)`
+  is how far is left along the route (for judging progress on a hole that turns away from the basket).
+  `test/gamecore.test.js` checks every hole (trees not in ponds, tee and basket clear) and has a bot play each one around
+  the route: **a new or changed hole must stay solvable in par**, and a short way across must not exist where the hole
+  is meant to turn (the bot finds it). A round is a practice hole, the front nine, or all eighteen, with a scorecard;
+  discs Marebear eats stay eaten for the round.
 - The throw meter is four taps for every full throw, in order: **power, spin, angle, release**. Arm speed, spin and hyzer are NOT settings: where the marker stops on each of the first three bars is the value. Hand, style and aim are set first;
   a putt is one tap on a swirling circular green (the dot's path is seeded and never repeats, and a miss goes the way
   the dot was). Only the release is a skill test (`sanitizeExecution` is what a server accepts back for it); the other

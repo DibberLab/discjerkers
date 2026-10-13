@@ -173,7 +173,10 @@ test('putting: given inside two feet, and the target narrows with distance and w
   assert.ok(G.puttZone(20, PUTTER) > G.puttZone(20, DRIVER));
   assert.ok(G.puttZone(500, DRIVER) >= 0.04, 'never impossible');
   assert.ok(G.puttRadius(10, PUTTER) > G.puttRadius(40, PUTTER));
-  assert.ok(G.puttRadius(40, DRIVER) >= 0.05, 'a target you can still see');
+  assert.ok(G.puttRadius(50, DRIVER) >= 0.022, 'never nothing');
+  assert.ok(G.puttRadius(30, PUTTER) > G.puttRadius(31, PUTTER) * 1.05 || G.puttRadius(30, PUTTER) > G.puttRadius(40, PUTTER) * 1.5, 'past 30 feet it collapses');
+  assert.ok(G.puttRadius(45, PUTTER) < G.puttRadius(30, PUTTER) * 0.5, 'a 45 footer has under half the target of a 30 footer');
+  assert.ok(G.puttSpeed(45) > G.puttSpeed(30) * 1.3, 'and the dot is much faster');
   assert.ok(G.puttSpeed(45) > G.puttSpeed(5), 'the dot moves faster on a long putt');
 
   const near = G.resolvePutt(hole, { x: 0, y: 38 }, PUTTER, { x: 0.9, y: 0.4 });
@@ -257,89 +260,49 @@ test('scoring, and Marebear: she comes once, at a triple bogey, for the disc you
   assert.ok(good.done && good.holed && !done.bear && good.eaten.length === 0);
 });
 
-test('hole one: it can be played, it has teeth, and nothing goes missing', async () => {
+test('the course has teeth: across the eighteen a drive can land, hit a tree, go in the water or go out of bounds', async () => {
   const G = await load();
-  const hole = G.HOLES[0];
-  assert.strictEqual(hole.par, 4);
-  assert.strictEqual(G.surfaceAt(hole, 0, 0), 'tee');
-  assert.strictEqual(G.surfaceAt(hole, 0, 100), 'fairway');
-  assert.strictEqual(G.surfaceAt(hole, -100, 100), 'rough');
-  assert.strictEqual(G.surfaceAt(hole, 150, 320), 'water');
-  assert.strictEqual(G.surfaceAt(hole, 0, 600), 'oob');
-
   const kinds = new Set();
-  for (let aim = -50; aim <= 50; aim += 2) {
-    for (const mph of [50, 62, 74]) {
-      const r = G.resolveThrow(hole, DRIVER, { ...RIGHT, mph }, aim, CLEAN, hole.tee);
-      assert.ok(Number.isFinite(r.end.x) && Number.isFinite(r.end.y) && Number.isFinite(r.plan.feet));
-      kinds.add(r.kind);
-    }
-  }
-  for (const k of ['landed', 'tree', 'water']) assert.ok(kinds.has(k), `a drive on this hole can end up: ${k} (saw ${[...kinds]})`);
-});
-
-test('hole one can be solved: a careful player with a clean meter makes par or better', async () => {
-  const G = await load();
-  const hole = G.HOLES[0];
-  const MID = { id: 3, speed: 5, glide: 4, turn: 0, fade: 3 };
-  let lie = { ...hole.tee };
-  let strokes = 0;
-
-  // the drive: the best landing on the grass that is not in trouble, as close to the basket as it can get
-  let best = null;
-  for (let aim = -25; aim <= 25; aim += 1) {
-    for (const angle of [-3, -2, -1, 0, 1, 2, 3]) {
-      for (let mph = 44; mph <= 80; mph += 4) {
-        const r = G.resolveThrow(hole, DRIVER, { ...RIGHT, mph, angle }, aim, CLEAN, lie);
-        if (r.kind !== 'landed') continue;
-        const d = G.distance(r.lie, hole.basket);
-        if (!best || d < best.d) best = { d, r, aim, angle, mph };
+  const surfaces = new Set();
+  for (const hole of G.HOLES) {
+    for (let aim = 0; aim < 360; aim += 12) {
+      for (const mph of [40, 62, 78]) {
+        const r = G.resolveThrow(hole, DRIVER, { ...RIGHT, mph }, aim, CLEAN, hole.tee);
+        assert.ok(Number.isFinite(r.end.x) && Number.isFinite(r.end.y) && Number.isFinite(r.plan.feet), `hole ${hole.id}`);
+        kinds.add(r.kind);
+        if (r.kind === 'landed') surfaces.add(r.surface);
       }
     }
   }
-  assert.ok(best && best.d < 150, `a drive can get close: ${best && Math.round(best.d)} ft`);
-  strokes += 1;
-  lie = best.r.lie;
-
-  // the approach, if it is not a putt already
-  if (G.distance(lie, hole.basket) > G.PUTT_RANGE) {
-    const base = G.headingTo(lie, hole.basket);
-    let next = null;
-    for (let off = -15; off <= 15; off += 1) {
-      for (let mph = 10; mph <= 60; mph += 2) {
-        const r = G.resolveThrow(hole, MID, { ...RIGHT, mph, angle: 0 }, base + off, CLEAN, lie);
-        if (r.kind !== 'landed' && r.kind !== 'basket') continue;
-        const d = G.distance(r.lie, hole.basket);
-        if (!next || d < next.d) next = { d, r };
-      }
-    }
-    assert.ok(next && next.d <= G.PUTT_RANGE, `an approach can reach putting range: ${next && Math.round(next.d)} ft`);
-    strokes += 1;
-    lie = next.r.lie;
-  }
-  if (G.distance(lie, hole.basket) > 3) {
-    const made = G.resolvePutt(hole, lie, { id: 4, speed: 3 }, 0);
-    assert.ok(made.made, 'a centered needle holes it');
-    strokes += 1;
-  }
-  assert.ok(strokes <= hole.par, `par or better with a clean meter: ${strokes}`);
+  for (const k of ['landed', 'tree', 'water']) assert.ok(kinds.has(k), `a drive can end up: ${k} (saw ${[...kinds]})`);
+  assert.ok(kinds.has('oob') || kinds.has('water'), 'and there is out of bounds too');
+  assert.ok(surfaces.has('fairway') && surfaces.has('rough'), `lands on both the fairway and the rough (saw ${[...surfaces]})`);
+  // the holes are not all the same hole: they run different ways, and the layout features really appear
+  const heading = (h) => Math.round(G.headingTo(h.tee, h.basket) / 45);
+  assert.ok(new Set(G.HOLES.map(heading)).size >= 4, 'the holes point in a variety of directions');
+  assert.ok(G.HOLES.some((h) => h.oob.length), 'some hole has out of bounds inside it');
+  assert.ok(G.HOLES.some((h) => h.water.length >= 3), 'some hole has a string of ponds');
+  assert.ok(G.HOLES.some((h) => h.route.len > G.distance(h.tee, h.basket) * 2), 'one hole doubles back on itself');
+  assert.ok(G.HOLES.filter((h) => h.trees.some((t) => t.h < 20)).length >= 4, 'low shrubs you can throw over appear on several holes');
 });
 
-test('hole one: after hitting a tree, no throw from where it dropped hits that same tree again', async () => {
+test('after hitting a tree, no throw from where it dropped hits that same tree again', async () => {
   const G = await load();
-  const hole = G.HOLES[0];
   const MID = { id: 3, speed: 5, glide: 4, turn: 0, fade: 3 };
   let checked = 0;
-  for (let aim = -50; aim <= 50; aim += 2) {
-    for (const mph of [50, 62, 74]) {
-      const first = G.resolveThrow(hole, DRIVER, { ...RIGHT, mph }, aim, CLEAN, hole.tee);
-      if (first.kind !== 'tree') continue;
-      for (const disc of [DRIVER, MID]) {
-        for (let aim2 = -40; aim2 <= 40; aim2 += 4) {
-          for (const mph2 of [20, 40, 62]) {
-            const second = G.resolveThrow(hole, disc, { ...RIGHT, mph: mph2 }, G.headingTo(first.lie, hole.basket) + aim2, CLEAN, first.lie);
-            checked++;
-            assert.ok(!(second.kind === 'tree' && second.hit.tree === first.hit.tree), `stuck behind the same tree (aim ${aim}, then ${aim2})`);
+  for (const id of [2, 3, 8, 11, 17]) {
+    const hole = G.holeById(id);
+    for (let aim = 0; aim < 360; aim += 8) {
+      for (const mph of [50, 62, 74]) {
+        const first = G.resolveThrow(hole, DRIVER, { ...RIGHT, mph }, aim, CLEAN, hole.tee);
+        if (first.kind !== 'tree') continue;
+        for (const disc of [DRIVER, MID]) {
+          for (let aim2 = -40; aim2 <= 40; aim2 += 8) {
+            for (const mph2 of [20, 40, 62]) {
+              const second = G.resolveThrow(hole, disc, { ...RIGHT, mph: mph2 }, G.headingTo(first.lie, hole.basket) + aim2, CLEAN, first.lie);
+              checked++;
+              assert.ok(!(second.kind === 'tree' && second.hit.tree === first.hit.tree), `hole ${id}: stuck behind the same tree (aim ${aim}, then ${aim2})`);
+            }
           }
         }
       }
@@ -347,7 +310,6 @@ test('hole one: after hitting a tree, no throw from where it dropped hits that s
   }
   assert.ok(checked > 100, `the sweep actually tested things: ${checked}`);
 });
-
 
 test('the course: eighteen holes, each laid out sensibly', async () => {
   const G = await load();

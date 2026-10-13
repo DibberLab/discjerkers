@@ -4,7 +4,7 @@
    same model the flight guide uses. Feet; x is east, y is north; heading 0 is north, positive is clockwise. */
 
 import { clamp, carryRaw, flightCurve, spinOf, spinsClockwise, angleDeg, armAt, SPIN, ANGLE_MAX, typicalSpin } from './flightmodel.js?v=1';
-import { surfaceAt } from './course.js?v=2';
+import { surfaceAt } from './course.js?v=4';
 
 const DEG = Math.PI / 180;
 export const PUTT_RANGE = 50; // inside this you putt
@@ -377,8 +377,11 @@ function penalty(plan, pts, kind, at, from, extra = null, roll = []) {
 export function puttZone(dist, disc) {
   return clamp(0.36 - 0.0068 * dist - 0.012 * Math.max(0, disc.speed - 4), 0.04, 0.36);
 }
-export const puttRadius = (dist, disc) => clamp(puttZone(dist, disc) * 0.9, 0.05, 0.34); // of the grid's radius
-export const puttSpeed = (dist) => 1.2 + 1.1 * clamp(dist / PUTT_RANGE, 0, 1);
+// Past 30 feet a putt is a long shot: the target keeps shrinking toward a pinprick and the dot speeds up, so holing one is rare.
+export const LONG_PUTT = 30;
+const beyond = (dist) => clamp((dist - LONG_PUTT) / (PUTT_RANGE - LONG_PUTT), 0, 1);
+export const puttRadius = (dist, disc) => Math.max(0.022, clamp(puttZone(dist, disc) * 0.9, 0.05, 0.34) * (1 - 0.82 * beyond(dist))); // of the grid's radius
+export const puttSpeed = (dist) => 1.2 + 1.1 * clamp(dist / PUTT_RANGE, 0, 1) + 1.7 * beyond(dist);
 
 // The wandering dot: it spirals out from the middle and back through it, its distance from the center the size of two slow
 // waves added together, and the direction it faces speeding up, slowing and even reversing. Every pass through the middle

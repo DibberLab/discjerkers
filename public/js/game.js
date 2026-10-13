@@ -4,8 +4,8 @@
 
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
-import { HOLES, holeById, holesFor } from './course.js?v=2';
-import * as G from './gamecore.js?v=12';
+import { HOLES, holeById, holesFor } from './course.js?v=4';
+import * as G from './gamecore.js?v=14';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -90,6 +90,7 @@ const S = {
   bear: null,
   toast: { text: '', until: 0 },
   best: null,
+  zoom: 1,
 };
 
 function loadSettings() {
@@ -237,14 +238,15 @@ function panelPick() {
   const plan = { wind: G.windFor(S.hole, heading()) };
   const dist = toBasket();
   const strokes = S.round.strokes;
-  return `${roundBar()}${S.mode === 'match' ? boardHtml() : tipHtml()}${bagBar()}
+  const caddy = S.round.strokes === 0 && S.hole.note ? `<p class="gm-caddy"><b>${esc(S.hole.name)}.</b> ${esc(S.hole.note)}</p>` : '';
+  return `${roundBar()}${caddy}${S.mode === 'match' ? boardHtml() : tipHtml()}${bagBar()}
     <div class="gm-block">
       <p class="gm-h">Your disc <span>· ${available().length} left in the bag</span></p>
       ${discRow()}
       ${pickInfo(d, plan, putting)}
     </div>
     ${putting
-      ? `<p class="gm-sub"><b>${ft(dist)}</b> from the basket. One tap: catch the dot inside the green circle as it swirls past. Short putts get a big target and a slow dot; a faster disc shrinks it.</p>`
+      ? `<p class="gm-sub"><b>${ft(dist)}</b> from the basket. One tap: catch the dot inside the green circle as it swirls past. Short putts get a big target and a slow dot; a faster disc shrinks it.${dist > G.LONG_PUTT ? ' <b>Past 30 feet it is a long shot: the target is a pinprick and the dot flies.</b>' : ''}</p>`
       : settingsBlock()}
     <div class="gm-go">
       <button class="btn" type="button" data-go>${putting ? 'Putt' : 'Throw'}</button>
@@ -336,7 +338,7 @@ function panelMeter() {
     spin: 'Tap to set the spin. The lime band is the sweet spot for the speed you chose; the white tick is the usual spin. More spin holds the line, less lets it turn over.',
     angle: 'Tap to set the release angle. The lime band is the sweet spot for your speed and spin. The middle is flat; right tips it onto hyzer, left onto anhyzer.',
     release: releaseHint(risk),
-    putt: `Tap when the dot is inside the green circle. It never takes the same path twice, and a miss goes the way the dot was. ${d ? esc(d.name) : ''}, ${ft(toBasket())}.`,
+    putt: `Tap when the dot is in the green circle; a miss goes the way the dot was.${toBasket() > G.LONG_PUTT ? ' Past 30 ft the target is a pinprick.' : ''} ${d ? esc(d.name) : ''}, ${ft(toBasket())}.`,
   };
   return `<div class="gm-meter">
       ${stages.length ? `<div class="gm-steps" aria-hidden="true">${stages.map((_, i) => `<i class="${i < n ? 'is-on' : ''}"></i>`).join('')}</div>` : ''}
@@ -663,6 +665,7 @@ let W = 0;
 let H = 0;
 let dpr = 1;
 const cam = { x: 0, y: 200, s: 0.6, tx: 0, ty: 200, ts: 0.6 };
+const ZOOM = { min: 1, max: 3.4, step: 1.45 };
 
 function resize() {
   const r = $('#gm-stage').getBoundingClientRect();
@@ -684,7 +687,7 @@ function retarget(snap, extra = []) {
   if (S.phase === 'pick' && !putting && curDisc()) pts.push(G.previewThrow(S.hole, curDisc(), S.settings, heading(), lie, 12).end);
   const xs = pts.map((p) => p.x);
   const ys = pts.map((p) => p.y);
-  const pad = putting ? 16 : 36;
+  const pad = putting ? 16 : 26;
   const minX = Math.min(...xs) - pad;
   const maxX = Math.max(...xs) + pad;
   const minY = Math.min(...ys) - pad;
@@ -694,6 +697,12 @@ function retarget(snap, extra = []) {
   cam.tx = (minX + maxX) / 2;
   cam.ty = (minY + maxY) / 2;
   cam.ts = Math.min(W / w, H / h);
+  if (S.zoom > 1 && !extra.length) { // zoomed in: stay on the next shot, halfway between where you are and where you are aiming
+    const aim = putting || S.phase !== 'pick' || !curDisc() ? b : G.previewThrow(S.hole, curDisc(), S.settings, heading(), lie, 12).end;
+    cam.tx = lie.x + (aim.x - lie.x) * 0.45;
+    cam.ty = lie.y + (aim.y - lie.y) * 0.45;
+    cam.ts *= S.zoom;
+  }
   if (snap) { cam.x = cam.tx; cam.y = cam.ty; cam.s = cam.ts; }
 }
 
@@ -740,9 +749,8 @@ function drawCourse(t) {
   ctx.fillStyle = '#25502e';
   ctx.fill();
   ctx.clip();
-  const top = h.fairway.at(-1)[1];
   ctx.fillStyle = 'rgba(255,255,255,0.045)';
-  for (let wy = 0, i = 0; wy < top; wy += 36, i++) {
+  for (let wy = Math.floor(b.minY / 36) * 36, i = 0; wy < b.maxY; wy += 36, i++) {
     if (!(i % 2)) continue;
     const [, y1] = P(0, wy + 36);
     const [, y0] = P(0, wy);
@@ -761,7 +769,43 @@ function drawCourse(t) {
   const [tx1, ty1] = P(p.maxX, p.minY);
   ctx.fillStyle = '#2f6a3a';
   ctx.fillRect(tx0, ty0, tx1 - tx0, ty1 - ty0);
-  // water
+  // out of bounds inside the course: hatched
+  for (const z of h.oob) {
+    poly(z);
+    ctx.fillStyle = 'rgba(70,24,8,0.55)';
+    ctx.fill();
+    ctx.save();
+    poly(z);
+    ctx.clip();
+    ctx.strokeStyle = 'rgba(211,84,0,0.35)';
+    ctx.lineWidth = 2;
+    const zx = z.map((q) => q[0]);
+    const zy = z.map((q) => q[1]);
+    const x0 = Math.min(...zx);
+    const x1 = Math.max(...zx);
+    const y0 = Math.min(...zy);
+    const y1 = Math.max(...zy);
+    for (let k = x0 - (y1 - y0); k < x1; k += 14) {
+      const [ax, ay] = P(k, y0);
+      const [bx, by] = P(k + (y1 - y0), y1);
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+    }
+    ctx.restore();
+    poly(z);
+    ctx.setLineDash([6, 6]);
+    ctx.strokeStyle = '#d35400';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  // water (a creek runs on past the edge of the course, so it is cut off there)
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(bx0, by0, bx1 - bx0, by1 - by0);
+  ctx.clip();
   for (const w of h.water) {
     poly(w);
     ctx.fillStyle = '#1b4b66';
@@ -786,6 +830,7 @@ function drawCourse(t) {
     }
     ctx.restore();
   }
+  ctx.restore();
 }
 
 function drawTrees() {
@@ -1220,7 +1265,7 @@ function drawPuttMeter(t) {
   g.fillText('R', size - 11, cx);
   // the target
   g.beginPath();
-  g.arc(cx, cx, R * m.radius, 0, Math.PI * 2);
+  g.arc(cx, cx, Math.max(R * m.radius, 4), 0, Math.PI * 2); // a long putt's target is a pinprick, but you can still see it
   g.fillStyle = inside ? 'rgba(163,230,53,0.38)' : 'rgba(163,230,53,0.18)';
   g.fill();
   g.strokeStyle = '#a3e635';
@@ -1892,6 +1937,16 @@ async function boot() {
   const p = panel();
   p.addEventListener('click', onPanelClick);
   p.addEventListener('change', onPanelChange);
+  const zoomBy = (f) => {
+    S.zoom = clamp(S.zoom * f, ZOOM.min, ZOOM.max);
+    if (S.zoom < 1.05) S.zoom = 1;
+    $('#gm-zin').disabled = S.zoom >= ZOOM.max - 0.01;
+    $('#gm-zout').disabled = S.zoom <= 1;
+    retarget(false);
+  };
+  $('#gm-zin').addEventListener('click', () => zoomBy(ZOOM.step));
+  $('#gm-zout').addEventListener('click', () => zoomBy(1 / ZOOM.step));
+  $('#gm-zout').disabled = true;
   p.addEventListener('input', onPanelInput);
   // the meter answers the moment a finger lands, not when it lifts
   p.addEventListener('pointerdown', (e) => { if (e.target.closest('[data-tap], .gm-bar, #gm-putt') && isMeter()) { e.preventDefault(); tap(); } });
