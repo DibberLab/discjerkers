@@ -7,6 +7,7 @@ import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=6';
 import * as G from './gamecore.js?v=16';
 import * as T from './trash.js?v=3';
+import * as C3 from './cam3d.js?v=2';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -650,7 +651,7 @@ function throwDisc(ex) {
   const from = { ...lieOf() };
   const result = G.resolveThrow(S.hole, disc, S.settings, heading(), ex, from);
   S.last = { result, ex, disc, from };
-  const flightMs = clamp(900 + result.plan.feet * 4.2, 1200, 3300);
+  const flightMs = camDur(clamp(900 + result.plan.feet * 4.2, 1200, 3300));
   S.anim = { type: 'flight', t0: now(), dur: flightMs, pts: result.pts, roll: result.roll, result };
   toast(ex.grade, ex.pure ? 'good' : ex.slip || ex.grade === 'Shank' ? 'bad' : '', 1300);
   setPhase('flight');
@@ -668,7 +669,7 @@ function puttDisc(shot) {
     const s = i / 20;
     return { x: from.x + (to.x - from.x) * s, y: from.y + (to.y - from.y) * s, h: 3 + 5 * 4 * s * (1 - s), s };
   });
-  S.anim = { type: 'flight', t0: now(), dur: 750, pts, roll: [], result };
+  S.anim = { type: 'flight', t0: now(), dur: 750, pts, roll: [], result, putt: true };
   toast(result.made ? (result.gimme ? 'Tap-in' : 'Chains!') : 'Rimmed out', result.made ? 'good' : 'bad', 1100);
   setPhase('flight');
   retarget(false, pts);
@@ -772,6 +773,21 @@ let H = 0;
 let dpr = 1;
 const cam = { x: 0, y: 200, s: 0.6, tx: 0, ty: 200, ts: 0.6 };
 const ZOOM = { min: 1, max: 3.4, step: 1.45 };
+
+// The 3D flight camera is a preview: it is off unless someone opens /game?cam=3d (which remembers itself, and shows a 3D switch
+// over the hole). /game?cam=off forgets it again.
+const CAM = { on: false, preview: false };
+function loadCam() {
+  try {
+    const q = new URLSearchParams(location.search).get('cam');
+    if (q === '3d') localStorage.setItem('dj_cam', 'on');
+    else if (q === 'off') localStorage.removeItem('dj_cam');
+    const v = localStorage.getItem('dj_cam');
+    CAM.preview = v === 'on' || v === 'off';
+    CAM.on = v === 'on';
+  } catch { /* off */ }
+}
+const camDur = (ms) => (CAM.on ? Math.round(ms * 1.45) : ms); // a flight you ride is worth a little longer
 
 function resize() {
   const r = $('#gm-stage').getBoundingClientRect();
@@ -1304,9 +1320,54 @@ function drawFlight(t) {
   if (t - a.t0 >= doneAt) finishThrow();
 }
 
+// A throw seen from behind the disc (the preview). The same animation as the map's, from a camera that follows it.
+const riding = () => CAM.on && S.anim?.type === 'flight' && !S.anim.putt && S.anim.pts.length >= 3 && S.last; // a putt is short enough to watch from the map
+function draw3D(t) {
+  const a = S.anim;
+  const p = clamp((t - a.t0) / a.dur, 0, 1);
+  const { pos, i, dir } = C3.discAt(a.pts, p);
+  if (!a.cam) {
+    const far = a.pts[Math.min(6, a.pts.length - 1)];
+    const d0 = { x: far.x - a.pts[0].x, y: far.y - a.pts[0].y };
+    const l = Math.hypot(d0.x, d0.y) || 1;
+    a.cam = C3.startCamera(a.pts[0], { x: d0.x / l, y: d0.y / l });
+    a.prev = t;
+  }
+  const dt = clamp((t - a.prev) / 1000, 0.001, 0.05);
+  a.prev = t;
+  let disc = { x: pos.x, y: pos.y, h: p >= 1 ? 0 : pos.h };
+  const trail = a.pts.slice(0, i + 1);
+  if (p >= 1 && a.roll.length) {
+    const ri = Math.min(a.roll.length - 1, Math.floor(clamp((t - a.t0 - a.dur) / 500, 0, 1) * a.roll.length));
+    disc = { x: a.roll[ri].x, y: a.roll[ri].y, h: 0 };
+    trail.push(...a.pts.slice(i + 1), ...a.roll.slice(0, ri + 1).map((q) => ({ x: q.x, y: q.y, h: 0 })));
+  } else {
+    trail.push({ x: pos.x, y: pos.y, h: pos.h });
+  }
+  C3.follow(a.cam, disc, dir, dt, { back: 15 + 7 * (1 - Math.abs(p - 0.5) * 2), lift: 4, ahead: 70 });
+  const kind = a.result.kind;
+  const landed = Math.max(0, (t - a.t0 - a.dur) / 700);
+  C3.drawScene(ctx, {
+    hole: S.hole, cam: a.cam, view: C3.viewOf(W, H, a.cam, S.dock), disc, trail,
+    color: discLook(S.last.disc.id, S.last.who).color, t,
+    splash: (kind === 'water' || kind === 'oob') && p >= 1 ? { at: a.pts.at(-1), age: landed } : null,
+    shake: kind === 'tree' && p >= 0.97 && landed < 0.6 ? 7 * (1 - landed / 0.6) : 0,
+  });
+  // fade in from the map, and out to it, so the cut is soft
+  const doneAt = a.dur + (a.roll.length ? 500 : 0) + 250;
+  const el = t - a.t0;
+  const fade = Math.max(0, 1 - el / 260, 1 - (doneAt - el) / 300);
+  if (fade > 0) { ctx.fillStyle = `rgba(6,11,7,${Math.min(1, fade)})`; ctx.fillRect(0, 0, W, H); }
+  if (el >= doneAt) finishThrow();
+}
+
 function draw(t) {
   if (!S.round) return;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const in3d = !!riding();
+  const stage = $('#gm-stage');
+  if (stage.classList.contains('is-3d') !== in3d) stage.classList.toggle('is-3d', in3d);
+  if (in3d) { draw3D(t); return; }
   drawCourse(t);
   drawTrail();
   drawTrees();
@@ -1858,7 +1919,7 @@ function startMoveAnim(view, last, who) {
   const roll = last.roll.map(([x, y]) => ({ x, y }));
   const result = { kind: last.kind, pts, roll, end: last.end, lie: last.lie, strokes: last.strokes, made: last.made, gimme: last.gimme, plan: last.putt ? undefined : { feet: last.feet } };
   S.last = { result, ex: last.ex, disc, from: last.from, who };
-  S.anim = { type: 'flight', t0: now(), dur: last.putt ? 750 : clamp(900 + last.feet * 4.2, 1200, 3300), pts, roll, result };
+  S.anim = { type: 'flight', t0: now(), dur: last.putt ? 750 : camDur(clamp(900 + last.feet * 4.2, 1200, 3300)), pts, roll, result, putt: !!last.putt };
   const name = who === 'me' ? '' : `${playerOf(who, view).name}: `;
   toast(`${name}${last.putt ? (last.made ? (last.gimme ? 'Tap-in' : 'Chains!') : 'Rimmed out') : last.ex?.grade || ''}`, last.putt ? (last.made ? 'good' : 'bad') : last.ex?.pure ? 'good' : last.ex?.slip || last.ex?.grade === 'Shank' ? 'bad' : '', 1400);
   setPhase('flight');
@@ -2130,6 +2191,11 @@ async function boot() {
   try { T.useHeckles(await (await fetch('/data/heckles.json?v=2')).json()); } catch { /* her own lines are enough */ }
   for (const r of DATA.discs) DISCS.set(r[0], { id: r[0], name: r[1], b: r[2], cat: r[3], speed: r[4], glide: r[5], turn: r[6], fade: r[7], col: r[8] });
 
+  loadCam();
+  const camBtn = $('#gm-cam');
+  const showCam = () => { camBtn.hidden = !CAM.preview; camBtn.setAttribute('aria-pressed', String(CAM.on)); camBtn.textContent = CAM.on ? '3D on' : '3D off'; };
+  showCam();
+  camBtn.addEventListener('click', () => { CAM.on = !CAM.on; try { localStorage.setItem('dj_cam', CAM.on ? 'on' : 'off'); } catch { /* not saved */ } showCam(); });
   new ResizeObserver(resize).observe($('#gm-stage'));
   resize();
 
@@ -2153,7 +2219,11 @@ async function boot() {
   p.addEventListener('pointerdown', (e) => { if (e.target.closest('[data-tap], .gm-bar, #gm-putt') && isMeter()) { e.preventDefault(); tap(); } });
   p.addEventListener('keydown', (e) => { if (e.target.matches('[data-tap]') && (e.key === ' ' || e.key === 'Enter')) e.preventDefault(); });
   document.addEventListener('keydown', onKey);
-  cv.addEventListener('pointerdown', (e) => { cv.setPointerCapture?.(e.pointerId); setAimFromPointer(e); });
+  cv.addEventListener('pointerdown', (e) => {
+    if (riding()) { S.anim.t0 -= 1e7; return; } // tap to skip the ride
+    cv.setPointerCapture?.(e.pointerId);
+    setAimFromPointer(e);
+  });
   cv.addEventListener('pointermove', (e) => { if (e.buttons || e.pointerType === 'touch') setAimFromPointer(e); });
 
   onAccountChange(() => {

@@ -159,6 +159,12 @@ that way; don't introduce React/Vite/Tailwind here.
   overlay; `S.dock` is its height and `midY()` centers the camera in what is left). A throw is set up in steps (Disc, Grip,
   Aim, then the four meters); caddy notes and Marebear's remarks float over the hole (`#gm-bubble`) instead of sitting in
   the panel. Desktop keeps the one side panel.
+- **3D flight camera (preview)** (`public/js/cam3d.js`): a thrown disc can be watched from behind it, in perspective, on the same
+  canvas: ground shapes (fairway stripes, water, out of bounds) are projected polygons clipped at the near plane, trees and the
+  basket (with a tall flag) are billboards sorted by depth, and a chase camera (`follow`) eases after the disc and banks into
+  turns. It is a **preview**: off for everyone unless they open `/game?cam=3d` (remembered in localStorage `dj_cam`; a "3D on/off"
+  chip then shows over the hole; `?cam=off` forgets it). Putts stay on the map. Tapping the hole skips the ride. When the
+  preview is judged good, flip the default in `loadCam()` in game.js.
 - Modules import each other with `?v=N`: bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 

@@ -143,6 +143,12 @@
   width: 40px; height: 40px; border-radius: 50%; border: 1px solid rgba(238, 241, 232, 0.35); background: rgba(6, 11, 7, 0.72);
   color: var(--bone); font: 400 1.4rem/1 var(--display); cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
 }
+.gm-cambtn {
+  position: absolute; right: 10px; bottom: 10px; z-index: 3; padding: 7px 12px; border: 1px solid rgba(163, 230, 53, 0.6); border-radius: 999px; cursor: pointer;
+  background: rgba(6, 11, 7, 0.78); color: var(--lime); font: 700 0.62rem/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase;
+}
+.gm-cambtn[aria-pressed="false"] { color: var(--bone-dim); border-color: var(--hair); }
+.gm-stage.is-3d .gm-zoom, .gm-stage.is-3d .gm-bubble, .gm-stage.is-3d .gm-cambtn { visibility: hidden; }
 .gm-zoom button:disabled { opacity: 0.35; cursor: default; }
 .gm-zoom button:focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; }
 
@@ -178,6 +184,7 @@
     background: rgba(17, 23, 15, 0.97); box-shadow: 0 -10px 26px rgba(0, 0, 0, 0.5);
   }
   .gm-zoom { bottom: calc(var(--dock, 0px) + 12px); }
+  .gm-cambtn { bottom: calc(var(--dock, 0px) + 12px); }
   .gm-bubble {
     display: block; position: absolute; left: 12px; right: 12px; top: 98px; z-index: 3; padding: 8px 11px; opacity: 0; pointer-events: none;
     background: rgba(6, 11, 7, 0.82); border-left: 3px solid var(--rust); border-radius: 0 var(--radius) var(--radius) 0;
