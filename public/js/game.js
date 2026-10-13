@@ -252,7 +252,7 @@ function panelPick() {
 }
 
 function panelMenu() {
-  const options = HOLES.map((h) => `<option value="${h.id}">${h.id}. ${esc(h.name)} · par ${h.par}</option>`).join('');
+  const options = HOLES.map((h) => `<option value="${h.id}"${h.id === S.hole.id ? ' selected' : ''}>${h.id}. ${esc(h.name)} · par ${h.par}</option>`).join('');
   return `${bagBar()}
     <div class="gm-card">
       <h2>Play the course</h2>
@@ -448,6 +448,8 @@ function updateHud() {
     const opp = v.players.find((p) => p.uid !== S.mp.me);
     const turn = v.status !== 'active' ? '' : v.round.turn === S.mp.me ? 'Your throw' : `${esc(opp.name)}'s throw`;
     $('#gm-hud').innerHTML = `<span>Hole ${v.holeIdx + 1}/${v.holes} · ${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}</small><span>You <b>${r.strokes}</b> · ${esc(opp.name)} <b>${S.opp ? S.opp.strokes : 0}</b></span><small>${turn}${turn ? ' · ' : ''}${ft(G.distance(r.lie, h.basket))} to the basket</small>`;
+  } else if (!c && S.phase === 'menu' && h.id !== HOLES[0].id) { // the menu is previewing the hole picked for practice
+    $('#gm-hud').innerHTML = `<span>${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}</small>`;
   } else if (!c) {
     $('#gm-hud').innerHTML = '<span>Disc Jerkers Golf Club</span><small>Eighteen holes · par 69</small>';
   } else {
@@ -1338,6 +1340,15 @@ function onPanelClick(e) {
 function onPanelChange(e) {
   if (rangeEvent(e)) return;
   if (e.target.matches('[data-bag]')) setActive(e.target.value);
+  else if (e.target.matches('[data-practice]') && S.phase === 'menu') previewHole(Number(e.target.value));
+}
+
+// the menu shows whichever hole is picked for practice
+function previewHole(id) {
+  S.hole = holeById(id) || HOLES[0];
+  S.round = G.newRound(S.hole);
+  updateHud();
+  retarget(true);
 }
 
 function onPanelInput(e) {
@@ -1348,9 +1359,7 @@ function onPanelInput(e) {
   const v = Number(r.value);
   const out = r.closest('.fg-rng').querySelector('output');
   const key = r.dataset.gr;
-  if (key === 'mph') out.innerHTML = mphText(v);
-  else if (key === 'spin') out.textContent = `${v} rpm`;
-  else { S.aimOff = v; out.textContent = aimText(v); retarget(false); }
+  if (key === 'aim') { S.aimOff = v; out.textContent = aimText(v); retarget(false); }
 }
 
 function onKey(e) {
