@@ -704,8 +704,8 @@ function panelSwipe() {
   return `<div class="gm-meter ${drive ? '' : 'gm-meter--putt'}">
       <p class="gm-meter__t"><span>${drive ? 5 : 2} ·</span> Swipe</p>
       <div class="gm-meter__h"><p>${drive
-    ? 'One quick, smooth flick up the screen to throw (pause or pull back and it counts where you stopped). Stay inside the lime lines and stop in the lime band: off line steers the throw, too soft loses distance, too hard makes it loose.'
-    : 'One quick, smooth flick from the disc toward the basket (pause or pull back and it counts where you stopped). Keep it straight inside the lime lines, and stop inside the lime band: too soft dies short, too hard runs long, and off line misses.'}</p></div>
+    ? 'One quick, smooth flick up the screen to throw, from anywhere on it (pause or pull back and it counts where you stopped). Stay inside the lime lines and stop in the lime band: off line steers the throw, too soft loses distance, too hard makes it loose.'
+    : 'One quick, smooth flick up the screen toward the basket, from anywhere on it (pause or pull back and it counts where you stopped). Keep it straight inside the lime lines, and stop inside the lime band: too soft dies short, too hard runs long, and off line misses.'}</p></div>
     </div>`;
 }
 function swipePoint(e) {
@@ -788,8 +788,8 @@ function drawSwipeGuide() {
   const need = swipeNeed();
   const tol = swipeTol();
   const d = m.drag;
-  const ax = d ? d.x0 : W / 2;
-  const ay = d ? d.y0 : (H - S.dock) * 0.88;
+  const ax = W / 2; // the guide stays where it is, wherever on the screen the finger lands: your swipe is drawn inside it
+  const ay = (H - S.dock) * 0.88;
   const rad = (deg) => (deg * Math.PI) / 180;
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -851,11 +851,24 @@ function drawSwipeGuide() {
     const dy = d.y - d.y0;
     const len = Math.hypot(dx, dy);
     const aim = (Math.atan2(dx, -dy) * 180) / Math.PI;
-    const q = Math.max(Math.abs(aim) / tol.aim, Math.abs(len / need - 1) / tol.power);
-    const color = q <= 1 ? '#a3e635' : q <= 1.5 ? '#f2c14e' : '#ff6a3a';
+    // where the finger really is, faintly; the line in the guide is the same swipe, moved to the disc
     ctx.beginPath();
     ctx.moveTo(d.x0, d.y0);
     ctx.lineTo(d.x, d.y);
+    ctx.strokeStyle = 'rgba(238,241,232,0.28)';
+    ctx.lineWidth = 8;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, 13, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(238,241,232,0.3)';
+    ctx.fill();
+    const q = Math.max(Math.abs(aim) / tol.aim, Math.abs(len / need - 1) / tol.power);
+    const color = q <= 1 ? '#a3e635' : q <= 1.5 ? '#f2c14e' : '#ff6a3a';
+    const ex = ax + dx; // the end of your swipe, drawn from the disc
+    const ey = ay + dy;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(ex, ey);
     ctx.strokeStyle = 'rgba(0,0,0,0.5)';
     ctx.lineWidth = 11;
     ctx.stroke();
@@ -863,7 +876,7 @@ function drawSwipeGuide() {
     ctx.lineWidth = 6;
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(d.x, d.y, 11, 0, Math.PI * 2);
+    ctx.arc(ex, ey, 11, 0, Math.PI * 2);
     ctx.fillStyle = color;
     ctx.fill();
     ctx.font = '700 14px "Space Mono", monospace';
@@ -871,8 +884,8 @@ function drawSwipeGuide() {
     ctx.fillStyle = '#fff';
     ctx.strokeStyle = 'rgba(0,0,0,0.8)';
     ctx.lineWidth = 4;
-    ctx.strokeText(`${Math.round((len / need) * 100)}%`, d.x + 18, d.y + 5);
-    ctx.fillText(`${Math.round((len / need) * 100)}%`, d.x + 18, d.y + 5);
+    ctx.strokeText(`${Math.round((len / need) * 100)}%`, ex + 18, ey + 5);
+    ctx.fillText(`${Math.round((len / need) * 100)}%`, ex + 18, ey + 5);
   }
   ctx.restore();
 }
