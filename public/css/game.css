@@ -1,0 +1,143 @@
+/* ===========================================================================
+   THE GAME — a hole seen from above, a bag, and a throw meter. Tokens come from style.css; the disc chips, sliders and
+   dialogs borrow flightguide.css. Built for a phone first: the hole on top, the controls under it.
+   =========================================================================== */
+
+.gm-page { overflow: hidden; }
+.gm-page .masthead { position: relative; }
+.gm {
+  display: grid; grid-template-columns: minmax(0, 1fr) 420px;
+  height: calc(100dvh - var(--gm-top, 66px)); min-height: 420px;
+}
+
+/* ---------- the stage ---------- */
+.gm-stage { position: relative; min-height: 0; overflow: hidden; background: #0a110b; }
+#gm-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
+.gm-hud {
+  position: absolute; left: 12px; top: 10px; display: grid; gap: 4px; pointer-events: none;
+  font: 700 0.7rem/1.2 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--bone);
+  text-shadow: 0 1px 3px #000, 0 0 8px #000;
+}
+.gm-hud small { font-weight: 400; color: var(--bone-dim); letter-spacing: 0.1em; }
+.gm-hud b { color: var(--lime); }
+.gm-wind {
+  position: absolute; right: 12px; top: 10px; display: flex; align-items: center; gap: 8px; pointer-events: none;
+  font: 700 0.7rem/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--bone); text-shadow: 0 1px 3px #000;
+}
+.gm-wind svg { width: 30px; height: 30px; fill: var(--bone); filter: drop-shadow(0 1px 2px #000); }
+.gm-toast {
+  position: absolute; left: 50%; top: 16%; max-width: 90%; transform: translate(-50%, 8px); opacity: 0; pointer-events: none;
+  font: 400 clamp(1.8rem, 7vw, 3rem)/1 var(--display); text-transform: uppercase; letter-spacing: 0.02em; text-align: center; color: var(--bone);
+  text-shadow: 0 2px 0 #000, 0 0 18px rgba(0, 0, 0, 0.8); transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.gm-toast.is-on { opacity: 1; transform: translate(-50%, 0); }
+.gm-toast[data-tone="good"] { color: var(--lime); }
+.gm-toast[data-tone="bad"] { color: var(--rust-lift); }
+
+/* ---------- the panel ---------- */
+.gm-panel {
+  display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto;
+  padding: 16px 18px calc(18px + env(safe-area-inset-bottom)); background: var(--panel); border-left: 1px solid var(--hair);
+}
+.gm-loading { margin: 0; color: var(--bone-faint); font: 0.76rem var(--mono); letter-spacing: 0.1em; text-transform: uppercase; }
+.gm-h { margin: 0; font: 700 0.66rem/1 var(--mono); letter-spacing: 0.2em; text-transform: uppercase; color: var(--lime); }
+.gm-h span { color: var(--bone-faint); font-weight: 400; }
+.gm-sub { margin: 0; color: var(--bone-dim); font-size: 0.9rem; line-height: 1.5; }
+.gm-block { display: grid; gap: 10px; }
+.gm-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+
+.gm-bagbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font: 0.7rem var(--mono); letter-spacing: 0.08em; color: var(--bone-dim); }
+.gm-bagbar select {
+  height: 34px; max-width: 200px; padding: 0 10px; background: var(--panel-2); color: var(--bone);
+  border: 1px solid var(--hair); border-radius: var(--radius); font: 0.74rem var(--mono);
+}
+.gm-bagbar .chip { padding: 7px 12px; font-size: 0.68rem; }
+
+/* the discs of your bag, in a row you can swipe */
+.gm-discs { scrollbar-width: none; display: flex; gap: 6px; overflow-x: auto; padding: 6px 2px 8px; margin: 0 -2px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
+.gm-disc {
+  flex: none; width: 66px; padding: 4px 0 2px; background: none; border: 0; text-align: center; cursor: pointer; scroll-snap-align: start;
+  font: 0.58rem/1.2 var(--mono); letter-spacing: 0.04em; color: var(--bone-faint);
+}
+.gm-disc .disc { --disc: 46px; margin: 0 auto 6px; cursor: pointer; pointer-events: none; }
+.gm-disc small { display: block; max-width: 66px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gm-disc[aria-pressed="true"] { color: var(--bone); }
+.gm-disc[aria-pressed="true"] .disc { box-shadow: 0 0 0 3px var(--bone), 0 0 0 6px var(--lime), 0 9px 12px -6px rgba(0, 0, 0, 0.85); }
+.gm-disc[disabled] { opacity: 0.3; cursor: default; }
+.gm-disc[disabled] .disc { filter: grayscale(1); }
+.gm-disc:focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; }
+.gm-pick {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; align-items: baseline; padding: 10px 12px;
+  background: var(--void); border: 1px solid var(--hair); border-radius: var(--radius);
+}
+.gm-pick b { font: 700 1rem/1.2 var(--body); }
+.gm-pick small { font: 0.62rem/1.4 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--bone-faint); }
+.gm-pick output { grid-row: 1 / 3; grid-column: 2; text-align: right; font: 400 1.7rem/1 var(--display); color: var(--bone); }
+.gm-pick output small { display: block; font-size: 0.56rem; }
+
+/* the settings reuse the flight guide's controls; tighten them for a small screen */
+.gm-settings .fg-rng { margin: 0; padding-top: 10px; }
+.gm-settings .fg-throw { margin: 0; padding-top: 10px; }
+.gm-settings .fg-arm { margin: 0; padding-top: 10px; }
+.gm-aimrow { display: flex; gap: 8px; align-items: center; }
+.gm-aimrow .chip { padding: 6px 10px; font-size: 0.64rem; }
+
+.gm-go {
+  position: sticky; bottom: calc(-18px - env(safe-area-inset-bottom)); z-index: 3; display: grid; gap: 8px;
+  margin: 4px -18px calc(-18px - env(safe-area-inset-bottom)); padding: 12px 18px calc(16px + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, var(--panel) 72%, transparent);
+}
+.gm-go .btn { width: 100%; padding: 17px 20px; font-size: 1.05rem; }
+.gm-go__line { margin: 0; text-align: center; font: 0.64rem/1.4 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--bone-dim); }
+.gm-go__line b { color: var(--bone); }
+
+/* ---------- the throw meter ---------- */
+.gm-meter { display: grid; gap: 12px; }
+.gm-meter__t { margin: 0; font: 400 2rem/1 var(--display); text-transform: uppercase; }
+.gm-meter__t span { color: var(--lime); }
+.gm-meter__h { margin: 0; color: var(--bone-dim); font-size: 0.9rem; }
+.gm-bar {
+  position: relative; height: 54px; background: var(--void); border: 1px solid var(--hair); border-radius: var(--radius); overflow: hidden; touch-action: manipulation;
+}
+.gm-zone { position: absolute; top: 0; bottom: 0; background: rgba(163, 230, 53, 0.28); border-inline: 2px solid var(--lime); }
+.gm-over { position: absolute; top: 0; bottom: 0; right: 0; background: repeating-linear-gradient(135deg, rgba(211, 84, 0, 0.35) 0 6px, rgba(211, 84, 0, 0.12) 6px 12px); }
+.gm-mark { position: absolute; top: 0; bottom: 0; width: 8px; margin-left: -4px; border-radius: 4px; background: var(--bone); box-shadow: 0 0 12px rgba(238, 241, 232, 0.8); }
+.gm-ends { display: flex; justify-content: space-between; margin-top: -6px; font: 0.6rem var(--mono); letter-spacing: 0.18em; text-transform: uppercase; color: var(--bone-faint); }
+.gm-tap {
+  width: 100%; min-height: 96px; border: 0; border-radius: var(--radius); background: var(--rust); color: #fff;
+  font: 400 2rem/1 var(--display); letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent; user-select: none;
+}
+.gm-tap:active { transform: scale(0.985); filter: brightness(1.12); }
+.gm-tap:focus-visible { outline: 3px solid var(--lime); outline-offset: 3px; }
+.gm-steps { display: flex; gap: 8px; font: 0.62rem var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--bone-faint); }
+.gm-steps i { flex: 1; height: 3px; border-radius: 2px; background: var(--hair); }
+.gm-steps i.is-on { background: var(--lime); }
+
+/* ---------- results ---------- */
+.gm-card { display: grid; gap: 10px; padding: 16px; background: var(--void); border: 1px solid var(--hair); border-radius: var(--radius); }
+.gm-card h2 { margin: 0; font-size: 2.2rem; line-height: 1; }
+.gm-card h2.is-good { color: var(--lime); }
+.gm-card h2.is-bad { color: var(--rust-lift); }
+.gm-card p { margin: 0; color: var(--bone-dim); line-height: 1.5; font-size: 0.94rem; }
+.gm-card .btn { width: 100%; padding: 16px 20px; }
+.gm-score { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
+.gm-score div { padding: 10px 4px; border: 1px solid var(--hair); border-radius: var(--radius); }
+.gm-score b { display: block; font: 400 2rem/1 var(--display); }
+.gm-score span { font: 0.58rem var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--bone-faint); }
+.gm-log { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font: 0.7rem/1.4 var(--mono); letter-spacing: 0.04em; color: var(--bone-dim); }
+.gm-log b { color: var(--bone); }
+
+@media (max-width: 900px) {
+  .gm { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  .gm-panel { max-height: 56dvh; border-left: 0; border-top: 1px solid var(--hair); }
+}
+@media (max-width: 900px) and (max-height: 700px) { .gm-panel { max-height: 62dvh; } }
+@media (prefers-reduced-motion: reduce) { .gm-toast { transition: none; } }
+
+.gm-discs::-webkit-scrollbar { display: none; }
+.gm-tip { position: relative; padding: 12px 36px 12px 14px; background: rgba(163, 230, 53, 0.08); border: 1px solid rgba(163, 230, 53, 0.35); border-radius: var(--radius); }
+.gm-tip p { margin: 0; font-size: 0.86rem; line-height: 1.5; color: var(--bone-dim); }
+.gm-tip b { color: var(--bone); }
+.gm-tip button { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border: 0; border-radius: 50%; background: transparent; color: var(--bone-dim); font-size: 1.1rem; cursor: pointer; }
+.gm-tip button:hover { color: var(--lime); }

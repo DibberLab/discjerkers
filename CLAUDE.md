@@ -93,6 +93,22 @@ that way; don't introduce React/Vite/Tailwind here.
 - A bag stores disc ids from `public/data/flightguide.json`. If that snapshot is ever regenerated,
   keep the ids stable or old bags will lose discs.
 
+## The game (/game)
+
+- A one-hole disc golf game: bring your bag (or a starter bag), pick a disc, set the same flight settings as the
+  guide, aim, then a two-tap throw meter (power, then release); inside 50 ft it is a one-tap putt. Static page, no
+  server state: the bag comes from the account API, scores are in `localStorage`. **Not linked from the nav yet.**
+- `public/js/flightmodel.js` is the flight physics, **shared** with the flight guide. `test/flightmodel.test.js`
+  holds 400 throws captured from the guide before the split; do not change a number without meaning to change the
+  guide too.
+- `public/js/gamecore.js` is the rules and has no clock, randomness or drawing, so a throw always lands the same way
+  and `test/gamecore.test.js` can play the hole headless (it includes a bot that has to be able to make par).
+  `course.js` is hole data: add a hole by adding an entry to `HOLES`. `game.js` is only the view.
+- Marebear eats the disc you just threw, once per hole, the first time you are at a triple bogey or worse and have
+  not holed out. That rule lives in `applyResult` and is tested; the bear is drawn in `drawBear`.
+- Modules import each other with `?v=N`: bump it when a module changes, or cached copies mix with new ones.
+  `public/js/package.json` says `type: module` so Node can import these files in tests.
+
 ## Deploy
 
 Droplet, `/var/www/discjerkers`, docker compose behind nginx on 127.0.0.1:3040.

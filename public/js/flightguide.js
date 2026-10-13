@@ -1,6 +1,8 @@
 /* Flight guide: speed rows x stability columns, every disc a round chip. */
 
 import { account, activeBag, inBag, onAccountChange, loadAccount, mountBar, openSignIn, openBags, addDisc as bagAdd, removeDisc as bagRemove, setActive, setItem, setPhoto, clearPhoto, photoToJpeg, photoUrl } from './fgaccount.js?v=3';
+import * as M from './flightmodel.js?v=1';
+import { clamp, MPH, SPIN, RPM_PER_MPH, ANGLE_DEG, ANGLE_MAX, armAt, tierName, typicalSpin, spinOf } from './flightmodel.js?v=1';
 
 const BANDS = [
   { label: 'Very overstable',  cols: [0, 1, 2],        tint: 'var(--rust)' },
@@ -74,7 +76,7 @@ const state = {
 let DATA, discs, brands, LETTERS, weights, lastFocus;
 
 // RHBH and LHFH spin clockwise (fade finishes left); LHBH and RHFH spin counter-clockwise (fade finishes right)
-const spinsClockwise = (t = state) => (t.hand === 'right') === (t.style === 'backhand');
+const spinsClockwise = (t = state) => M.spinsClockwise(t);
 function loadThrow() {
   try {
     const t = JSON.parse(localStorage.getItem('dj_fg_throw'));
@@ -333,78 +335,20 @@ function render() {
 // arm, and the grid is 100 ft a square. Not physics: a way to compare discs.
 const FP = { w: 360, h: 417, x0: 200, y0: 392, k: 0.74, left: 52, right: 352 };
 const GRID_FT = 500; // far enough for nearly every throw; the longest are held just inside it
-// Arm speed is release speed in mph, in 2 mph steps. Spin is release rpm. Both match what a Tech Disc reports.
-const MPH = { min: 30, max: 90, step: 2 };
-const SPIN = { min: 400, max: 1600, step: 50 };
-const RPM_PER_MPH = 15; // a typical throw spins about this many rpm for every mph it leaves the hand at
-// mph -> cap (the disc speed that arm can get fully up to speed) and power (the distance the arm adds on top);
-// a straight line between these points
-const ARM_ANCHORS = [[30, 4, 0.62], [40, 6, 0.74], [48, 8, 0.87], [56, 10, 1], [62, 11.5, 1.05], [70, 13, 1.1], [78, 15, 1.14], [90, 15, 1.16]];
-function armAt(mph) {
-  const pts = ARM_ANCHORS;
-  if (mph <= pts[0][0]) return { cap: pts[0][1], power: pts[0][2] };
-  for (let i = 1; i < pts.length; i++) {
-    if (mph <= pts[i][0]) {
-      const [m0, c0, p0] = pts[i - 1];
-      const [m1, c1, p1] = pts[i];
-      const f = (mph - m0) / (m1 - m0);
-      return { cap: c0 + (c1 - c0) * f, power: p0 + (p1 - p0) * f };
-    }
-  }
-  const last = pts.at(-1);
-  return { cap: last[1], power: last[2] };
-}
-const TIERS = [[44, 'Beginner'], [52, 'Beginner Plus'], [59, 'Intermediate'], [66, 'Intermediate Plus'], [74, 'Advanced'], [Infinity, 'Pro']];
-const tierName = (mph) => TIERS.find(([max]) => mph < max)[1];
-const typicalSpin = (mph) => Math.round((mph * RPM_PER_MPH) / SPIN.step) * SPIN.step;
-const spinOf = (t) => (t.spin == null ? typicalSpin(t.mph) : t.spin);
-
-// How this arm, this spin and this disc get along. A disc faster than the arm can power never gets up to speed: it
-// carries less and fades early. A slow disc on a strong arm is overpowered: it turns over more. Spin past what
-// the throw would normally have steadies the disc (less turn and fade, a touch farther); less lets it wobble.
-function armEffects(d, t = state) {
-  const a = armAt(t.mph);
-  const ratio = Math.min(1, a.cap / d.speed);
-  const over = clamp(a.cap / d.speed, 1, 2);
-  const q = t.spin == null ? 1 : clamp(t.spin / (RPM_PER_MPH * t.mph), 0.5, 1.7);
-  const steady = q ** -0.7;
-  return {
-    ratio,
-    cap: a.cap,
-    power: a.power,
-    carry: clamp(0.82 + 0.18 * q, 0.85, 1.07),
-    turn: (0.4 + 0.6 * ratio) * (1 + (over - 1) * 0.25) * steady,
-    fade: (1 + (1 - ratio) * 1.5) * (1 - (over - 1) * 0.15) * steady,
-  };
-}
-const estFeet = (d, t = state) => {
-  const { ratio, cap, power, carry } = armEffects(d, t);
-  return Math.round(((140 + Math.min(d.speed, cap) * 16 + d.glide * 6) * power * (0.85 + 0.15 * ratio) * carry) / 10) * 10;
-};
+// The flight model lives in flightmodel.js (the game uses it too); these default to the page's own throw.
+const angleDeg = (t = state) => M.angleDeg(t);
+const angleName = (t = state) => M.angleName(t);
+const armEffects = (d, t = state) => M.armEffects(d, t);
+const estFeet = (d, t = state) => M.estFeet(d, t);
+const carryFeet = (d, wind, t = state) => M.carryFeet(d, wind, t, GRID_FT);
 
 // Comparison: up to three throws, each in its own color.
 const MAX_CMP = 3;
 const SLOT = ['#ff8a3d', '#38c8e8', '#b8f04a'];
 let cmpUid = 0;
 
-// Release angle. Hyzer tips the disc onto its fade side, anhyzer onto its turn side.
-// state.angle walks this ladder either way: the last two rungs are the extreme throws.
-const ANGLE_DEG = [0, 5, 10, 15, 20, 35, 55];
-const ANGLE_MAX = ANGLE_DEG.length - 1;
-const angleDeg = (t = state) => Math.sign(t.angle) * ANGLE_DEG[Math.abs(t.angle)];
-function angleName(t = state) {
-  const a = angleDeg(t);
-  if (!a) return 'Flat';
-  const hyzer = a > 0;
-  const big = Math.abs(a);
-  if (big === 55) return hyzer ? 'Spike hyzer' : 'Over anhyzer';
-  if (big === 35) return hyzer ? 'Hard hyzer' : 'Hard anhyzer';
-  return `${hyzer ? 'Hyzer' : 'Anhyzer'} ${big}°`;
-}
-
 const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 const WIND_STEPS = [0, 5, 10, 15, 20, 25];
-const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 
 // You always throw north (up the page). head > 0 is into your face; cross > 0 pushes the disc to the right.
 function windVector() {
@@ -414,39 +358,16 @@ function windVector() {
   return { mph, head: mph * Math.cos(a), cross: -mph * Math.sin(a) };
 }
 
-// Headwind costs more than a tailwind gives back.
-function carryFeet(d, wind, t = state) {
-  const factor = wind.head >= 0 ? 1 - 0.011 * wind.head : 1 + 0.007 * -wind.head;
-  const a = angleDeg(t);
-  // hyzer shortens a throw (and a spike dives); a little anhyzer rides flat for more, but past that it falls out of the sky
-  const tilt = a >= 0 ? 1 - 0.004 * a - 0.00004 * a * a : 1 + 0.0025 * Math.min(-a, 20) - 0.006 * Math.max(0, -a - 20);
-  return clamp(Math.round((estFeet(d, t) * factor * tilt) / 10) * 10, 60, GRID_FT - 10);
-}
-
 function flightGeometry(d, cw, wind, t = state) {
   const { x0, y0, k } = FP;
-  const dir = cw ? 1 : -1; // counter-clockwise spin mirrors the disc's own turn and fade (not the wind)
   const feet = carryFeet(d, wind, t);
   const len = feet * k;
   const clampX = (x) => clamp(x, FP.left + 10, FP.right - 10);
-  // a headwind makes any disc act more overstable; a tailwind makes it act more understable
-  const arm = armEffects(d, t);
-  const a = angleDeg(t);
-  // hyzer holds the line (less turn, harder fade); anhyzer lets it turn and softens the fade
-  const turnMul = clamp((1 - 0.04 * wind.head) * arm.turn * clamp(1 - 0.03 * a, 0.25, 1.7), 0.15, 2.4);
-  const fadeMul = clamp((1 + 0.04 * wind.head) * arm.fade * clamp(1 + 0.025 * a, 0.3, 1.6), 0.2, 2.6);
-  const turnX = -d.turn * turnMul * 33 * k * dir;
-  const fadeX = -Math.max(0, d.fade) * fadeMul * 28 * k * dir;
-  // crosswind pushes the disc downwind for as long as it hangs in the air, so the push builds toward the end
-  const driftX = wind.cross * 3.2 * (feet / 300) * k;
-  // The release angle bends the line. Anhyzer starts toward the turn side and comes back (so its push is up front).
-  // Hyzer starts near the line and bends toward the fade side more and more as the disc slows (so its push is at the end).
-  const aimX = -dir * Math.sign(a) * (Math.abs(a) * 0.9 + 0.012 * a * a); // extreme angles aim harder than they look
-  const [w1, w2, w3] = a > 0 ? [0.04, 0.4, 0.85] : [1, 0.8, 0.3];
+  const { lat } = M.flightCurve(d, wind, t, feet); // sideways offsets in feet; the chart draws a foot as k pixels
   return {
-    p1: [x0 + driftX * 0.1 + aimX * w1, y0 - len * 0.32],
-    p2: [clampX(x0 + turnX + driftX * 0.45 + aimX * w2), y0 - len * 0.72],
-    p3: [clampX(x0 + turnX * 0.85 + fadeX + driftX + aimX * w3), y0 - len],
+    p1: [x0 + lat[0] * k, y0 - len * 0.32],
+    p2: [clampX(x0 + lat[1] * k), y0 - len * 0.72],
+    p3: [clampX(x0 + lat[2] * k), y0 - len],
   };
 }
 

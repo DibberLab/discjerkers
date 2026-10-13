@@ -178,6 +178,18 @@ p { margin: 0 0 1em; }
 }
 .cart-btn:hover { background: var(--rust-lift); color: #fff !important; }
 
+/* the Play now button: lime outline, so it reads as a button without competing with the rust cart */
+.nav .play-btn {
+  border: 1.5px solid var(--lime);
+  border-radius: 999px;
+  padding: 7px 16px;
+  color: var(--lime);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+.nav .play-btn:hover, .nav .play-btn[aria-current="page"] { background: var(--lime); color: #0b1000; }
+
 /* -------------------------------- hero -------------------------------- */
 
 .hero { padding: 70px 0 40px; }
@@ -485,12 +497,24 @@ p { margin: 0 0 1em; }
   .section { padding: 54px 0; }
   .nav { gap: 11px; }
   .nav a { letter-spacing: 0.09em; }
+  .nav .play-btn { padding: 6px 11px; letter-spacing: 0.1em; }
   .nav .nav-long { display: none; }
   .nav a[data-hide-sm] { display: none; }
   .masthead__inner { gap: 12px; }
   .logo { font-size: 1.1rem; }
   .rule { padding: 22px; }
   .cart-line img { width: 58px; height: 58px; }
+}
+
+/* narrow phones (360 and under): the logo, Shop, Guide, Play and Cart all have to fit one line */
+@media (max-width: 400px) {
+  .nav { gap: 8px; }
+  .nav a { letter-spacing: 0.05em; }
+  .nav .cart-btn { padding: 8px 12px; letter-spacing: 0.08em !important; }
+  .nav .play-btn { padding: 6px 9px; letter-spacing: 0.06em; }
+  .masthead__inner { gap: 8px; }
+  .logo { font-size: 1rem; gap: 8px; max-width: 92px; line-height: 1.05; }
+  .logo__mark { width: 28px; height: 28px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
