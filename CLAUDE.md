@@ -95,9 +95,9 @@ that way; don't introduce React/Vite/Tailwind here.
 
 ## The game (/game)
 
-- A one-hole disc golf game: bring your bag (or a starter bag), pick a disc, set the same flight settings as the
-  guide, aim, then a two-tap throw meter (power, then release); inside 50 ft it is a one-tap putt. Static page, no
-  server state: the bag comes from the account API, scores are in `localStorage`. **Not linked from the nav yet.**
+- A disc golf game: bring your bag (or a starter bag), pick a disc, set the same flight settings as the
+  guide, aim, then a throw meter; inside 50 ft it is a one-tap putt. Solo play is a static page: the bag comes from
+  the account API, scores are in `localStorage`. Linked from the nav as the "Play now" button.
 - `public/js/flightmodel.js` is the flight physics, **shared** with the flight guide. `test/flightmodel.test.js`
   holds 400 throws captured from the guide before the split; do not change a number without meaning to change the
   guide too.
@@ -115,6 +115,17 @@ that way; don't introduce React/Vite/Tailwind here.
   accepts back from the browser.
 - Marebear eats the disc you just threw, once per hole, the first time you are at a triple bogey or worse and have
   not holed out. That rule lives in `applyResult` and is tested; the bear is drawn in `drawBear`.
+- **Head-to-head** (`/api/game`, `server/routes/game.js`, `server/lib/matches.js`): two signed-in players, host picks
+  9 or 18 holes in the lobby, invite by username or share the 6-letter code/link (`/game?match=CODE`). Turn by turn,
+  the player farthest from the basket throws next; a coin flip decides the first tee, then the lowest score on the
+  last hole tees first. The **server is authoritative about the result**: it re-plans and re-resolves every throw
+  with the same `flightmodel`/`gamecore`/`course` modules the browser uses (loaded by dynamic `import()` in
+  `loadGameplay()`), so a client cannot report a lie about where the disc landed. The meter itself is honor system:
+  `sanitizeSettings`/`sanitizeExecution` clamp what a browser may claim, but a player can still claim perfect
+  execution. Bags are snapshotted at join (ids and color only; photos stay private). Marebear applies per player.
+  Leaving is a forfeit. Live updates are SSE like the change log (keep `X-Accel-Buffering: no` and the ping).
+  Matches live in `data/matches.json` (gitignored, atomic writes, fail-soft like accounts): back it up with
+  `accounts.json`. Limits: 6 open matches per user, unjoined matches expire after 24h, finished ones are kept 14 days.
 - Modules import each other with `?v=N`: bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 

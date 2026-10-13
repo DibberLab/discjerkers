@@ -355,7 +355,7 @@ export const atTripleBogey = (strokes, par) => strokes - par >= 3;
 export const holeScore = (strokes, par, holed) => (holed ? strokes : Math.max(strokes + 1, par + 4));
 
 export function newRound(hole) {
-  return { hole, lie: { ...hole.tee }, strokes: 0, throws: [], eaten: [], bearCame: false, done: false, holed: false };
+  return { hole, lie: { x: hole.tee.x, y: hole.tee.y }, strokes: 0, throws: [], eaten: [], bearCame: false, done: false, holed: false };
 }
 
 /**

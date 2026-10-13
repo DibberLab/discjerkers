@@ -63,7 +63,7 @@ function snapshot(gp, bag) {
 
 /* ---------- playing a hole ---------- */
 
-const freshRound = (hole, eaten) => ({ lie: { ...hole.tee }, strokes: 0, throws: [], eaten: [...eaten], bearCame: false, done: false, holed: false });
+const freshRound = (hole, eaten) => ({ lie: { x: hole.tee.x, y: hole.tee.y }, strokes: 0, throws: [], eaten: [...eaten], bearCame: false, done: false, holed: false });
 
 function startHole(gp, m) {
   const hole = gp.hole(gp.G.HOLES[m.holeIdx].id);

@@ -171,7 +171,7 @@ test('a hole ends when both are done: cards, then the next hole, honor to the be
   assert.strictEqual(m.last.holeEnd.holeId, 1);
   assert.strictEqual(m.last.holeEnd.matchDone, false);
   assert.strictEqual(m.round.holeId, 2);
-  assert.deepStrictEqual(m.round.rounds.u1.lie, gp.hole(2).tee, 'everyone back on the tee');
+  assert.deepStrictEqual(m.round.rounds.u1.lie, { x: gp.hole(2).tee.x, y: gp.hole(2).tee.y }, 'everyone back on the tee');
   const [a, b] = [m.cards.u1[0].score, m.cards.u2[0].score];
   if (a !== b) assert.strictEqual(m.round.turn, a < b ? 'u1' : 'u2', 'the best score throws first');
 });

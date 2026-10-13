@@ -5,11 +5,12 @@
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, SPIN, spinOf, typicalSpin, tierName, ANGLE_MAX, angleName, angleDeg } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=2';
-import * as G from './gamecore.js?v=5';
+import * as G from './gamecore.js?v=6';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const nf = new Intl.NumberFormat('en-US');
+const OPP_COLOR = '#38c8e8';
 const ft = (n) => `${nf.format(Math.round(n))} ft`;
 
 /* ---------- the clock ---------- */
@@ -70,9 +71,13 @@ function discChip(disc, item) {
 const S = {
   hole: HOLES[0],
   round: null,
-  mode: 'menu', // menu | solo
+  mode: 'menu', // menu | solo | lobby | match
+  mp: null, // the head-to-head match being played: { id, view, me, es, shownSeq, queue, ... }
+  opp: null, // the other player's lie on this hole: { name, lie, strokes, done, holed }
+  oppTrail: [],
+  lobby: { matches: [], msg: '', holes: 18, invite: '', code: '', busy: false },
   course: null, // the round being played: { length, holes, idx, card, eaten }
-  phase: 'loading', // menu | pick | power | release | putt | flight | result | bear | done | summary
+  phase: 'loading', // menu | lobby | pick | power | spin | angle | release | putt | flight | result | bear | done | summary | mwait | mturn | mhole | mdone
   bag: { starter: true, discs: [] },
   discId: null,
   settings: loadSettings(),
@@ -156,18 +161,8 @@ function startSolo(length, practiceId) {
 }
 
 function showMenu() {
+  resetStage();
   S.mode = 'menu';
-  S.course = null;
-  S.hole = HOLES[0];
-  S.round = G.newRound(S.hole);
-  S.trail = [];
-  S.fx = [];
-  S.anim = null;
-  S.bear = null;
-  S.meter = null;
-  S.last = null;
-  S.bag = buildBag();
-  S.discId = null;
   setPhase('menu');
   retarget(true);
 }
@@ -183,6 +178,7 @@ function setPhase(phase, focusSel) {
 const panel = () => $('#gm-panel');
 
 function bagBar() {
+  if (S.mode === 'match') return '';
   if (!account.user) {
     return `<div class="gm-bagbar"><span>Starter bag</span><button class="chip" type="button" data-signin>Sign in to bring your bag</button></div>`;
   }
@@ -258,7 +254,7 @@ function panelPick() {
   const plan = G.planThrow(S.hole, d, S.settings, heading());
   const dist = toBasket();
   const strokes = S.round.strokes;
-  return `${roundBar()}${tipHtml()}${bagBar()}
+  return `${roundBar()}${S.mode === 'match' ? boardHtml() : tipHtml()}${bagBar()}
     <div class="gm-block">
       <p class="gm-h">Your disc <span>· ${available().length} left in the bag</span></p>
       ${discRow()}
@@ -283,6 +279,7 @@ function panelMenu() {
         <button class="btn" type="button" data-solo="9">Front 9<small>par ${parTotal(HOLES.slice(0, 9))}</small></button>
         <button class="btn" type="button" data-solo="18">Full 18<small>par ${parTotal(HOLES)}</small></button>
       </div>
+      <button class="btn btn--ghost" type="button" data-versus>Play a friend <small>head to head, turn by turn</small></button>
       <div class="gm-row">
         <label class="gm-practice"><span class="fg-wind__l">Practice a hole</span><select data-practice aria-label="Which hole">${options}</select></label>
         <button class="chip" type="button" data-solo="1">Play it</button>
@@ -292,6 +289,11 @@ function panelMenu() {
 
 // where you are in the round, and a way out
 function roundBar() {
+  if (S.mode === 'match' && S.mp) {
+    const v = S.mp.view;
+    const opp = v.players.find((p) => p.uid !== S.mp.me);
+    return `<div class="gm-roundbar"><span>${opp ? `vs <b>${esc(opp.name)}</b>` : 'Match'} · hole <b>${v.holeIdx + 1}</b> of ${v.holes}</span><button class="chip" type="button" data-mp-leave>Forfeit</button></div>`;
+  }
   const c = S.course;
   if (!c) return '';
   const total = c.card.reduce((n, h) => n + h.score, 0);
@@ -391,6 +393,10 @@ function panelResult() {
 
 function panelBear() {
   const disc = DISCS.get(S.bear.discId);
+  if (S.bear.owner === 'opp') {
+    const name = S.mp?.view.players.find((p) => p.uid !== S.mp.me)?.name || 'They';
+    return `<div class="gm-card"><h2 class="is-bad">Marebear!</h2><p>${esc(name)} is at a triple bogey, and Marebear smelled it. She is eating their ${esc(splitName(disc.name))}.</p></div>`;
+  }
   return `<div class="gm-card"><h2 class="is-bad">Marebear!</h2><p>Triple bogey, and Marebear smelled it. She is eating your ${esc(splitName(disc.name))}.</p></div>`;
 }
 
@@ -443,7 +449,7 @@ function renderPanel(focusSel) {
   const p = panel();
   if (!p) return;
   const keepScroll = p.dataset.phase === S.phase ? p.scrollTop : 0;
-  const views = { menu: panelMenu, pick: panelPick, power: panelMeter, spin: panelMeter, angle: panelMeter, release: panelMeter, putt: panelMeter, flight: panelFlight, result: panelResult, bear: panelBear, done: panelDone, summary: panelSummary };
+  const views = { menu: panelMenu, pick: panelPick, power: panelMeter, spin: panelMeter, angle: panelMeter, release: panelMeter, putt: panelMeter, flight: panelFlight, result: panelResult, bear: panelBear, done: panelDone, summary: panelSummary, lobby: panelLobby, mwait: panelMwait, mturn: panelMturn, mhole: panelMhole, mdone: panelMdone };
   p.innerHTML = (views[S.phase] || (() => ''))();
   p.dataset.phase = S.phase;
   p.scrollTop = keepScroll;
@@ -459,7 +465,12 @@ function updateHud() {
   const r = S.round;
   if (!r) return;
   const c = S.course;
-  if (!c) {
+  if (S.mode === 'match' && S.mp && S.mp.view.round) {
+    const v = S.mp.view;
+    const opp = v.players.find((p) => p.uid !== S.mp.me);
+    const turn = v.status !== 'active' ? '' : v.round.turn === S.mp.me ? 'Your throw' : `${esc(opp.name)}'s throw`;
+    $('#gm-hud').innerHTML = `<span>Hole ${v.holeIdx + 1}/${v.holes} · ${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}</small><span>You <b>${r.strokes}</b> · ${esc(opp.name)} <b>${S.opp ? S.opp.strokes : 0}</b></span><small>${turn}${turn ? ' · ' : ''}${ft(G.distance(r.lie, h.basket))} to the basket</small>`;
+  } else if (!c) {
     $('#gm-hud').innerHTML = '<span>Disc Jerkers Golf Club</span><small>Eighteen holes · par 69</small>';
   } else {
     const total = c.card.reduce((n, x) => n + x.score, 0);
@@ -522,6 +533,7 @@ function tap() {
 
 function throwDisc(ex) {
   try { localStorage.setItem('dj_game_tip', '1'); } catch { /* shown again */ }
+  if (S.mode === 'match') { mpThrow(ex); return; }
   const disc = curDisc();
   const from = { ...lieOf() };
   const result = G.resolveThrow(S.hole, disc, S.settings, heading(), ex, from);
@@ -534,6 +546,7 @@ function throwDisc(ex) {
 }
 
 function puttDisc(shot) {
+  if (S.mode === 'match') { mpPutt(shot); return; }
   const disc = curDisc();
   const from = { ...lieOf() };
   const result = G.resolvePutt(S.hole, from, disc, shot);
@@ -550,6 +563,7 @@ function puttDisc(shot) {
 }
 
 function finishThrow() {
+  if (S.mode === 'match') { finishMove(); return; }
   const { result, disc, from } = S.last;
   const out = G.applyResult(S.round, disc, result);
   S.trail.push({ pts: [...result.pts ?? [], ...(result.roll ?? [])], kind: result.kind, n: S.round.throws.length, from });
@@ -609,7 +623,7 @@ function next() {
 
 const BEAR_PARTS = { enter: 1700, chomp: 1300, burp: 900, leave: 1300 };
 function startBear(info) {
-  S.bear = { t0: now(), at: { ...info.at }, discId: info.discId };
+  S.bear = { t0: now(), at: { ...info.at }, discId: info.discId, owner: info.owner || 'me' };
   toast('Marebear!', 'bad', 1800);
   setPhase('bear');
   retarget(false);
@@ -623,6 +637,7 @@ function bearPhase(ms) {
   return null;
 }
 function endBear() {
+  if (S.mode === 'match') { S.bear = null; afterMove(); return; }
   const eatenLast = !available().length;
   S.bear = null;
   if (eatenLast) {
@@ -656,7 +671,7 @@ function resize() {
 // frame the lie and the basket, with room to see where the throw goes
 function retarget(snap, extra = []) {
   if (!S.round) return;
-  const lie = lieOf();
+  const lie = S.mode === 'match' && S.phase === 'mturn' && S.opp ? S.opp.lie : lieOf();
   const b = S.hole.basket;
   const putting = inPutt();
   const pts = [lie, b, ...extra.filter((_, i) => i % 6 === 0)];
@@ -861,8 +876,8 @@ function drawPreview() {
 }
 
 // a disc seen from above: raised by its height, with its shadow on the ground
-function drawDisc(wx, wy, h, discId, size = 1) {
-  const look = discLook(discId);
+function drawDisc(wx, wy, h, discId, size = 1, owner = 'me') {
+  const look = discLook(discId, owner);
   const [gx, gy] = P(wx, wy);
   const r = Math.max(6, 3.2 * cam.s) * size * (1 + h / 120);
   const lift = h * 0.3 * cam.s;
@@ -896,22 +911,66 @@ function drawDisc(wx, wy, h, discId, size = 1) {
   }
 }
 
-function discLook(id) {
+function discLook(id, owner = 'me') {
   const d = DISCS.get(id);
+  if (owner === 'opp' && S.mp) {
+    const them = S.mp.view.players.find((p) => p.uid !== S.mp.me);
+    return { color: them?.discs.find((x) => x.id === id)?.color || gradeColor(d.col), photo: '' };
+  }
   const it = itemOf(id);
   return { color: it?.color || gradeColor(d.col), photo: it?.photo ? photoUrl(it.photo) : '' };
 }
 
 function drawLie(t) {
-  if (!['pick', ...METER].includes(S.phase) || !curDisc()) return;
+  if (!['pick', 'mturn', ...METER].includes(S.phase) || !curDisc()) return;
   const lie = lieOf();
   const [x, y] = P(lie.x, lie.y);
   ctx.beginPath();
   ctx.arc(x, y, 14 + Math.sin(t / 260) * 1.5, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(238,241,232,0.5)';
+  ctx.strokeStyle = S.mode === 'match' ? 'rgba(163,230,53,0.8)' : 'rgba(238,241,232,0.5)';
   ctx.lineWidth = 1.5;
   ctx.stroke();
   drawDisc(lie.x, lie.y, 0, S.discId);
+}
+
+// the other player: their earlier throws in blue, and a ring where their disc is now
+function drawOpp(t) {
+  if (S.mode !== 'match' || !S.opp) return;
+  S.oppTrail.forEach((tr, i) => {
+    if (tr.pts.length < 2) return;
+    poly(tr.pts.map((p) => [p.x, p.y]), false);
+    ctx.strokeStyle = tr.kind === 'water' || tr.kind === 'oob' ? 'rgba(211,84,0,0.55)' : 'rgba(56,200,232,0.45)';
+    ctx.setLineDash([4, 5]);
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const e = tr.pts.at(-1);
+    const [x, y] = P(e.x, e.y);
+    ctx.beginPath();
+    ctx.arc(x, y, 7, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(8,30,40,0.8)';
+    ctx.fill();
+    ctx.fillStyle = OPP_COLOR;
+    ctx.font = '700 9px "Space Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(i + 1), x, y + 0.5);
+  });
+  if (S.opp.done || S.anim) return;
+  const [x, y] = P(S.opp.lie.x, S.opp.lie.y);
+  ctx.beginPath();
+  ctx.arc(x, y, 13 + Math.sin(t / 300 + 1) * 1.5, 0, Math.PI * 2);
+  ctx.strokeStyle = OPP_COLOR;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(x, y, 5, 0, Math.PI * 2);
+  ctx.fillStyle = OPP_COLOR;
+  ctx.fill();
+  ctx.fillStyle = '#eef1e8';
+  ctx.font = '700 10px "Space Mono", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(S.opp.name.slice(0, 10), x, y - 20);
 }
 
 function drawFx(t) {
@@ -1029,7 +1088,7 @@ function drawBearScene(t) {
   }
   if (discVisible) {
     const shrink = part.name === 'chomp' ? clamp(1 - part.p / 0.85, 0, 1) : 1;
-    drawDisc(b.at.x, b.at.y, 0, b.discId, 1.1 * shrink);
+    drawDisc(b.at.x, b.at.y, 0, b.discId, 1.1 * shrink, b.owner);
   }
   drawBear(x, dy - 6, sc, { mouth, run, facing, burp });
   if (part.name === 'chomp') {
@@ -1076,7 +1135,7 @@ function drawFlight(t) {
     poly([a.pts.at(-1), ...a.roll.slice(0, ri + 1)].map((q) => [q.x, q.y]), false);
     ctx.stroke();
   }
-  drawDisc(shown.x, shown.y, p >= 1 ? 0 : pos.h, S.last.disc.id);
+  drawDisc(shown.x, shown.y, p >= 1 ? 0 : pos.h, S.last.disc.id, 1, S.last.who === 'opp' ? 'opp' : 'me');
   const doneAt = a.dur + (a.roll.length ? 500 : 0) + 250;
   if (t - a.t0 >= doneAt) finishThrow();
 }
@@ -1089,6 +1148,7 @@ function draw(t) {
   drawTrees();
   drawBasket();
   drawPreview();
+  drawOpp(t);
   drawLie(t);
   drawFlight(t);
   drawFx(t);
@@ -1266,6 +1326,32 @@ function onPanelClick(e) {
     startMeter();
   } else if (t.closest('[data-next]')) {
     next();
+  } else if (t.closest('[data-versus]') || t.closest('[data-lobby]')) {
+    openLobby();
+  } else if (t.closest('[data-lobby-holes]')) {
+    S.lobby.holes = Number(t.closest('[data-lobby-holes]').dataset.lobbyHoles);
+    renderPanel();
+  } else if (t.closest('[data-mp-create]')) {
+    mpCreate();
+  } else if (t.closest('[data-mp-join]')) {
+    mpJoin(S.lobby.code);
+  } else if (t.closest('[data-mp-accept]')) {
+    mpJoin(t.closest('[data-mp-accept]').dataset.mpAccept);
+  } else if (t.closest('[data-mp-open]')) {
+    mpOpen(t.closest('[data-mp-open]').dataset.mpOpen);
+  } else if (t.closest('[data-mp-copy]')) {
+    copyLink();
+  } else if (t.closest('[data-mp-continue]')) {
+    applyView(S.mp.view);
+    drainQueue();
+  } else if (t.closest('[data-mp-rematch]')) {
+    mpRematch();
+  } else if (t.closest('[data-mp-leave]')) {
+    const btn = t.closest('[data-mp-leave]');
+    if (btn.dataset.armed) { mpLeave(); return; }
+    btn.dataset.armed = '1'; // two taps: leaving forfeits
+    btn.textContent = S.mp.view.status === 'waiting' ? 'Really cancel?' : 'Really forfeit?';
+    setTimeout(() => { if (btn.isConnected) { delete btn.dataset.armed; btn.textContent = S.mp.view.status === 'waiting' ? 'Cancel the match' : 'Forfeit'; } }, 3000);
   } else if (t.closest('[data-solo]')) {
     const length = Number(t.closest('[data-solo]').dataset.solo);
     startSolo(length, length === 1 ? Number($('[data-practice]', panel())?.value) || 1 : undefined);
@@ -1299,6 +1385,8 @@ function onPanelChange(e) {
 }
 
 function onPanelInput(e) {
+  if (e.target.matches?.('[data-lobby-invite]')) { S.lobby.invite = e.target.value; return; }
+  if (e.target.matches?.('[data-lobby-code]')) { e.target.value = e.target.value.toUpperCase(); S.lobby.code = e.target.value; return; }
   const r = e.target.closest?.('[data-gr]');
   if (!r) return;
   const v = Number(r.value);
@@ -1310,6 +1398,8 @@ function onPanelInput(e) {
 }
 
 function onKey(e) {
+  if (e.key === 'Enter' && S.phase === 'lobby' && e.target.matches?.('[data-lobby-code]')) { e.preventDefault(); mpJoin(S.lobby.code); return; }
+  if (e.key === 'Enter' && S.phase === 'lobby' && e.target.matches?.('[data-lobby-invite]')) { e.preventDefault(); mpCreate(); return; }
   if (e.target.closest?.('input, select, textarea') && e.key !== 'Enter') return;
   if (isMeter() && (e.key === ' ' || e.key === 'Enter')) {
     e.preventDefault();
@@ -1318,6 +1408,467 @@ function onKey(e) {
     if (e.key === 'ArrowLeft') setAim(S.aimOff - (e.shiftKey ? 5 : 1));
     else if (e.key === 'ArrowRight') setAim(S.aimOff + (e.shiftKey ? 5 : 1));
   }
+}
+
+/* ---------- versus: two players, one course, turn by turn ---------- */
+
+async function gapi(path, { method = 'GET', body } = {}) {
+  const res = await fetch(`/api/game${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+    credentials: 'same-origin',
+    cache: 'no-store',
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.error || `Something went wrong (${res.status}).`);
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+const oppPlayer = (view = S.mp.view) => view.players.find((p) => p.uid !== S.mp.me) || null;
+const mpBusy = () => !!S.anim || S.phase === 'bear' || S.phase === 'mhole' || !!S.mp?.sending;
+
+// back to a bare stage (the menu and the lobby share it)
+function resetStage() {
+  closeStream();
+  S.mp = null;
+  S.opp = null;
+  S.oppTrail = [];
+  S.course = null;
+  S.hole = HOLES[0];
+  S.round = G.newRound(S.hole);
+  S.trail = [];
+  S.fx = [];
+  S.anim = null;
+  S.bear = null;
+  S.meter = null;
+  S.last = null;
+  S.bag = buildBag();
+  S.discId = null;
+  try { history.replaceState(null, '', '/game'); } catch { /* fine */ }
+}
+
+/* ----- the lobby ----- */
+
+function openLobby() {
+  resetStage();
+  S.mode = 'lobby';
+  S.lobby.msg = '';
+  setPhase('lobby');
+  retarget(true);
+  if (account.user) refreshLobby();
+}
+
+async function refreshLobby() {
+  clearTimeout(S.lobby.timer);
+  try {
+    const d = await gapi('/matches');
+    const same = JSON.stringify(d.matches) === JSON.stringify(S.lobby.matches);
+    S.lobby.matches = d.matches;
+    if (!same && S.phase === 'lobby') renderPanel();
+  } catch (err) {
+    S.lobby.msg = err.message;
+    if (S.phase === 'lobby') renderPanel();
+  }
+  if (S.phase === 'lobby') S.lobby.timer = setTimeout(refreshLobby, 8000);
+}
+
+const matchLine = (m) => {
+  const who = m.invitedYou ? `${esc(m.host)} challenged you` : m.opponent ? `vs ${esc(m.opponent)}` : 'Waiting for a player';
+  const state = m.status === 'waiting' ? (m.invitedYou ? 'your invitation' : 'waiting')
+    : m.status === 'active' ? (m.yourTurn ? '<b>your throw</b>' : 'their throw')
+      : m.status === 'cancelled' ? 'cancelled'
+        : m.won === true ? '<b>you won</b>' : m.won === false ? 'you lost' : 'a tie';
+  return `<li><span>${who}<small>${m.holes} holes${m.status === 'active' ? ` · on hole ${m.holeIdx + 1}` : ''} · ${state}</small></span>${m.invitedYou
+    ? `<button class="chip" type="button" data-mp-accept="${esc(m.id)}">Accept</button>`
+    : `<button class="chip" type="button" data-mp-open="${esc(m.id)}">${m.status === 'active' || m.status === 'waiting' ? 'Open' : 'Look'}</button>`}</li>`;
+};
+
+function panelLobby() {
+  const L = S.lobby;
+  if (!account.user) {
+    return `<div class="gm-card"><h2>Play a friend</h2><p>Head to head needs you both signed in, so the match is yours and stays yours. It takes a username and a password, nothing else.</p>
+      <button class="btn" type="button" data-signin>Sign in or create an account</button>
+      <button class="btn btn--ghost" type="button" data-menu>Back</button></div>`;
+  }
+  const mine = L.matches.length ? `<ul class="gm-matches">${L.matches.map(matchLine).join('')}</ul>` : '<p class="gm-note">Nothing yet.</p>';
+  return `${bagBar()}
+    <div class="gm-card">
+      <h2>Play a friend</h2>
+      <p>Turn by turn: the player farthest from the basket throws next. You each bring your own bag, and a coin flip picks who tees off.</p>
+      <div class="gm-row" role="group" aria-label="Round length"><span class="fg-wind__l">Round</span>
+        <div class="fg-seg"><button class="chip" type="button" data-lobby-holes="9" aria-pressed="${L.holes === 9}">Front 9</button><button class="chip" type="button" data-lobby-holes="18" aria-pressed="${L.holes === 18}">All 18</button></div>
+      </div>
+      <label class="gm-field"><span class="fg-wind__l">Challenge a player (optional)</span><input data-lobby-invite value="${esc(L.invite)}" maxlength="24" placeholder="their username" autocomplete="off" autocapitalize="none" spellcheck="false"></label>
+      <button class="btn" type="button" data-mp-create${L.busy ? ' disabled' : ''}>${L.busy ? 'Starting…' : 'Start a match'}</button>
+      <p class="gm-note">Leave the name empty and you get a code and a link to send to anyone.</p>
+    </div>
+    <div class="gm-card">
+      <p class="gm-h">Join with a code</p>
+      <div class="gm-row"><input class="gm-code-in" data-lobby-code value="${esc(L.code)}" maxlength="6" placeholder="ABC123" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Match code"><button class="chip" type="button" data-mp-join>Join</button></div>
+    </div>
+    <div class="gm-card"><p class="gm-h">Your matches</p>${mine}</div>
+    ${L.msg ? `<p class="gm-error" role="alert">${esc(L.msg)}</p>` : ''}
+    <button class="btn btn--ghost" type="button" data-menu>Back</button>`;
+}
+
+const flash = (msg) => { S.lobby.msg = msg; if (S.phase === 'lobby') renderPanel(); };
+
+async function mpCreate() {
+  if (S.lobby.busy) return;
+  S.lobby.busy = true;
+  S.lobby.msg = '';
+  renderPanel();
+  try {
+    const d = await gapi('/matches', { method: 'POST', body: { holes: S.lobby.holes, invite: S.lobby.invite.trim(), bagId: account.activeId } });
+    S.lobby.invite = '';
+    enterMatch(d.match);
+  } catch (err) {
+    flash(err.message);
+  } finally {
+    S.lobby.busy = false;
+    if (S.phase === 'lobby') renderPanel();
+  }
+}
+
+async function mpJoin(id) {
+  const code = String(id || '').trim().toUpperCase();
+  if (!code) { flash('Type the six-character code.'); return; }
+  try {
+    const d = await gapi(`/matches/${encodeURIComponent(code)}/join`, { method: 'POST', body: { bagId: account.activeId } });
+    S.lobby.code = '';
+    enterMatch(d.match);
+  } catch (err) {
+    if (S.mode !== 'lobby') openLobby();
+    flash(err.message);
+  }
+}
+
+async function mpOpen(id) {
+  try {
+    const d = await gapi(`/matches/${encodeURIComponent(id)}`);
+    enterMatch(d.match);
+  } catch (err) {
+    flash(err.message);
+  }
+}
+
+/* ----- a match ----- */
+
+function enterMatch(view) {
+  closeStream();
+  S.mode = 'match';
+  S.mp = { id: view.id, view, me: view.you, shownSeq: view.seq, queue: [], es: null, beat: Date.now(), sending: false, holeSeen: 0 };
+  S.discId = null;
+  S.course = null;
+  try { history.replaceState(null, '', `/game?match=${view.id}`); } catch { /* fine */ }
+  connectStream();
+  applyView(view);
+}
+
+function closeStream() {
+  const mp = S.mp;
+  if (!mp) return;
+  if (mp.es) mp.es.close();
+  clearInterval(mp.watch);
+}
+
+function connectStream() {
+  const mp = S.mp;
+  if (!mp || typeof EventSource === 'undefined') return;
+  if (mp.es) mp.es.close();
+  const es = new EventSource(`/api/game/matches/${encodeURIComponent(mp.id)}/stream`);
+  mp.es = es;
+  mp.beat = Date.now();
+  es.addEventListener('state', (e) => { mp.beat = Date.now(); try { onMatchState(JSON.parse(e.data)); } catch { /* a bad frame */ } });
+  es.addEventListener('ping', () => { mp.beat = Date.now(); });
+  // a connection can die without the browser noticing: if the server goes quiet, reconnect; and ask now and then anyway
+  clearInterval(mp.watch);
+  mp.watch = setInterval(() => {
+    if (S.mp !== mp) { clearInterval(mp.watch); return; }
+    if (Date.now() - mp.beat > 45000) connectStream();
+    if (!mpBusy()) gapi(`/matches/${encodeURIComponent(mp.id)}`).then((d) => onMatchState(d.match)).catch(() => {});
+  }, 15000);
+}
+
+// the whole screen from the match as the server sees it
+function applyView(view) {
+  const mp = S.mp;
+  const before = S.hole;
+  mp.view = view;
+  const me = mp.me;
+  const opp = oppPlayer(view);
+  if (view.round) {
+    S.hole = holeById(view.round.holeId);
+    const r = view.round.rounds[me];
+    S.round = { hole: S.hole, lie: { ...r.lie }, strokes: r.strokes, throws: r.throws, eaten: [...r.eaten], bearCame: r.bearCame, done: r.done, holed: r.holed };
+    const path = (tr) => tr.map((t) => ({ pts: t.pts.map(([x, y]) => ({ x, y })), kind: t.kind, n: t.n }));
+    S.trail = path(view.round.trails[me] || []);
+    if (opp) {
+      const o = view.round.rounds[opp.uid];
+      S.opp = { name: opp.name, lie: { ...o.lie }, strokes: o.strokes, done: o.done, holed: o.holed };
+      S.oppTrail = path(view.round.trails[opp.uid] || []);
+    } else {
+      S.opp = null;
+      S.oppTrail = [];
+    }
+  } else {
+    S.hole = HOLES[0];
+    S.round = G.newRound(S.hole);
+    S.trail = [];
+    S.opp = null;
+    S.oppTrail = [];
+  }
+  S.course = { length: view.holes, holes: HOLES.slice(0, view.holes), idx: view.holeIdx, card: (view.cards[me] || []).map((c) => ({ id: c.hole, par: c.par, strokes: c.strokes, score: c.score, holed: c.holed })), eaten: view.eaten[me] || [] };
+  const mine = view.players.find((p) => p.uid === me);
+  S.bag = {
+    starter: false,
+    discs: mine.discs.map((d) => {
+      const own = account.bags.flatMap((b) => (b.items?.[d.id] ? [b.items[d.id]] : [])).find((it) => it.color || it.photo);
+      return { disc: DISCS.get(d.id), item: own || (d.color ? { color: d.color } : null) };
+    }).filter((x) => x.disc),
+  };
+  if (!S.bag.discs.some((x) => x.disc.id === S.discId && !S.round.eaten.includes(x.disc.id))) S.discId = suggest();
+  S.aimOff = 0;
+  setPhase(matchPhase());
+  retarget(true);
+  if (before !== S.hole && view.round && view.holeIdx > 0) toast(`Hole ${view.holeIdx + 1}: ${S.hole.name}`, '', 1700);
+}
+
+function matchPhase() {
+  const v = S.mp.view;
+  if (v.status === 'waiting') return 'mwait';
+  if (v.status === 'done' || v.status === 'cancelled') return 'mdone';
+  return v.round.turn === S.mp.me ? 'pick' : 'mturn';
+}
+
+// news from the server (the stream, or the answer to something I did)
+function onMatchState(view) {
+  const mp = S.mp;
+  if (!mp || view.id !== mp.id) return;
+  if (view.seq < mp.view.seq) return; // old news
+  if (view.seq === mp.view.seq && view.status === mp.view.status) return; // nothing new (the echo of my own move)
+  if (mpBusy()) { mp.queue.push(view); return; }
+  processView(view);
+}
+
+function processView(view) {
+  const mp = S.mp;
+  const last = view.last;
+  if (last && last.seq > mp.shownSeq) startMoveAnim(view, last, last.uid === mp.me ? 'me' : 'opp');
+  else applyView(view);
+}
+
+function drainQueue() {
+  const mp = S.mp;
+  if (!mp || mpBusy() || !mp.queue.length) return;
+  processView(mp.queue.shift());
+}
+
+// show a move on the course: mine the moment the server answers, theirs the moment it reaches me
+function startMoveAnim(view, last, who) {
+  const mp = S.mp;
+  mp.shownSeq = last.seq;
+  mp.view = view;
+  const disc = DISCS.get(last.discId);
+  const hole = holeById(last.holeId);
+  S.hole = hole;
+  const to = last.made ? hole.basket : last.lie;
+  const pts = last.putt
+    ? Array.from({ length: 21 }, (_, i) => { const t = i / 20; return { x: last.from.x + (to.x - last.from.x) * t, y: last.from.y + (to.y - last.from.y) * t, h: 3 + 5 * 4 * t * (1 - t), s: t }; })
+    : last.pts.map(([x, y, h]) => ({ x, y, h }));
+  const roll = last.roll.map(([x, y]) => ({ x, y }));
+  const result = { kind: last.kind, pts, roll, end: last.end, lie: last.lie, strokes: last.strokes, made: last.made, gimme: last.gimme, plan: last.putt ? undefined : { feet: last.feet } };
+  S.last = { result, ex: last.ex, disc, from: last.from, who };
+  S.anim = { type: 'flight', t0: now(), dur: last.putt ? 750 : clamp(900 + last.feet * 4.2, 1200, 3300), pts, roll, result };
+  const name = who === 'opp' ? `${oppPlayer(view).name}: ` : '';
+  toast(`${name}${last.putt ? (last.made ? (last.gimme ? 'Tap-in' : 'Chains!') : 'Rimmed out') : last.ex?.grade || ''}`, last.putt ? (last.made ? 'good' : 'bad') : last.ex?.pure ? 'good' : last.ex?.grade === 'Shank' ? 'bad' : '', 1400);
+  setPhase('flight');
+  retarget(false, pts);
+}
+
+// the disc has landed
+function finishMove() {
+  const mp = S.mp;
+  const L = S.last;
+  const last = mp.view.last;
+  const result = L.result;
+  const at = result.end ?? result.lie;
+  S.anim = null;
+  S.aimOff = 0;
+  if (result.kind === 'water' || result.kind === 'oob') S.fx.push({ type: 'splash', x: at.x, y: at.y, t0: now() });
+  if (result.kind === 'tree') S.fx.push({ type: 'thunk', x: at.x, y: at.y, t0: now() });
+  if (result.kind === 'basket') S.fx.push({ type: 'chains', x: S.hole.basket.x, y: S.hole.basket.y, t0: now() });
+  if (L.who === 'me' && navigator.vibrate && ['tree', 'water', 'oob', 'basket'].includes(result.kind)) navigator.vibrate(result.kind === 'basket' ? [30, 40, 30] : 40);
+  const trail = L.who === 'me' ? S.trail : S.oppTrail;
+  trail.push({ pts: [...result.pts, ...result.roll].map((p) => ({ x: p.x, y: p.y })), kind: result.kind, n: trail.length + 1 });
+  if (last.bear) { startBear({ discId: last.bear.discId, at: last.bear.at, owner: L.who }); return; }
+  afterMove();
+}
+
+// the move is over: if it ended the hole, show the hole; either way, then the state as it now is
+function afterMove() {
+  const mp = S.mp;
+  const last = mp.view.last;
+  if (last && last.holeEnd && mp.holeSeen !== last.seq) {
+    mp.holeSeen = last.seq;
+    setPhase('mhole');
+    return;
+  }
+  applyView(mp.view);
+  drainQueue();
+}
+
+async function mpMove(kind, body) {
+  const mp = S.mp;
+  mp.sending = true;
+  try {
+    const d = await gapi(`/matches/${encodeURIComponent(mp.id)}/${kind}`, { method: 'POST', body });
+    mp.sending = false;
+    startMoveAnim(d.match, d.last, 'me');
+  } catch (err) {
+    mp.sending = false;
+    toast(err.message, 'bad', 2600);
+    try { applyView((await gapi(`/matches/${encodeURIComponent(mp.id)}`)).match); } catch { setPhase(matchPhase()); }
+  }
+}
+
+function mpThrow(ex) {
+  const disc = curDisc();
+  S.last = { result: null, ex, disc, from: { ...lieOf() }, who: 'me' };
+  setPhase('flight');
+  mpMove('throw', { discId: disc.id, settings: { ...S.settings }, aimOff: S.aimOff, ex: { pf: ex.pf, over: ex.over, o: ex.o, spinF: ex.spinF, angleD: ex.angleD, pure: ex.pure } });
+}
+
+function mpPutt(shot) {
+  const disc = curDisc();
+  S.last = { result: null, ex: null, disc, from: { ...lieOf() }, who: 'me' };
+  setPhase('flight');
+  mpMove('putt', { discId: disc.id, x: shot.x, y: shot.y });
+}
+
+/* ----- the match screens ----- */
+
+function boardHtml() {
+  const v = S.mp.view;
+  if (!v.round) return '';
+  const hole = S.hole;
+  const rows = v.players.map((p) => {
+    const r = v.round.rounds[p.uid];
+    const total = (v.cards[p.uid] || []).reduce((n, c) => n + c.score, 0);
+    const par = (v.cards[p.uid] || []).reduce((n, c) => n + c.par, 0);
+    return `<li class="${p.uid === S.mp.me ? 'is-me' : 'is-them'}${v.round.turn === p.uid ? ' is-turn' : ''}"><span>${esc(p.name)}${p.uid === S.mp.me ? ' (you)' : ''}</span><span>${r.done ? (r.holed ? 'in' : 'out') : ft(G.distance(r.lie, hole.basket))}</span><b>${r.strokes}</b><span>${(v.cards[p.uid] || []).length ? vsPar(total - par) : '–'}</span></li>`;
+  }).join('');
+  return `<ol class="gm-board" aria-label="Scoreboard"><li class="gm-board__h"><span>Player</span><span>To basket</span><span>Hole</span><span>Round</span></li>${rows}</ol>`;
+}
+
+function panelMwait() {
+  const v = S.mp.view;
+  const link = `${location.origin}/game?match=${v.id}`;
+  return `<div class="gm-card">
+      <h2>Waiting for a player</h2>
+      <p>${v.invite ? `You challenged <b>${esc(v.invite)}</b>. It is waiting in their lobby; you can also send them the link.` : 'Send this code or link to a friend. They need to be signed in.'}</p>
+      <div class="gm-code" aria-label="Match code">${esc(v.id)}</div>
+      <input class="gm-link" readonly value="${esc(link)}" aria-label="Match link" data-mp-link>
+      <button class="btn" type="button" data-mp-copy>Copy the link</button>
+      <p class="gm-note">${v.holes} holes · each of you brings your own bag · the farthest player from the basket throws next. This page updates the moment someone joins.</p>
+      <button class="btn btn--ghost" type="button" data-mp-leave>Cancel the match</button>
+      <button class="btn btn--ghost" type="button" data-lobby>Back to the lobby</button>
+    </div>`;
+}
+
+function panelMturn() {
+  const v = S.mp.view;
+  const opp = oppPlayer(v);
+  const mine = v.round.rounds[S.mp.me];
+  const theirs = v.round.rounds[opp.uid];
+  const hole = S.hole;
+  const reason = mine.done
+    ? `You are done with this hole. ${esc(opp.name)} is still playing it.`
+    : `${esc(opp.name)} is ${ft(G.distance(theirs.lie, hole.basket))} from the basket and you are ${ft(G.distance(mine.lie, hole.basket))}, so ${esc(opp.name)} throws.`;
+  return `${roundBar()}${boardHtml()}
+    <div class="gm-card"><h2>${esc(opp.name)}'s throw</h2><p>${reason}</p><p class="gm-note">You will see it as it happens. This page updates by itself.</p></div>`;
+}
+
+function panelMhole() {
+  const v = S.mp.view;
+  const he = v.last.holeEnd;
+  const hole = holeById(he.holeId);
+  const rows = he.results.map((r) => {
+    const p = v.players.find((x) => x.uid === r.uid);
+    return `<li class="${r.uid === S.mp.me ? 'is-me' : ''}"><span>${esc(p.name)}${r.uid === S.mp.me ? ' (you)' : ''}</span><span>${r.holed ? G.scoreName(r.strokes, hole.par) : 'no discs'}</span><b>${r.holed ? r.strokes : `${r.score}*`}</b></li>`;
+  }).join('');
+  const next = HOLES[v.holeIdx];
+  const best = Math.min(...he.results.map((r) => r.score));
+  const winners = he.results.filter((r) => r.score === best);
+  const title = winners.length === 2 ? 'Halved' : winners[0].uid === S.mp.me ? 'You take the hole' : `${esc(oppPlayer(v).name)} takes the hole`;
+  return `<div class="gm-card">
+      <h2 class="${winners.length === 1 && winners[0].uid === S.mp.me ? 'is-good' : ''}">${title}</h2>
+      <p>${esc(hole.name)}, par ${hole.par}.</p>
+      <ol class="gm-vs-list">${rows}</ol>
+      ${he.matchDone
+        ? '<button class="btn" type="button" data-mp-continue>See the result</button>'
+        : `<button class="btn" type="button" data-mp-continue>Next: hole ${v.holeIdx + 1}, ${esc(next.name)} <small>par ${next.par}</small></button>`}
+    </div>`;
+}
+
+function panelMdone() {
+  const v = S.mp.view;
+  const me = S.mp.me;
+  const opp = oppPlayer(v);
+  if (v.status === 'cancelled') {
+    return `<div class="gm-card"><h2 class="is-bad">Match cancelled</h2><p>Nobody joined in time, or it was called off.</p><button class="btn" type="button" data-lobby>Back to the lobby</button></div>`;
+  }
+  const total = (uid) => (v.cards[uid] || []).reduce((n, c) => n + c.score, 0);
+  const par = (v.cards[me] || []).reduce((n, c) => n + c.par, 0);
+  const headline = v.winner === 'tie' ? 'A tie' : v.winner === me ? 'You win!' : `${esc(opp.name)} wins`;
+  const note = v.endedBy === 'forfeit' ? (v.winner === me ? `${esc(opp.name)} left the match.` : 'You left the match.') : '';
+  const rows = (v.cards[me] || []).map((c, i) => {
+    const o = (v.cards[opp.uid] || [])[i];
+    return `<li><span>${c.hole}. ${esc(HOLES[c.hole - 1].name)}</span><span>par ${c.par}</span><b class="${c.score < (o?.score ?? 99) ? 'is-under' : ''}">${c.holed ? c.strokes : `${c.score}*`}</b><b class="${o && o.score < c.score ? 'is-under' : ''}">${o ? (o.holed ? o.strokes : `${o.score}*`) : '–'}</b></li>`;
+  }).join('');
+  return `<div class="gm-card">
+      <h2 class="${v.winner === me ? 'is-good' : v.winner === 'tie' ? '' : 'is-bad'}">${headline}</h2>
+      ${note ? `<p>${note}</p>` : ''}
+      <div class="gm-score"><div><b>${total(me)}</b><span>You</span></div><div><b>${total(opp.uid)}</b><span>${esc(opp.name)}</span></div><div><b>${vsPar(total(me) - par)}</b><span>You to par</span></div></div>
+      <ol class="gm-vs-list gm-vs-list--card"><li class="gm-vs-list__h"><span>Hole</span><span></span><b>You</b><b>${esc(opp.name.slice(0, 5))}</b></li>${rows}</ol>
+      <button class="btn" type="button" data-mp-rematch>Play ${esc(opp.name)} again</button>
+      <button class="btn btn--ghost" type="button" data-lobby>Back to the lobby</button>
+      <button class="btn btn--ghost" type="button" data-menu>Menu</button>
+    </div>`;
+}
+
+async function mpLeave() {
+  try {
+    const d = await gapi(`/matches/${encodeURIComponent(S.mp.id)}/leave`, { method: 'POST' });
+    S.mp.view = d.match;
+    applyView(d.match);
+  } catch (err) {
+    toast(err.message, 'bad', 2400);
+  }
+}
+
+async function mpRematch() {
+  const v = S.mp.view;
+  const opp = oppPlayer(v);
+  try {
+    const d = await gapi('/matches', { method: 'POST', body: { holes: v.holes, invite: opp.name, bagId: account.activeId } });
+    enterMatch(d.match);
+  } catch (err) {
+    toast(err.message, 'bad', 2600);
+  }
+}
+
+function copyLink() {
+  const input = $('[data-mp-link]');
+  if (!input) return;
+  const done = () => toast('Link copied', 'good', 1200);
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(input.value).then(done, () => { input.select(); });
+  else { input.select(); document.execCommand?.('copy'); done(); }
 }
 
 /* ---------- boot ---------- */
@@ -1345,13 +1896,28 @@ async function boot() {
 
   onAccountChange(() => {
     if (!S.round) return;
+    if (!account.user && (S.mode === 'match' || S.mode === 'lobby')) { showMenu(); return; }
+    if (S.mode === 'match') return; // a match keeps the bag it started with
     S.bag = buildBag();
     if (!S.bag.discs.some((x) => x.disc.id === S.discId)) S.discId = suggest();
-    if (S.phase === 'pick' || S.phase === 'menu') renderPanel();
+    if (S.phase === 'pick' || S.phase === 'menu' || S.phase === 'lobby') renderPanel();
   });
+  // a link to a match (?match=CODE): read it before the page tidies its own address
+  const code = (new URLSearchParams(location.search).get('match') || '').toUpperCase();
   await loadAccount();
   showMenu();
-  window.__gm = { S, G, clock, tap, throwDisc, startMeter, next, retarget, cam, DISCS, showMenu, startSolo, startHole, startBear, finishThrow, finishHole, finishCourse };
+  if (code) {
+    if (account.user) {
+      mpJoin(code);
+    } else {
+      openLobby();
+      S.lobby.code = code;
+      renderPanel();
+      toast('Sign in to join this match', '', 2400);
+      openSignIn({ onDone: () => mpJoin(code) });
+    }
+  }
+  window.__gm = { S, G, clock, tap, throwDisc, startMeter, next, retarget, cam, DISCS, showMenu, startSolo, startHole, startBear, finishThrow, finishHole, finishCourse, openLobby, enterMatch, applyView, onMatchState, finishMove, mpCreate, mpJoin, step: () => { const t = now(); update(t); draw(t); } };
   requestAnimationFrame(frame);
 }
 

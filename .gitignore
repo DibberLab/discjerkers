@@ -4,3 +4,5 @@ data/*.json
 !data/.gitkeep
 .DS_Store
 *.log
+data/photos/
+data/*.tmp
