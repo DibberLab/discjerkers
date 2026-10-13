@@ -4,11 +4,12 @@
 
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
-import { HOLES, holeById, holesFor } from './course.js?v=8';
-import * as G from './gamecore.js?v=19';
+import { HOLES, holeById, holesFor } from './course.js?v=9';
+import * as G from './gamecore.js?v=20';
 import * as T from './trash.js?v=3';
-import * as C3 from './cam3d.js?v=9';
-import * as PF from './puttfx.js?v=5';
+import * as C3 from './cam3d.js?v=10';
+import * as PF from './puttfx.js?v=6';
+import * as GR from './ground.js?v=1';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -126,6 +127,16 @@ const isMeter = () => METER.includes(S.phase);
 const lieOf = () => S.round.lie;
 const toBasket = () => G.distance(lieOf(), S.hole.basket);
 const inPutt = () => toBasket() <= G.PUTT_RANGE;
+const puttDd = () => G.puttDist(S.hole, lieOf()); // how hard the putt is: the hill counts
+// how the basket sits against you: nothing on the level, else "▲ 12 ft uphill" or "▼ 8 ft downhill"
+const slopeBit = (hole, lie) => { const t = slopeText(hole, lie); return t ? ` · ${t}` : ''; };
+// a line for the pick panel about the hill, with what it does to this throw or putt
+function slopeNote() {
+  const t = slopeText(S.hole, lieOf());
+  if (!t) return '';
+  return `<p class="gm-note">${t}. ${inPutt() ? (G.riseTo(S.hole, lieOf()) > 0 ? 'Uphill putts are easier, but swipe a little harder.' : 'Downhill putts are harder and run away: swipe softer.') : (G.riseTo(S.hole, lieOf()) > 0 ? 'The basket is above you: throws come down short.' : 'The basket is below you: throws run on.')}</p>`;
+}
+const slopeText = (hole, lie) => { const r = G.riseTo(hole, lie); return Math.abs(r) < 1 ? '' : `${r > 0 ? '▲' : '▼'} ${Math.round(Math.abs(r))} ft ${r > 0 ? 'uphill' : 'downhill'}`; };
 const baseHeading = () => G.headingTo(lieOf(), S.hole.basket);
 const heading = () => baseHeading() + S.aimOff;
 const curDisc = () => DISCS.get(S.discId);
@@ -208,7 +219,7 @@ function pickInfo(d, plan, putting) { // plan: { wind }
   const brand = DATA.brands[d.b].n;
   const nums = `${d.speed} / ${d.glide} / ${d.turn > 0 ? `+${d.turn}` : d.turn} / ${d.fade}`;
   const out = putting
-    ? `${Math.round(G.puttRadius(toBasket(), d) * 100)}%<small>target size</small>`
+    ? `${Math.round(G.puttRadius(puttDd(), d) * 100)}%<small>target size</small>`
     : plan.wind.mph ? `${Math.round(plan.wind.mph)} mph<small>${plan.wind.head > 1 ? 'headwind' : plan.wind.head < -1 ? 'tailwind' : 'crosswind'}</small>` : 'Calm<small>no wind</small>';
   return `<div class="gm-pick"><b>${esc(d.name)}</b><output>${out}</output><small>${esc(brand)} · ${nums}</small></div>`;
 }
@@ -304,7 +315,7 @@ function panelPickPhone() {
   const leave = S.mode === 'match' ? '<button class="chip" type="button" data-mp-leave>Forfeit</button>' : '<button class="chip" type="button" data-quit>Quit</button>';
   let body;
   if (S.step === 'disc') {
-    body = `${bagBar()}${discRow()}${pickInfo(d, { wind: G.windFor(S.hole, heading()) }, putting)}${putting && toBasket() > G.LONG_PUTT ? '<p class="gm-note">Past 30 feet the target is a pinprick.</p>' : ''}`;
+    body = `${bagBar()}${discRow()}${pickInfo(d, { wind: G.windFor(S.hole, heading()) }, putting)}${putting && puttDd() > G.LONG_PUTT ? '<p class="gm-note">Past 30 feet the target is a pinprick.</p>' : ''}${slopeNote()}`;
   } else if (S.step === 'grip') {
     body = `${gripChips()}<p class="gm-note">Backhand or forehand, and which hand. The flight bends the other way for a lefty.</p>`;
   } else {
@@ -334,13 +345,14 @@ function panelPick() {
       <p class="gm-h">Your disc <span>· ${available().length} left in the bag</span></p>
       ${discRow()}
       ${pickInfo(d, plan, putting)}
+      ${slopeNote()}
     </div>
     ${putting
       ? `<p class="gm-sub"><b>${ft(dist)}</b> from the basket. One tap: catch the dot inside the green circle as it swirls past. Short putts get a big target and a slow dot; a faster disc shrinks it.${dist > G.LONG_PUTT ? ' <b>Past 30 feet it is a long shot: the target is a pinprick and the dot flies.</b>' : ''}</p>`
       : settingsBlock()}
     <div class="gm-go">
       <button class="btn" type="button" data-go>${putting ? 'Putt' : 'Throw'}</button>
-      <p class="gm-go__line">Stroke <b>${strokes + 1}</b> · Par <b>${S.hole.par}</b> · ${putting ? `${ft(dist)} out` : `${ft(dist)} to the basket`}</p>
+      <p class="gm-go__line">Stroke <b>${strokes + 1}</b> · Par <b>${S.hole.par}</b> · ${putting ? `${ft(dist)} out` : `${ft(dist)} to the basket`}${slopeBit(S.hole, lieOf())}</p>
     </div>`;
 }
 
@@ -429,7 +441,7 @@ function panelMeter() {
     nose: 'Tap to set the nose angle. The lime band is the sweet spot for the speed you chose; the white tick is level. Nose up lifts the disc (over a shrub or a low tree) but spends distance; nose down keeps it low and flat, and shorter.',
     angle: 'Tap to set the release angle. The lime band is the sweet spot for your speed and nose angle. The middle is flat; right tips it onto hyzer, left onto anhyzer.',
     release: releaseHint(risk),
-    putt: `Tap when the dot is in the green circle; a miss goes the way the dot was.${toBasket() > G.LONG_PUTT ? ' Past 30 ft the target is a pinprick.' : ''} ${d ? esc(d.name) : ''}, ${ft(toBasket())}.`,
+    putt: `Tap when the dot is in the green circle; a miss goes the way the dot was.${puttDd() > G.LONG_PUTT ? ' Past 30 ft the target is a pinprick.' : ''} ${d ? esc(d.name) : ''}, ${ft(toBasket())}.`,
   };
   const hint = `<div class="gm-meter__h">${Object.entries(hints).filter(([k]) => (k === 'putt') === (kind === 'putt')).map(([k, h]) => `<p${k === kind ? '' : ' aria-hidden="true"'}${k === kind ? '' : ' class="is-off"'}>${h}</p>`).join('')}<p class="is-off" aria-hidden="true">${releaseHint(40)}</p></div>`;
   // a putt shows the whole green and the Tap button first; its hint waits underneath, where it cannot cover anything
@@ -571,7 +583,7 @@ function updateHud() {
     const up = v.players.find((p) => p.uid === v.round.turn);
     const turn = v.status !== 'active' || !up ? '' : up.uid === S.mp.me ? 'Your throw' : `${esc(up.name)}'s throw`;
     const rivals = S.others.length === 1 ? ` · ${esc(S.others[0].name)} <b>${S.others[0].strokes}</b>` : '';
-    $('#gm-hud').innerHTML = `<span>Hole ${v.holeIdx + 1}/${v.holes} · ${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}</small><span>You <b>${r.strokes}</b>${rivals}</span><small>${turn}${turn ? ' · ' : ''}${ft(G.distance(r.lie, h.basket))} to the basket</small>`;
+    $('#gm-hud').innerHTML = `<span>Hole ${v.holeIdx + 1}/${v.holes} · ${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}</small><span>You <b>${r.strokes}</b>${rivals}</span><small>${turn}${turn ? ' · ' : ''}${ft(G.distance(r.lie, h.basket))} to the basket${slopeBit(h, r.lie)}</small>`;
   } else if (!c && S.phase === 'menu' && h.id !== HOLES[0].id) { // the menu is previewing the hole picked for practice
     $('#gm-hud').innerHTML = `<span>${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}</small>`;
   } else if (!c) {
@@ -579,7 +591,7 @@ function updateHud() {
   } else {
     const total = c.card.reduce((n, x) => n + x.score, 0);
     const par = c.card.reduce((n, x) => n + x.par, 0);
-    $('#gm-hud').innerHTML = `<span>${c.length > 1 ? `Hole ${c.idx + 1}/${c.holes.length} · ` : ''}${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}</small><span>Strokes <b>${r.strokes}</b>${c.length > 1 && c.card.length ? ` · Round ${vsPar(total - par)}` : ''}</span><small>${ft(G.distance(r.lie, h.basket))} to the basket</small>`;
+    $('#gm-hud').innerHTML = `<span>${c.length > 1 ? `Hole ${c.idx + 1}/${c.holes.length} · ` : ''}${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}</small><span>Strokes <b>${r.strokes}</b>${c.length > 1 && c.card.length ? ` · Round ${vsPar(total - par)}` : ''}</span><small>${ft(G.distance(r.lie, h.basket))} to the basket${slopeBit(h, r.lie)}</small>`;
   }
   const from = COMPASS[Math.round(h.wind.from / 45) % 8];
   $('#gm-wind').innerHTML = h.wind.mph
@@ -601,7 +613,7 @@ function startMeter() {
   const d = curDisc();
   if (!d) return;
   if (inPutt()) {
-    S.meter = { kind: 'putt', start: now(), radius: G.puttRadius(toBasket(), d), speed: G.puttSpeed(toBasket()), params: G.makePuttSeed(Math.random) };
+    S.meter = { kind: 'putt', start: now(), radius: G.puttRadius(puttDd(), d), speed: G.puttSpeed(puttDd()), params: G.makePuttSeed(Math.random) };
     setPhase('putt');
   } else {
     // four taps: power, nose and angle each choose a value of the throw, then the release is graded
@@ -689,11 +701,13 @@ function puttAnim(from, result, lie, who) {
   return { type: 'flight', t0: now(), dur: film ? script.total : 750, pts, roll: [], result, putt: true, script, tail: film ? script.tail : 350 };
 }
 
-/* ----- the swipe: after the radar, a flick toward the basket. True in aim and in power, or it misses. ----- */
+/* ----- the swipe: after the radar, DRAW BACK and then SWIPE FORWARD toward the basket, in one smooth motion. True in aim and in power, or it misses. ----- */
 
-// how far a swipe must run, in pixels, to be exactly enough: longer for a longer putt
-const swipeNeed = () => (H - S.dock) * (S.meter?.throwEx ? 0.3 + 0.0042 * S.settings.mph : 0.22 + 0.0065 * toBasket()); // a drive: harder arm, longer swipe
-const swipeTol = () => (S.meter?.throwEx ? G.DRIVE_SWIPE : G.swipeTolerance(toBasket()));
+// How far the forward stroke must run, in pixels, to be exactly enough: longer for a longer putt, or a harder arm.
+const swipeNeed = () => (H - S.dock) * (S.meter?.throwEx ? 0.2 + 0.0035 * S.settings.mph : 0.15 + 0.0055 * G.puttPush(S.hole, lieOf())); // uphill takes more push
+const swipeTol = () => (S.meter?.throwEx ? G.DRIVE_SWIPE : G.swipeTolerance(puttDd()));
+// where the disc is on the screen for the guide: high enough that there is room below it to draw back
+const swipeAnchor = () => ({ x: W / 2, y: (H - S.dock) * 0.66 });
 
 function startSwipe(shot = null, throwEx = null) {
   S.meter = { kind: 'swipe', shot, throwEx, drag: null };
@@ -702,25 +716,27 @@ function startSwipe(shot = null, throwEx = null) {
 function panelSwipe() {
   const drive = !!S.meter?.throwEx;
   return `<div class="gm-meter ${drive ? '' : 'gm-meter--putt'}">
-      <p class="gm-meter__t"><span>${drive ? 5 : 2} ·</span> Swipe</p>
+      <p class="gm-meter__t"><span>${drive ? 5 : 2} ·</span> Draw back, swipe</p>
       <div class="gm-meter__h"><p>${drive
-    ? 'One quick, smooth flick up the screen to throw, from anywhere on it (pause or pull back and it counts where you stopped). Stay inside the lime lines and stop in the lime band: off line steers the throw, too soft loses distance, too hard makes it loose.'
-    : 'One quick, smooth flick up the screen toward the basket, from anywhere on it (pause or pull back and it counts where you stopped). Keep it straight inside the lime lines, and stop inside the lime band: too soft dies short, too hard runs long, and off line misses.'}</p></div>
+    ? 'Draw back down the screen, then swipe forward up it, in one smooth motion, from anywhere. The forward swipe is the throw: stay inside the lime lines and stop in the lime band. A short draw back costs power; off line steers the throw, too soft loses distance, too hard makes it loose.'
+    : 'Draw back down the screen, then swipe forward up it, in one smooth motion, from anywhere. The forward swipe is the putt: stay inside the lime lines and stop in the lime band. A short draw back costs power; too soft dies short, too hard runs long, and off line misses.'}</p></div>
     </div>`;
 }
 function swipePoint(e) {
   const r = cv.getBoundingClientRect();
   return { x: e.clientX - r.left, y: e.clientY - r.top };
 }
-/* One smooth motion. A swipe is judged where the motion ends, and the motion ends the moment you stop moving, pull back, or lift: you
-   cannot stop at the end and nudge it. A pause of about a tenth of a second commits it where you paused; pulling back commits it at the
-   farthest point you reached; and a swipe too slow to be a swipe is thrown out (try again). */
-const SWIPE = { minLen: 28, minPeak: 260, slow: 150, pauseMs: 110, backPx: 14 }; // px, px per second, ms
+/* One smooth motion, in two strokes. You draw back (down the screen), turn, and swipe forward (up it). The forward stroke is judged where
+   it ends, and it ends the moment you stop moving, pull back, or lift: you cannot stop at the end and nudge it. A pause of about a tenth
+   of a second commits it where you paused; pulling back commits it at the farthest point you reached; a forward stroke too slow to be a
+   swipe is thrown out; and holding at the bottom of the draw back gets you nothing but another try. */
+const SWIPE = { minBack: 30, minLen: 28, minPeak: 260, slow: 150, pauseMs: 110, backPx: 14, turnPx: 12, holdMs: 700 }; // px, px per second, ms
 const now2 = () => performance.now();
+const swipeNote = (text) => { if (S.meter) S.meter.note = { text, until: now2() + 1600 }; };
 function beginSwipe(e) {
   const p = swipePoint(e);
   const t = now2();
-  S.meter.drag = { x0: p.x, y0: p.y, x: p.x, y: p.y, samples: [{ x: p.x, y: p.y, t }], peak: 0, maxLen: 0, maxPt: { x: p.x, y: p.y }, slowPt: null, slowT: 0, lastMove: t };
+  S.meter.drag = { x0: p.x, y0: p.y, x: p.x, y: p.y, phase: 'start', samples: [{ x: p.x, y: p.y, t }], backLen: 0, backPt: { x: p.x, y: p.y }, fwdLen: 0, fwdPt: null, peak: 0, speed: 0, slowPt: null, slowT: 0, lastMove: t };
   cv.setPointerCapture?.(e.pointerId);
 }
 function moveSwipe(e) {
@@ -733,44 +749,60 @@ function moveSwipe(e) {
   d.lastMove = t;
   d.samples.push({ x: p.x, y: p.y, t });
   while (d.samples.length > 2 && t - d.samples[0].t > 400) d.samples.shift();
-  const len = Math.hypot(p.x - d.x0, p.y - d.y0);
-  if (len > d.maxLen) { d.maxLen = len; d.maxPt = { x: p.x, y: p.y }; }
-  // how fast the finger is going: over the last 60 to 120 ms
-  const ref = [...d.samples].reverse().find((q) => t - q.t >= 60) || d.samples[0];
-  const speed = t - ref.t > 0 ? (Math.hypot(p.x - ref.x, p.y - ref.y) / (t - ref.t)) * 1000 : 0;
-  d.speed = speed;
-  if (speed > d.peak) d.peak = speed;
-  if (d.peak >= SWIPE.minPeak && speed < SWIPE.slow) { if (!d.slowPt) { d.slowPt = { x: p.x, y: p.y }; d.slowT = t; } } else d.slowPt = null;
-  if (d.maxLen > SWIPE.minLen && len < d.maxLen - SWIPE.backPx) commitSwipe(d.maxPt); // pulling back: it counts where it got to
+  const fromStart = Math.hypot(p.x - d.x0, p.y - d.y0);
+  if (d.phase === 'start' && fromStart >= 18) d.phase = p.y > d.y0 ? 'back' : 'wrong'; // down first, or it is not a draw back
+  if (d.phase === 'back') {
+    if (fromStart > d.backLen) { d.backLen = fromStart; d.backPt = { x: p.x, y: p.y }; } // the farthest you have drawn back
+    else if (d.backLen >= SWIPE.minBack && fromStart < d.backLen - SWIPE.turnPx) { // turned round: the forward stroke begins
+      d.phase = 'forward';
+      d.fwdLen = 0;
+      d.fwdPt = { x: d.backPt.x, y: d.backPt.y };
+      d.samples = [{ x: p.x, y: p.y, t }];
+    }
+  }
+  if (d.phase === 'forward') {
+    const fl = Math.hypot(p.x - d.backPt.x, p.y - d.backPt.y);
+    if (fl > d.fwdLen) { d.fwdLen = fl; d.fwdPt = { x: p.x, y: p.y }; }
+    // how fast the finger is going: over the last 60 to 120 ms
+    const ref = [...d.samples].reverse().find((q) => t - q.t >= 60) || d.samples[0];
+    const speed = t - ref.t > 0 ? (Math.hypot(p.x - ref.x, p.y - ref.y) / (t - ref.t)) * 1000 : 0;
+    d.speed = speed;
+    if (speed > d.peak) d.peak = speed;
+    if (d.peak >= SWIPE.minPeak && speed < SWIPE.slow) { if (!d.slowPt) { d.slowPt = { x: p.x, y: p.y }; d.slowT = t; } } else d.slowPt = null;
+    if (d.fwdLen > SWIPE.minLen && fl < d.fwdLen - SWIPE.backPx) commitSwipe(d.fwdPt); // pulling back: it counts where it got to
+  }
 }
-// every frame: a finger that has stopped (or is holding still, so sends nothing) ends the swipe where it stopped
+// every frame: a finger that has stopped (or is holding still, so sends nothing) ends the forward stroke where it stopped
 function tickSwipe() {
   const d = S.phase === 'swipe' ? S.meter?.drag : null;
-  if (!d || d.peak < SWIPE.minPeak) return;
+  if (!d) return;
   const t = now2();
+  if (d.phase === 'back' && t - d.lastMove > SWIPE.holdMs) { S.meter.drag = null; swipeNote('NO HOLDING: DRAW BACK AND GO'); return; }
+  if (d.phase !== 'forward' || d.peak < SWIPE.minPeak) return;
   if (d.slowPt && t - d.slowT > SWIPE.pauseMs) commitSwipe(d.slowPt);
   else if (t - d.lastMove > SWIPE.pauseMs + 30) commitSwipe({ x: d.x, y: d.y });
 }
 function endSwipe() {
   const d = S.meter?.drag;
   if (S.phase !== 'swipe' || !d) return;
-  if (d.peak < SWIPE.minPeak) { // a drag, not a swipe: too slow to count, and you may try again
-    S.meter.drag = null;
-    if (d.maxLen > SWIPE.minLen) S.meter.tooSlow = now2() + 1400;
-    return;
-  }
-  commitSwipe(d.maxLen > Math.hypot(d.x - d.x0, d.y - d.y0) + SWIPE.backPx ? d.maxPt : { x: d.x, y: d.y });
+  S.meter.drag = null;
+  if (d.phase === 'forward') {
+    if (d.peak < SWIPE.minPeak) { if (d.fwdLen > SWIPE.minLen) swipeNote('TOO SLOW: ONE QUICK SWIPE'); return; } // a drag, not a swipe: try again
+    S.meter.drag = d;
+    commitSwipe(d.fwdLen > Math.hypot(d.x - d.backPt.x, d.y - d.backPt.y) + SWIPE.backPx ? d.fwdPt : { x: d.x, y: d.y });
+  } else if (d.phase === 'wrong') swipeNote('DRAW BACK FIRST, THEN SWIPE UP');
+  else if (d.phase === 'back') swipeNote('NOW SWIPE FORWARD');
 }
 function commitSwipe(pt) {
   const m = S.meter;
   const d = m?.drag;
-  if (S.phase !== 'swipe' || !d) return;
+  if (S.phase !== 'swipe' || !d || d.phase !== 'forward') return;
   m.drag = null;
-  const dx = pt.x - d.x0;
-  const dy = pt.y - d.y0;
+  const dx = pt.x - d.backPt.x;
+  const dy = pt.y - d.backPt.y;
   const len = Math.hypot(dx, dy);
   if (len < SWIPE.minLen) return; // a tap, not a swipe: try again
-  const swipe = { aim: Math.round(((Math.atan2(dx, -dy) * 180) / Math.PI) * 10) / 10, power: Math.round((len / swipeNeed()) * 1000) / 1000 };
+  const swipe = { aim: Math.round(((Math.atan2(dx, -dy) * 180) / Math.PI) * 10) / 10, power: Math.round(swipePower(len, d.backLen) * 1000) / 1000 };
   if (m.throwEx) {
     const ex = G.withSwipe(m.throwEx, swipe);
     // solo rolls the slip here; in a match the server does, and the throw comes back with it
@@ -779,8 +811,10 @@ function commitSwipe(pt) {
     puttDisc(m.shot, swipe);
   }
 }
+// the power of a swipe: how far the forward stroke ran against what is needed, and a short draw back (under 60% of the forward stroke) costs up to 40% of it
+const swipePower = (fwd, back) => (fwd / swipeNeed()) * (0.6 + 0.4 * Math.min(1, back / (0.6 * fwd)));
 
-// the guide you swipe by: the cone to stay inside, the band to stop in, and your own line as you draw it
+// the guide you swipe by: the cone to stay inside, the band to stop in, a marker for how far to draw back, and your own two strokes
 function drawSwipeGuide() {
   tickSwipe();
   const m = S.meter;
@@ -788,9 +822,17 @@ function drawSwipeGuide() {
   const need = swipeNeed();
   const tol = swipeTol();
   const d = m.drag;
-  const ax = W / 2; // the guide stays where it is, wherever on the screen the finger lands: your swipe is drawn inside it
-  const ay = (H - S.dock) * 0.88;
+  const { x: ax, y: ay } = swipeAnchor(); // the guide stays where it is, wherever on the screen the finger lands: your swipe is drawn inside it
   const rad = (deg) => (deg * Math.PI) / 180;
+  const label = (text, x, y, color = '#eef1e8', size = 26, align = 'center') => {
+    ctx.font = `400 ${size}px "Anton", Impact, sans-serif`;
+    ctx.textAlign = align;
+    ctx.fillStyle = color;
+    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+    ctx.lineWidth = 5;
+    ctx.strokeText(text, x, y);
+    ctx.fillText(text, x, y);
+  };
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.lineCap = 'round';
@@ -815,77 +857,99 @@ function drawSwipeGuide() {
     ctx.stroke();
   }
   ctx.setLineDash([]);
-  if (!d && m.tooSlow > now2()) { // thrown out for being slow
-    ctx.font = '400 26px "Anton", Impact, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#f2c14e';
-    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-    ctx.lineWidth = 5;
-    ctx.strokeText('TOO SLOW: ONE QUICK SWIPE', W / 2, ay + 34);
-    ctx.fillText('TOO SLOW: ONE QUICK SWIPE', W / 2, ay + 34);
-  }
-  if (!d) { // waiting: chevrons pulsing up the way to swipe
+  // how far to draw back: a mark below the disc
+  const backTo = ay + 0.6 * need;
+  ctx.strokeStyle = 'rgba(242,193,78,0.8)';
+  ctx.lineWidth = 3;
+  ctx.setLineDash([4, 6]);
+  ctx.beginPath();
+  ctx.moveTo(ax, ay + 6);
+  ctx.lineTo(ax, backTo);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(ax - 16, backTo);
+  ctx.lineTo(ax + 16, backTo);
+  ctx.stroke();
+  if (!d) {
     const pulse = (performance.now() / 700) % 1;
-    for (let i = 0; i < 3; i++) {
-      const y = ay - 14 - ((i + pulse) % 3) * 22;
+    for (let i = 0; i < 3; i++) { // chevrons run down (draw back), then up (swipe): the order to do it in
+      const k = (i + pulse) % 3;
+      const y = ay + 18 + k * 20;
       ctx.beginPath();
-      ctx.moveTo(ax - 12, y + 7);
-      ctx.lineTo(ax, y - 5);
-      ctx.lineTo(ax + 12, y + 7);
-      ctx.strokeStyle = `rgba(238,241,232,${0.9 - ((i + pulse) % 3) * 0.28})`;
+      ctx.moveTo(ax - 11, y - 6);
+      ctx.lineTo(ax, y + 5);
+      ctx.lineTo(ax + 11, y - 6);
+      ctx.strokeStyle = `rgba(242,193,78,${0.9 - k * 0.28})`;
       ctx.lineWidth = 4;
       ctx.stroke();
     }
-    ctx.font = '400 26px "Anton", Impact, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#eef1e8';
-    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-    ctx.lineWidth = 5;
-    if (!(m.tooSlow > now2())) {
-      const word = m.throwEx ? 'SWIPE UP TO THROW' : 'SWIPE UP TO PUTT';
-      ctx.strokeText(word, ax, ay + 34);
-      ctx.fillText(word, ax, ay + 34);
-    }
-  } else { // your line, coloured by how true it is right now
-    const dx = d.x - d.x0;
-    const dy = d.y - d.y0;
-    const len = Math.hypot(dx, dy);
-    const aim = (Math.atan2(dx, -dy) * 180) / Math.PI;
-    // where the finger really is, faintly; the line in the guide is the same swipe, moved to the disc
+    if (m.note && m.note.until > now2()) label(m.note.text, W / 2, Math.min(backTo + 44, H - S.dock - 14), '#f2c14e', 24);
+    else label('DRAW BACK, THEN SWIPE UP', W / 2, Math.min(backTo + 44, H - S.dock - 14), '#eef1e8', Math.min(24, W / 14));
+  } else {
+    const color = (aim, power) => { const q = Math.max(Math.abs(aim) / tol.aim, Math.abs(power - 1) / tol.power); return q <= 1 ? '#a3e635' : q <= 1.5 ? '#f2c14e' : '#ff6a3a'; };
+    // where the finger really is, faintly
     ctx.beginPath();
     ctx.moveTo(d.x0, d.y0);
     ctx.lineTo(d.x, d.y);
-    ctx.strokeStyle = 'rgba(238,241,232,0.28)';
+    ctx.strokeStyle = 'rgba(238,241,232,0.22)';
     ctx.lineWidth = 8;
     ctx.stroke();
     ctx.beginPath();
     ctx.arc(d.x, d.y, 13, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(238,241,232,0.3)';
+    ctx.fillStyle = 'rgba(238,241,232,0.28)';
     ctx.fill();
-    const q = Math.max(Math.abs(aim) / tol.aim, Math.abs(len / need - 1) / tol.power);
-    const color = q <= 1 ? '#a3e635' : q <= 1.5 ? '#f2c14e' : '#ff6a3a';
-    const ex = ax + dx; // the end of your swipe, drawn from the disc
-    const ey = ay + dy;
-    ctx.beginPath();
-    ctx.moveTo(ax, ay);
-    ctx.lineTo(ex, ey);
-    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-    ctx.lineWidth = 11;
-    ctx.stroke();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 6;
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(ex, ey, 11, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
-    ctx.font = '700 14px "Space Mono", monospace';
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#fff';
-    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-    ctx.lineWidth = 4;
-    ctx.strokeText(`${Math.round((len / need) * 100)}%`, ex + 18, ey + 5);
-    ctx.fillText(`${Math.round((len / need) * 100)}%`, ex + 18, ey + 5);
+    if (d.phase === 'start' || d.phase === 'wrong') {
+      if (d.phase === 'wrong') label('DRAW BACK FIRST', W / 2, ay + 0.6 * need + 44, '#ff6a3a', 24);
+    } else {
+      // the draw back, as a band pulled out below the disc
+      const bx = ax + (d.backPt.x - d.x0);
+      const by = ay + (d.backPt.y - d.y0);
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+      ctx.lineWidth = 11;
+      ctx.stroke();
+      ctx.strokeStyle = d.phase === 'back' ? '#f2c14e' : 'rgba(242,193,78,0.55)';
+      ctx.lineWidth = 6;
+      ctx.stroke();
+      if (d.phase === 'back') {
+        ctx.beginPath();
+        ctx.arc(bx, by, 11, 0, Math.PI * 2);
+        ctx.fillStyle = '#f2c14e';
+        ctx.fill();
+        if (d.backLen >= SWIPE.minBack) label('NOW SWIPE UP!', W / 2, Math.min(by + 44, H - S.dock - 14), '#f2c14e', 24);
+      } else {
+        // the forward stroke, drawn from the disc, coloured by how true it is right now
+        const fx = d.x - d.backPt.x;
+        const fy = d.y - d.backPt.y;
+        const len = Math.hypot(fx, fy);
+        const aim = (Math.atan2(fx, -fy) * 180) / Math.PI;
+        const power = len > 0 ? swipePower(len, d.backLen) : 0;
+        const c = color(aim, power);
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(ax + fx, ay + fy);
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = 11;
+        ctx.stroke();
+        ctx.strokeStyle = c;
+        ctx.lineWidth = 6;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(ax + fx, ay + fy, 11, 0, Math.PI * 2);
+        ctx.fillStyle = c;
+        ctx.fill();
+        ctx.font = '700 14px "Space Mono", monospace';
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#fff';
+        ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+        ctx.lineWidth = 4;
+        ctx.strokeText(`${Math.round(power * 100)}%`, ax + fx + 18, ay + fy + 5);
+        ctx.fillText(`${Math.round(power * 100)}%`, ax + fx + 18, ay + fy + 5);
+      }
+    }
   }
   ctx.restore();
 }
@@ -1180,6 +1244,12 @@ function drawCourse(t) {
     ctx.restore();
   }
   ctx.restore();
+  // the lay of the land over all of it: hill shading, mown stripes, grass flecks and contour lines
+  const layer = GR.mapLayer(h);
+  if (layer) {
+    const [lx, ly] = P(layer.minX, layer.maxY);
+    ctx.drawImage(layer.canvas, lx, ly, layer.w * cam.s, layer.h * cam.s);
+  }
 }
 
 // the trees, seen from above: white pine (dark, spiky), maple (round, some turning), oak (broad and olive), and low shrubs and bushes
@@ -1584,7 +1654,9 @@ function drawPutt3D(t) {
   const d = { x: b.x - lie.x, y: b.y - lie.y };
   const l = Math.hypot(d.x, d.y) || 1;
   const dir = { x: d.x / l, y: d.y / l };
-  const want = { x: lie.x - dir.x * 13, y: lie.y - dir.y * 13, z: 5.2, yaw: Math.atan2(dir.x, dir.y), pitch: Math.atan2(3.2 - 5.2, l + 13) };
+  const gnd = (x, y) => C3.groundAt(S.hole, x, y); // the land under the camera and under the basket: putts are often up or down a slope
+  const camZ = gnd(lie.x - dir.x * 13, lie.y - dir.y * 13) + 5.2;
+  const want = { x: lie.x - dir.x * 13, y: lie.y - dir.y * 13, z: camZ, yaw: Math.atan2(dir.x, dir.y), pitch: Math.atan2(gnd(b.x, b.y) + 3.2 - camZ, l + 13) };
   if (!S.pcam) { S.pcam = C3.newCamera(want.x, want.y, want.z, want.yaw, want.pitch); S.pcamT = t; }
   const dt = clamp((t - S.pcamT) / 1000, 0.001, 0.05);
   S.pcamT = t;
@@ -1609,7 +1681,7 @@ function drawPutt3D(t) {
     else if (a.result.rim && m.rimAt !== undefined && ms >= m.rimAt && ms < (m.spitAt ?? m.landAt)) chain = 0.45;
     if (at.phase === 'roll') { // follow a disc that is running away
       want.yaw = Math.atan2(at.x - c.x, at.y - c.y);
-      want.pitch = Math.atan2(0.6 - c.z, Math.hypot(at.x - c.x, at.y - c.y));
+      want.pitch = Math.atan2(gnd(at.x, at.y) + 0.6 - c.z, Math.hypot(at.x - c.x, at.y - c.y));
     }
   } else if (a) {
     const p = clamp((t - a.t0) / a.dur, 0, 1);
@@ -1633,7 +1705,7 @@ function draw3D(t) {
     const far = a.pts[Math.min(6, a.pts.length - 1)];
     const d0 = { x: far.x - a.pts[0].x, y: far.y - a.pts[0].y };
     const l = Math.hypot(d0.x, d0.y) || 1;
-    a.cam = C3.startCamera(a.pts[0], { x: d0.x / l, y: d0.y / l });
+    a.cam = C3.startCamera(a.pts[0], { x: d0.x / l, y: d0.y / l }, C3.groundAt(S.hole, a.pts[0].x, a.pts[0].y));
     a.prev = t;
   }
   const dt = clamp((t - a.prev) / 1000, 0.001, 0.05);
@@ -1647,7 +1719,7 @@ function draw3D(t) {
   } else {
     trail.push({ x: pos.x, y: pos.y, h: pos.h });
   }
-  C3.follow(a.cam, { ...disc, h: disc.h * C3.ZS }, dir, dt, { back: 15 + 7 * (1 - Math.abs(p - 0.5) * 2), lift: 3.5, ahead: 70 });
+  C3.follow(a.cam, { ...disc, h: disc.h * C3.ZS, g: C3.groundAt(S.hole, disc.x, disc.y) }, dir, dt, { back: 15 + 7 * (1 - Math.abs(p - 0.5) * 2), lift: 3.5, ahead: 70, ground: (x, y) => C3.groundAt(S.hole, x, y) });
   const kind = a.result.kind;
   const landed = Math.max(0, (t - a.t0 - a.dur) / 700);
   C3.drawScene(ctx, {
@@ -2576,7 +2648,7 @@ async function boot() {
       openSignIn({ onDone: () => mpJoin(code) });
     }
   }
-  window.__gm = { puttDisc, S, G, clock, tap, throwDisc, startMeter, next, retarget, cam, DISCS, showMenu, startSolo, startHole, startBear, finishThrow, finishHole, finishCourse, openLobby, enterMatch, applyView, onMatchState, finishMove, mpCreate, mpJoin, step: () => { const t = now(); update(t); draw(t); } };
+  window.__gm = { startSwipe, puttDisc, S, G, clock, tap, throwDisc, startMeter, next, retarget, cam, DISCS, showMenu, startSolo, startHole, startBear, finishThrow, finishHole, finishCourse, openLobby, enterMatch, applyView, onMatchState, finishMove, mpCreate, mpJoin, step: () => { const t = now(); update(t); draw(t); } };
   requestAnimationFrame(frame);
 }
 

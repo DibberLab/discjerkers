@@ -342,7 +342,8 @@ test('every hole can be played: a careful player with a clean meter makes par or
   const FW = { id: 2, speed: 9, glide: 5, turn: -2, fade: 2 };
   const MID = { id: 3, speed: 5, glide: 4, turn: 0, fade: 3 };
   const PUT = { id: 4, speed: 3, glide: 3, turn: 0, fade: 1 };
-  for (const hole of G.HOLES) {
+  // a careful player's search is greedy, so on a hole with hills one grain of power (the bar is continuous) can matter: try a few
+  const play = (hole, grain) => {
     let lie = { ...hole.tee };
     let strokes = 0;
     for (let n = 0; n < 9 && strokes < 99; n++) {
@@ -360,7 +361,7 @@ test('every hole can be played: a careful player with a clean meter makes par or
         for (const disc of discs) {
           for (const aim of list) {
             for (const angle of [-2, 0, 2]) {
-              for (let mph = 12; mph <= 86; mph += 8) {
+              for (let mph = 12; mph <= 86; mph += grain) {
                 const r = G.resolveThrow(hole, disc, { ...RIGHT, mph, angle }, aim, CLEAN, lie);
                 if (r.kind !== 'landed' && r.kind !== 'basket') continue;
                 const d = r.kind === 'basket' ? 0 : G.distance(r.lie, hole.basket) <= G.PUTT_RANGE ? G.distance(r.lie, hole.basket) : G.routeLeft(hole, r.lie.x, r.lie.y) + 60;
@@ -376,6 +377,14 @@ test('every hole can be played: a careful player with a clean meter makes par or
       strokes += 1;
       if (best.r.kind === 'basket') break;
       lie = best.r.lie;
+    }
+    return strokes;
+  };
+  for (const hole of G.HOLES) {
+    let strokes = Infinity;
+    for (const grain of [8, 4, 6, 3, 5]) {
+      strokes = Math.min(strokes, play(hole, grain));
+      if (strokes <= hole.par) break;
     }
     assert.ok(strokes <= hole.par, `hole ${hole.id} (${hole.name}) can be played in par: ${strokes} vs ${hole.par}`);
   }
@@ -630,4 +639,130 @@ test('the swipe on a drive is graded: a true one changes nothing, off line steer
   assert.ok(server.swipe && server.swipeAim > 0 && server.swipeSpeed < 1, 'the server applies it itself');
   assert.strictEqual(G.sanitizeExecution({ o: 0, swipe: 'junk' }).swipe, undefined, 'and ignores nonsense');
   assert.strictEqual(G.sanitizeExecution({ o: 0 }).swipe, undefined, 'an older page has none');
+});
+
+/* ---------- hills ---------- */
+
+// a long straight hole whose ground we describe
+async function hill(terrain, extra = {}) {
+  const { makeHole } = await load();
+  return makeHole({ id: 9, name: 'Hill', par: 4, fairway: [[0, 0, 60], [0, 800, 60]], basket: { x: 0, y: 800 }, wind: { mph: 0, from: 0 }, bounds: { minX: -200, maxX: 200, minY: -80, maxY: 900 }, terrain, ...extra });
+}
+
+test('hills: the ground has a height, flat holes are flat, and a hole with no ground described is level', async () => {
+  const G = await load();
+  const flat = await field();
+  assert.strictEqual(G.elevAt(flat, 10, 100), 0, 'a hole with no terrain is level');
+  assert.deepStrictEqual(G.slopeAt(flat, 10, 100), { gx: 0, gy: 0 });
+  const h = await hill({ rise: [[800, 24]], bowl: 0 });
+  assert.ok(Math.abs(G.elevAt(h, 0, 0)) < 0.5, 'the tee is the zero of the height');
+  assert.ok(Math.abs(G.elevAt(h, 0, 800) - 24) < 0.5, `the basket is where the profile says: ${G.elevAt(h, 0, 800)}`);
+  assert.ok(G.elevAt(h, 0, 400) > 8 && G.elevAt(h, 0, 400) < 16, 'and the ground climbs between');
+  assert.ok(G.slopeAt(h, 0, 400).gy > 0.03, 'uphill is positive');
+  assert.ok(G.elevAt(h, 150, 400) === G.elevAt(h, -150, 400) || Math.abs(G.elevAt(h, 150, 400) - G.elevAt(h, -150, 400)) < 0.01, 'with no bowl it is the same on either side');
+  assert.ok(G.elevAt(await hill({ bowl: 0.1 }), 150, 400) > 5, 'a bowl rises away from the fairway');
+  // a mound is a hill, a hollow is a hollow
+  const m = await hill({ bowl: 0, mounds: [{ x: 0, y: 300, r: 30, h: 8 }, { x: 0, y: 500, r: 30, h: -6 }] });
+  assert.ok(G.elevAt(m, 0, 300) > 6 && G.elevAt(m, 0, 500) < -4 && Math.abs(G.elevAt(m, 0, 400)) < 1);
+  // a flat hole's flight has z = h, as before
+  const pts = G.samplePath({ headingDeg: 0, feet: 200, lat: [0, 0, 0], apex: 30 }, { x: 0, y: 0 }, 72, flat);
+  assert.ok(pts.every((p) => p.z === p.h) && pts.length === 73 && Math.abs(pts.at(-1).y - 200) < 1e-6);
+});
+
+test('hills: a disc flies farther downhill and shorter uphill, and rolls on downhill', async () => {
+  const G = await load();
+  const level = await hill({ bowl: 0 });
+  const up = await hill({ rise: [[800, 40]], bowl: 0 });
+  const down = await hill({ rise: [[800, -40]], bowl: 0 });
+  const steepUp = await hill({ rise: [[800, 160]], bowl: 0 });
+  const steepDown = await hill({ rise: [[800, -160]], bowl: 0 });
+  const throwIt = (hole, disc = DRIVER, mph = 62) => G.resolveThrow(hole, disc, { ...RIGHT, mph }, 0, CLEAN, { x: 0, y: 0 });
+  const [l, u, d] = [level, up, down].map((h) => throwIt(h));
+  assert.ok(l.kind === 'landed' && u.kind === 'landed' && d.kind === 'landed');
+  assert.ok(d.lie.y > l.lie.y + 10, `downhill is farther: ${Math.round(d.lie.y)} vs ${Math.round(l.lie.y)}`);
+  assert.ok(u.lie.y < l.lie.y - 10, `uphill is shorter: ${Math.round(u.lie.y)} vs ${Math.round(l.lie.y)}`);
+  // every point of a flight is above the ground, and it ends on it
+  for (const r of [u, d]) {
+    const h = r === u ? up : down;
+    for (const p of r.pts) assert.ok(p.h >= 0 && Math.abs(p.z - p.h - G.elevAt(h, p.x, p.y)) < 0.01, 'h is height above the ground, z above the tee');
+    assert.strictEqual(r.pts.at(-1).h, 0);
+    assert.ok(r.pts.length === 73, 'always the same number of points');
+  }
+  // the same on a slope, the roll goes with the hill
+  const slow = (h) => G.resolveThrow(h, PUTTER, { ...RIGHT, mph: 30 }, 0, CLEAN, { x: 0, y: 0 });
+  const [rl, ru, rd] = [level, steepUp, steepDown].map(slow);
+  const rolled = (r) => G.distance(r.pts.at(-1), r.lie);
+  assert.ok(rolled(rd) > rolled(rl) && rolled(ru) <= rolled(rl) + 1e-9, `it runs on downhill (${rolled(rd).toFixed(1)}), stops short uphill (${rolled(ru).toFixed(1)}), level is ${rolled(rl).toFixed(1)}`);
+});
+
+test('hills: a ridge in the way stops the disc short, and a tree on a hill is higher up', async () => {
+  const G = await load();
+  const level = await hill({ bowl: 0 });
+  const ridge = await hill({ bowl: 0, mounds: [{ x: 0, y: 220, r: 40, h: 70 }] });
+  const at = (h) => G.resolveThrow(h, DRIVER, { ...RIGHT, mph: 62 }, 0, CLEAN, { x: 0, y: 0 });
+  const flatR = at(level);
+  const ridged = at(ridge);
+  assert.ok(ridged.lie.y < flatR.lie.y - 40, `it comes down on the far side of the ridge, or on it: ${Math.round(ridged.lie.y)} vs ${Math.round(flatR.lie.y)}`);
+  assert.ok(ridged.pts.length === 73 && ridged.pts.every((p) => p.h >= 0));
+  // a tree stands on the ground it grows from, and the disc has to be above that ground plus its height
+  const knoll = await hill({ bowl: 0, mounds: [{ x: 0, y: 150, r: 30, h: 30 }] }, { trees: [{ x: 0, y: 150, r: 4, h: 20, k: 'p' }] });
+  assert.ok(G.elevAt(knoll, 0, 150) > 25, 'there is a knoll');
+  const tall = knoll.trees[0];
+  assert.ok(tall.z > 25, `the tree is up on it: ${tall.z}`);
+});
+
+test('hills: every hole of the course has relief, and none is a cliff you cannot play', async () => {
+  const G = await load();
+  let steep = 0;
+  for (const h of G.HOLES) {
+    assert.ok(h.field, `${h.id}: has ground`);
+    const along = h.route.pts.map(([x, y]) => G.elevAt(h, x, y));
+    const spread = Math.max(...along) - Math.min(...along);
+    assert.ok(spread >= 4, `${h.id} (${h.name}): there are hills to play: ${spread.toFixed(1)} ft`);
+    assert.ok(spread <= 40, `${h.id}: but not mountains: ${spread.toFixed(1)} ft`);
+    for (const [x, y] of h.route.pts) {
+      const s = G.slopeAt(h, x, y);
+      steep = Math.max(steep, Math.hypot(s.gx, s.gy));
+      assert.ok(Math.hypot(s.gx, s.gy) < 0.35, `${h.id}: the fairway is never steeper than about 1 in 3: ${Math.hypot(s.gx, s.gy).toFixed(2)} at ${Math.round(x)},${Math.round(y)}`);
+    }
+    // the tee and the basket sit on level ground
+    for (const p of [h.tee, h.basket]) assert.ok(Math.hypot(G.slopeAt(h, p.x, p.y).gx, G.slopeAt(h, p.x, p.y).gy) < 0.12, `${h.id}: level-ish at the tee and basket`);
+    // water is level and the land is cut to it
+    h.water.forEach((poly, k) => {
+      assert.ok(Number.isFinite(h.waterLevel[k]), `${h.id}: water ${k} has a level`);
+      const c = poly.reduce((a, p) => [a[0] + p[0] / poly.length, a[1] + p[1] / poly.length], [0, 0]);
+      if (G.surfaceAt(h, c[0], c[1]) === 'water') assert.ok(Math.abs(G.elevAt(h, c[0], c[1]) - h.waterLevel[k]) < 0.6, `${h.id}: the ground in the pond is at its level`);
+    });
+    // no cell of the grid is a cliff, except the ones a hole makes on purpose
+    const f = h.field;
+    let worst = 0;
+    for (let j = 0; j < f.ny; j++) for (let i = 0; i < f.nx - 1; i++) worst = Math.max(worst, Math.abs(f.z[j * f.nx + i + 1] - f.z[j * f.nx + i]));
+    for (let j = 0; j < f.ny - 1; j++) for (let i = 0; i < f.nx; i++) worst = Math.max(worst, Math.abs(f.z[(j + 1) * f.nx + i] - f.z[j * f.nx + i]));
+    assert.ok(worst < (h.id === 7 ? 14 : 9), `${h.id}: no sheer step between neighbours: ${worst.toFixed(1)} ft`);
+  }
+  assert.ok(steep > 0.1, 'and some are properly steep');
+});
+
+test('hills: putting uphill is easier and needs more push, downhill is harder and runs away', async () => {
+  const G = await load();
+  const level = await hill({ bowl: 0 });
+  const up = await hill({ bowl: 0, mounds: [{ x: 0, y: 800, r: 60, h: 10 }] }); // the basket on a rise
+  const down = await hill({ bowl: 0, mounds: [{ x: 0, y: 800, r: 60, h: -10 }] }); // and in a hollow
+  // a putt from 40 feet short of the basket
+  const spot = (h) => ({ x: 0, y: 760 });
+  const rise = (h) => G.riseTo(h, spot(h));
+  assert.ok(Math.abs(rise(level)) < 0.01 && rise(up) > 2 && rise(down) < -2, `${rise(up)} ${rise(down)}`);
+  assert.ok(G.puttDist(up, spot(up)) < G.puttDist(level, spot(level)) && G.puttDist(down, spot(down)) > G.puttDist(level, spot(level)));
+  assert.ok(G.puttPush(up, spot(up)) > 41 && G.puttPush(down, spot(down)) < 39, 'an uphill putt has to be hit harder, a downhill one softer');
+  const PUT = { id: 4, speed: 3, glide: 3, turn: 0, fade: 1 };
+  const zone = (h) => G.resolvePutt(h, spot(h), PUT, 0.5, 1).radius;
+  assert.ok(zone(up) > zone(level) && zone(down) < zone(level), 'the target is bigger uphill and smaller downhill');
+  assert.ok(G.resolvePutt(up, spot(up), PUT, 0, 1).rise > 0 && G.resolvePutt(down, spot(down), PUT, 5, 1).rise < 0, 'the result says which way it was');
+  // a level hole behaves as it always did
+  const lone = G.resolvePutt(level, spot(level), PUT, 0.5, 1);
+  assert.strictEqual(lone.dist, 40);
+  assert.ok(Math.abs(G.puttDist(level, spot(level)) - 40) < 1e-9 && Math.abs(G.puttPush(level, spot(level)) - 40) < 1e-9);
+  // downhill, a miss runs away more often
+  const nasties = (h) => { let n = 0; for (let i = 0; i < 100; i++) if (G.resolvePutt(h, spot(h), PUT, { x: 0.6, y: 0.5 }, i / 100).nasty) n++; return n; };
+  assert.ok(nasties(down) > nasties(level), `${nasties(down)} vs ${nasties(level)}`);
 });

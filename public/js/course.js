@@ -2,6 +2,8 @@
    likes from there: it follows a route (a centerline with half-widths) that bends, switches back and crosses water.
    A hole is data: the route, trees, water, out-of-bounds, and the basket. Adding a hole is adding an entry to HOLE_SPECS. */
 
+import { STEP, makeField, fieldAt, fieldSlope, blurField, polyDistance, smoothstep, profileAt } from './terrain.js?v=1';
+
 // a small seeded random, so a hole's trees are the same every time
 function seeded(seed) {
   let s = seed >>> 0;
@@ -116,8 +118,82 @@ export function treesIn(hole, lo, hi) {
   return out;
 }
 
+/* ---------- the lay of the land ---------- */
+
+// The ground of a hole is a grid of heights (terrain.js), made from a short description in the hole's own terms:
+//   rise: [[s, z], ...]  how high the ground is along the route, in feet above the tee (the ends are held level: a tee and a green)
+//   mounds: [{ x, y, r, h }]  a hill (h > 0) or a hollow (h < 0) about r feet across
+//   bowl: how steeply the ground climbs away from the fairway on both sides (a hole in a valley)
+//   shelves: [{ side, off, drop, width, from, to }]  the ground falling away at the edge: a cliff, a bank
+//   water: [{ kind: 'pond' } | { kind: 'creek', s }]  one for each water shape: its surface is level and the land is cut to meet it
+const BOWL_CAP = 18; // feet: the most the land climbs away from the fairway
+function buildField(hole, T) {
+  const f = makeField(hole.bounds, STEP);
+  const L = hole.route.len;
+  const user = [...(T.rise || [])].sort((a, b) => a[0] - b[0]);
+  const zEnd = user.length ? user.at(-1)[1] : 0;
+  const knots = [[0, 0], [14, 0], ...user.filter((k) => k[0] > 14 && k[0] < L - 14), [L - 14, zEnd], [L, zEnd]];
+  const bowl = T.bowl ?? 0.08;
+  for (let j = 0; j < f.ny; j++) {
+    for (let i = 0; i < f.nx; i++) {
+      const x = f.x0 + i * f.step;
+      const y = f.y0 + j * f.step;
+      const pos = routePosition(hole, x, y);
+      let z = profileAt(knots, pos.s) + Math.min(BOWL_CAP, bowl * Math.max(0, pos.d - pos.hw - 6));
+      for (const sh of T.shelves || []) {
+        const o = sh.side * pos.side * pos.d; // feet out toward that side
+        const along = smoothstep((pos.s - (sh.from ?? -60)) / 30) * smoothstep(((sh.to ?? L + 60) - pos.s) / 30);
+        z -= sh.drop * smoothstep((o - sh.off) / sh.width) * along;
+      }
+      f.z[j * f.nx + i] = z;
+    }
+  }
+  blurField(f, 3); // the nearest part of the route jumps from leg to leg at a bend, which leaves creases
+  for (let j = 0; j < f.ny; j++) { // hills and hollows are smooth already, so they go on after
+    for (let i = 0; i < f.nx; i++) {
+      const x = f.x0 + i * f.step;
+      const y = f.y0 + j * f.step;
+      for (const m of T.mounds || []) f.z[j * f.nx + i] += m.h * Math.exp((-2 * ((x - m.x) ** 2 + (y - m.y) ** 2)) / (m.r * m.r));
+    }
+  }
+  // water is level, and the land is cut to meet it: a pond sits in a basin, a creek in a gully
+  const levels = hole.water.map((poly, k) => {
+    const hint = (T.water || [])[k] || { kind: 'pond' };
+    if (hint.kind === 'creek') return profileAt(knots, hint.s) - 0.4;
+    return Math.min(...poly.map(([x, y]) => fieldAt(f, x, y))) - 0.3;
+  });
+  const boxes = hole.water.map((poly) => ({ lo: [Math.min(...poly.map((p) => p[0])) - 42, Math.min(...poly.map((p) => p[1])) - 42], hi: [Math.max(...poly.map((p) => p[0])) + 42, Math.max(...poly.map((p) => p[1])) + 42] }));
+  for (let j = 0; j < f.ny; j++) {
+    for (let i = 0; i < f.nx; i++) {
+      const x = f.x0 + i * f.step;
+      const y = f.y0 + j * f.step;
+      hole.water.forEach((poly, k) => {
+        const b = boxes[k];
+        if (x < b.lo[0] || x > b.hi[0] || y < b.lo[1] || y > b.hi[1]) return;
+        const reach = (T.water?.[k]?.kind === 'creek') ? 40 : 20; // a creek cuts a wider gully than a pond a basin
+        const d = polyDistance(poly, x, y);
+        if (d > reach) return;
+        const w = d <= 0 ? 1 : 1 - smoothstep(d / reach);
+        const k0 = j * f.nx + i;
+        f.z[k0] += (levels[k] - f.z[k0]) * w;
+      });
+    }
+  }
+  return { field: f, levels };
+}
+
+// Feet above the tee at a point. A hole with no ground described is flat.
+export function elevAt(hole, x, y) {
+  return hole.field ? fieldAt(hole.field, x, y) : 0;
+}
+// Which way is down: feet of rise per foot east (gx) and north (gy).
+export function slopeAt(hole, x, y) {
+  return hole.field ? fieldSlope(hole.field, x, y) : { gx: 0, gy: 0 };
+}
+
 // Fill in what a hole needs to be drawn and played from its spec.
-export function makeHole(spec) {
+export function makeHole(specIn) {
+  const { terrain, ...spec } = specIn;
   const hole = { wind: { mph: 0, from: 0 }, water: [], oob: [], trees: [], bounds: { minX: -160, maxX: 240, minY: -50, maxY: 530 }, tee: { x: 0, y: 0 }, ...spec };
   const pts = resample(hole.fairway, 8);
   hole.fairway = pts;
@@ -139,6 +215,12 @@ export function makeHole(spec) {
   hole.fairwayPoly = [...left, ...right.reverse()];
   hole.tee.pad = { minX: -9, maxX: 9, minY: -5, maxY: 9 };
   Object.defineProperty(hole, '_grid', { value: buildGrid(hole.trees), writable: true, enumerable: false });
+  if (terrain) {
+    const { field, levels } = buildField(hole, terrain);
+    Object.defineProperty(hole, 'field', { value: field, enumerable: false });
+    hole.waterLevel = levels;
+    for (const t of hole.trees) t.z = Math.round(fieldAt(field, t.x, t.y) * 10) / 10; // the ground a tree stands on
+  }
   return hole;
 }
 
@@ -203,7 +285,7 @@ export function routeAhead(hole, x, y, feet) {
  *   creeks: { s, w, gap }  water straight across, with an optional dry ford [o0, o1]           oob: { s0, s1, o0, o1 }
  */
 function build(spec) {
-  const { id, name, note, par, path, wind, woods = [], trees: explicit = [], shrubs = [], groves = [], walls = [], rows = [], ponds = [], creeks = [], oob = [], backstop = true, teeWall = true, forest = true, front = 0, padBottom = 60, seed = id * 131 } = spec;
+  const { id, name, note, par, path, wind, woods = [], trees: explicit = [], shrubs = [], groves = [], walls = [], rows = [], ponds = [], creeks = [], oob = [], backstop = true, teeWall = true, forest = true, front = 0, padBottom = 60, seed = id * 131, ground = GROUNDS[id] || {} } = spec;
   const rnd = seeded(seed);
   const line = smooth(path);
   const route = { pts: line, s: [0] };
@@ -282,6 +364,7 @@ function build(spec) {
 
   // water: ponds are wobbly ellipses in the route's own frame, creeks cross it
   const water = [];
+  const hints = []; // what each water shape is, for the ground to be cut to meet it
   for (const p of ponds) {
     const n = p.n || 12;
     water.push(Array.from({ length: n }, (_, i) => {
@@ -290,6 +373,7 @@ function build(spec) {
       const f = frame(p.s + Math.sin(a) * p.ry * k, p.o + Math.cos(a) * p.rx * k);
       return [r1(f.x), r1(f.y)];
     }));
+    hints.push({ kind: 'pond' });
   }
   const REACH = 360;
   for (const c of creeks) {
@@ -302,7 +386,7 @@ function build(spec) {
       }
       return [...top, ...bottom.reverse()].map((f) => [r1(f.x), r1(f.y)]);
     };
-    if (c.gap) { water.push(bank(-REACH, c.gap[0])); water.push(bank(c.gap[1], REACH)); } else water.push(bank(-REACH, REACH));
+    if (c.gap) { water.push(bank(-REACH, c.gap[0])); water.push(bank(c.gap[1], REACH)); hints.push({ kind: 'creek', s: c.s }, { kind: 'creek', s: c.s }); } else { water.push(bank(-REACH, REACH)); hints.push({ kind: 'creek', s: c.s }); }
   }
   // out of bounds zones follow the route's curve
   const zones = oob.map((z) => {
@@ -377,8 +461,33 @@ function build(spec) {
 
   // no trees growing in a pond, in out of bounds, or on the tee or basket
   const dry = trees.filter((t) => !water.some((w) => pointInPoly(w, t.x, t.y)) && !zones.some((w) => pointInPoly(w, t.x, t.y)) && Math.hypot(t.x, t.y) > t.r + 10 && Math.hypot(t.x - basket.x, t.y - basket.y) > t.r + 8);
-  return makeHole({ id, name, note, par, fairway: line, basket, wind, water, oob: zones, trees: dry, bounds });
+  const terrain = { rise: ground.rise, bowl: ground.bowl, shelves: ground.shelves, water: hints, mounds: (ground.mounds || []).map((m) => { const f = frame(m.s, m.o); return { x: f.x, y: f.y, r: m.r, h: m.h }; }) };
+  return makeHole({ id, name, note, par, fairway: line, basket, wind, water, oob: zones, trees: dry, bounds, terrain });
 }
+
+/* ---------- the ground of each hole ---------- */
+// How the land lies (see buildField): rise is feet above the tee along the route, in [s, z] pairs, and s, o in a mound are feet along
+// and to the right of it. Steepest anywhere is about one foot in five. Holes that do not say get a gentle bowl and nothing else.
+const GROUNDS = {
+  1: { rise: [[100, -3], [200, 2], [290, -4], [390, -2]], bowl: 0.06, mounds: [{ s: 232, o: 24, r: 26, h: 3 }] }, // a rolling start
+  2: { rise: [[110, 4], [235, 13]], bowl: 0.1, mounds: [{ s: 112, o: -3, r: 18, h: 3 }] }, // uphill to the pin, a knoll under the middle tree
+  3: { rise: [[120, -12], [250, -16], [426, -9]], bowl: 0.08 }, // down off the tee, up to the green
+  4: { rise: [[120, 4], [240, -9], [330, -9], [470, 6], [614, 10]], bowl: 0.09 }, // the creek runs along the bottom of a valley
+  5: { rise: [[40, -4], [110, -16], [252, -18]], bowl: 0.07 }, // a tee on a bluff over the pond
+  6: { rise: [[90, 5], [180, -3], [290, 7], [380, 0], [445, -5]], bowl: 0.03, mounds: [{ s: 150, o: -34, r: 30, h: 4 }, { s: 330, o: 30, r: 30, h: -3 }] }, // open rolling prairie
+  7: { rise: [[200, 5], [405, 9]], bowl: 0.09, shelves: [{ side: 1, off: 46, drop: 42, width: 26, from: 30, to: 430 }] }, // the cliff on the right is real
+  8: { rise: [[125, -5], [250, -10], [375, 4], [496, 10]], bowl: 0.08 }, // down the first bend, up the last
+  9: { rise: [[120, 4], [215, 10], [300, 2], [400, -4]], bowl: 0.08, mounds: [{ s: 215, o: 0, r: 44, h: 5 }] }, // the stand of trees is on a ridge
+  10: { rise: [[70, 3], [118, 8], [190, -2], [255, -8]], bowl: 0.09 }, // the oak is on the crest, the green is down by the water
+  11: { rise: [[200, 3], [390, 8], [608, -2]], bowl: 0.08 }, // out and over a low hill, home down the other side
+  12: { rise: [[210, -6], [330, -4], [426, 6]], bowl: 0.08 }, // up to the green
+  13: { rise: [[90, 3], [190, -3], [285, 1]], bowl: 0.1 }, // low and wet
+  14: { rise: [[200, -5], [421, -3]], bowl: 0.08, mounds: [{ s: 130, o: 6, r: 20, h: 3 }] }, // the land falls away toward the lake
+  15: { rise: [[100, 4], [250, 6], [420, 3], [591, -3]], bowl: 0.05, shelves: [{ side: 1, off: 38, drop: 7, width: 16, from: 150, to: 520 }, { side: -1, off: 38, drop: 7, width: 16, from: 150, to: 520 }] }, // a causeway above the lakes
+  16: { rise: [[130, -6], [200, -8], [290, 4], [400, 9]], bowl: 0.08 }, // a valley, then up
+  17: { rise: [[110, 6], [225, 14]], bowl: 0.14 }, // the den is on the hill
+  18: { rise: [[120, -8], [262, -14], [380, -6], [483, 4]], bowl: 0.08 }, // down into the valley and home up the far side
+};
 
 /* ---------- the eighteen ---------- */
 

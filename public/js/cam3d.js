@@ -4,8 +4,13 @@
    Feet; x is east, y is north, z is up (a point of a flight is x, y and its height h). Nothing here knows about the game's
    state: callers hand it a hole, a camera and a disc. */
 
+import { fieldAt } from './terrain.js?v=1';
+import { groundCells, PALETTE } from './ground.js?v=1';
+
 export const ZS = 0.72; // heights are drawn a little squashed: a real arc looks like a rocket when you ride it
 const NEAR = 1; // nothing nearer than this (feet) is drawn
+// how high the ground is at a point (feet above the tee): everything that stands on it is drawn that much higher
+export const groundAt = (hole, x, y) => (hole.field ? fieldAt(hole.field, x, y) : 0);
 const FAR = 1500; // and nothing farther than this is drawn as a tree
 
 /* ---------- the camera ---------- */
@@ -65,28 +70,31 @@ export function clipNear(poly) {
 const wrap = (a) => ((a + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
 
 // Where the camera starts: a little behind and above the thrower, looking the way the disc is about to go.
-export function startCamera(from, dir) {
+export function startCamera(from, dir, ground = 0) {
   const yaw = Math.atan2(dir.x, dir.y);
-  return newCamera(from.x - dir.x * 20, from.y - dir.y * 20, 6.5, yaw, -0.03);
+  return newCamera(from.x - dir.x * 20, from.y - dir.y * 20, ground + 6.5, yaw, -0.03);
 }
 
 /**
  * One step of the chase camera. `disc` is { x, y, h }, `dir` the unit way it is travelling (x, y), `dt` seconds. The camera
  * sits behind and above the disc and looks ahead of it; position and aim ease toward that, so it swings round bends in the
- * flight instead of snapping, and it banks into a turn.
+ * flight instead of snapping, and it banks into a turn. On a hill the disc carries `g`, the ground under it, and `ground(x, y)` says how
+ * high the ground is anywhere, so the camera rises and falls with the land and never goes under it.
  */
-export function follow(cam, disc, dir, dt, { back = 16, lift = 4, ahead = 70 } = {}) {
+export function follow(cam, disc, dir, dt, { back = 16, lift = 4, ahead = 70, ground = null } = {}) {
   const k = 1 - Math.exp(-dt * 10);
   const ky = 1 - Math.exp(-dt * 4.2);
   const wantX = disc.x - dir.x * back;
   const wantY = disc.y - dir.y * back;
-  const wantZ = Math.max(4.5, disc.h + lift);
+  const g = disc.g || 0;
+  const wantZ = g + Math.max(4.5, disc.h + lift);
   cam.x += (wantX - cam.x) * k;
   cam.y += (wantY - cam.y) * k;
   cam.z += (wantZ - cam.z) * k;
+  if (ground) cam.z = Math.max(cam.z, ground(cam.x, cam.y) + 3.5);
   const lookX = disc.x + dir.x * ahead - cam.x;
   const lookY = disc.y + dir.y * ahead - cam.y;
-  const lookZ = disc.h * 0.8 - cam.z;
+  const lookZ = g + disc.h * 0.8 - cam.z;
   const yawWant = Math.atan2(lookX, lookY);
   const turn = wrap(yawWant - cam.yaw);
   cam.yaw = wrap(cam.yaw + turn * ky);
@@ -118,14 +126,14 @@ function groundPoly(ctx, cam, b, view, pts, z = 0) {
   ctx.closePath();
   return true;
 }
-const fillGround = (ctx, cam, b, view, pts, color) => { if (groundPoly(ctx, cam, b, view, pts)) { ctx.fillStyle = color; ctx.fill(); } };
+const fillGround = (ctx, cam, b, view, pts, color, z = 0) => { if (groundPoly(ctx, cam, b, view, pts, z)) { ctx.fillStyle = color; ctx.fill(); } };
 
 function circle(cx, cy, r, n = 28) {
   return Array.from({ length: n }, (_, i) => [cx + Math.cos((i / n) * Math.PI * 2) * r, cy + Math.sin((i / n) * Math.PI * 2) * r]);
 }
 
-// the ground: mown stripes along the fairway, water, out of bounds, the tee, the green around the basket
-function drawGround(ctx, cam, b, view, hole) {
+// the ground of a hole with no hills: mown stripes along the fairway, water, out of bounds, the tee, the green around the basket
+function drawFlatGround(ctx, cam, b, view, hole) {
   const near = [cam.x, cam.y];
   fillGround(ctx, cam, b, view, [[near[0] - 5000, near[1] - 5000], [near[0] + 5000, near[1] - 5000], [near[0] + 5000, near[1] + 5000], [near[0] - 5000, near[1] + 5000]], COLORS.beyond);
   const bd = hole.bounds;
@@ -151,10 +159,196 @@ function drawGround(ctx, cam, b, view, hole) {
   }
 }
 
+/* ---------- the ground of a hole with hills ---------- */
+
+// The land is a grid of heights (course.js); it is drawn as a mesh of coloured quads, farthest first, so a hill hides what is behind it.
+// Up close every cell is a quad; farther out, blocks of 2 and then 4 cells, so a long view costs about the same as a short one.
+const LODS = [{ k: 1, from: 0, to: 150 }, { k: 2, from: 150, to: 320 }, { k: 4, from: 320, to: 640 }];
+const projCache = new WeakMap();
+
+function drawTerrain(ctx, cam, b, view, hole) {
+  const f = hole.field;
+  const gc = groundCells(hole);
+  let pr = projCache.get(hole);
+  if (!pr) { const n = f.nx * f.ny; pr = { sx: new Float32Array(n), sy: new Float32Array(n), sd: new Float32Array(n), mark: new Int32Array(n), frame: 0 }; projCache.set(hole, pr); }
+  pr.frame++;
+  const { right, up, fwd } = b;
+  const vert = (i, j) => { // a grid point on the screen: its distance (negative if it is behind the camera), cached for the frame
+    const k = j * f.nx + i;
+    if (pr.mark[k] === pr.frame) return pr.sd[k];
+    pr.mark[k] = pr.frame;
+    const rx = f.x0 + i * f.step - cam.x;
+    const ry = f.y0 + j * f.step - cam.y;
+    const rz = f.z[k] - cam.z;
+    const d = rx * fwd[0] + ry * fwd[1] + rz * fwd[2];
+    pr.sd[k] = d < NEAR ? -1 : d;
+    if (d >= NEAR) {
+      pr.sx[k] = view.cx + ((rx * right[0] + ry * right[1]) / d) * view.focal;
+      pr.sy[k] = view.cy - ((rx * up[0] + ry * up[1] + rz * up[2]) / d) * view.focal;
+    }
+    return pr.sd[k];
+  };
+  const fx = fwd[0];
+  const fy = fwd[1];
+  const fl = Math.hypot(fx, fy) || 1;
+  const margin = 150;
+  for (let li = LODS.length - 1; li >= 0; li--) {
+    const { k, from, to } = LODS[li];
+    const span = k * f.step;
+    const i0 = Math.max(0, Math.floor((cam.x - to - f.x0) / span) * k);
+    const i1 = Math.min(f.nx - 1 - k, Math.ceil((cam.x + to - f.x0) / span) * k);
+    const j0 = Math.max(0, Math.floor((cam.y - to - f.y0) / span) * k);
+    const j1 = Math.min(f.ny - 1 - k, Math.ceil((cam.y + to - f.y0) / span) * k);
+    const quads = [];
+    for (let j = j0; j <= j1; j += k) {
+      for (let i = i0; i <= i1; i += k) {
+        const mx = f.x0 + (i + k / 2) * f.step - cam.x;
+        const my = f.y0 + (j + k / 2) * f.step - cam.y;
+        const d = Math.hypot(mx, my);
+        if (d < from || d >= to) continue;
+        if ((mx * fx + my * fy) / fl < -span * 0.9) continue; // behind us
+        quads.push({ i, j, d });
+      }
+    }
+    quads.sort((p, q) => q.d - p.d);
+    for (const { i, j, d } of quads) {
+      const a = vert(i, j);
+      const bb = vert(i + k, j);
+      const c = vert(i + k, j + k);
+      const e = vert(i, j + k);
+      const ka = j * f.nx + i;
+      const kb = j * f.nx + i + k;
+      const kc = (j + k) * f.nx + i + k;
+      const ke = (j + k) * f.nx + i;
+      // the colour: the cell's own, or the average of the cells in the block, toward haze with distance
+      let r = 0;
+      let g = 0;
+      let bl = 0;
+      for (let jj = j; jj < j + k; jj++) {
+        for (let ii = i; ii < i + k; ii++) { const o = (jj * gc.nx + ii) * 3; r += gc.cols[o]; g += gc.cols[o + 1]; bl += gc.cols[o + 2]; }
+      }
+      const q = 1 / (k * k);
+      const fog = fogAt(d);
+      const col = `rgb(${Math.round((r * q) * (1 - fog) + HAZE[0] * fog)},${Math.round((g * q) * (1 - fog) + HAZE[1] * fog)},${Math.round((bl * q) * (1 - fog) + HAZE[2] * fog)})`;
+      ctx.beginPath();
+      if (a > 0 && bb > 0 && c > 0 && e > 0) {
+        const xs = [pr.sx[ka], pr.sx[kb], pr.sx[kc], pr.sx[ke]];
+        const ys = [pr.sy[ka], pr.sy[kb], pr.sy[kc], pr.sy[ke]];
+        if (Math.max(...xs) < -margin || Math.min(...xs) > view.W + margin || Math.max(...ys) < -margin || Math.min(...ys) > view.H + margin) continue;
+        ctx.moveTo(xs[0], ys[0]);
+        ctx.lineTo(xs[1], ys[1]);
+        ctx.lineTo(xs[2], ys[2]);
+        ctx.lineTo(xs[3], ys[3]);
+      } else if (a > 0 || bb > 0 || c > 0 || e > 0) { // it crosses the near plane: cut it there
+        const corner = (ii, jj) => toCam(cam, b, f.x0 + ii * f.step, f.y0 + jj * f.step, f.z[jj * f.nx + ii]);
+        const cut = clipNear([corner(i, j), corner(i + k, j), corner(i + k, j + k), corner(i, j + k)]);
+        if (cut.length < 3) continue;
+        cut.forEach((pt, n) => { const [sx, sy] = screenOf(view, pt); if (n) ctx.lineTo(sx, sy); else ctx.moveTo(sx, sy); });
+      } else continue;
+      ctx.closePath();
+      ctx.fillStyle = col;
+      ctx.strokeStyle = col; // a hairline of the same colour hides the seams between neighbours
+      ctx.lineWidth = 1;
+      ctx.fill();
+      ctx.stroke();
+      if (k === 1 && d < 95) mottle(ctx, cam, view, f, gc, i, j);
+    }
+  }
+}
+
+// Close up, a cell is not one flat colour: soft patches of lighter and darker grass in it, a different few each time, the same every frame
+const hash2 = (a, b, c) => { const n = Math.sin(a * 127.1 + b * 311.7 + c * 74.7) * 43758.5453; return n - Math.floor(n); };
+function mottle(ctx, cam, view, f, gc, i, j) {
+  const kind = gc.cls[j * gc.nx + i];
+  if (kind === 3 || kind === 4) return;
+  const colors = kind === 0 ? ['rgba(74,132,56,0.2)', 'rgba(3,16,7,0.22)', 'rgba(110,150,60,0.14)', 'rgba(4,18,8,0.18)', 'rgba(90,140,60,0.16)', 'rgba(3,14,6,0.2)'] : ['rgba(255,255,235,0.05)', 'rgba(0,14,4,0.09)', 'rgba(255,255,235,0.035)', 'rgba(0,14,4,0.06)', 'rgba(255,255,235,0.04)', 'rgba(0,14,4,0.07)'];
+  const sy = Math.sin(cam.yaw);
+  const cy = Math.cos(cam.yaw);
+  for (let n = 0; n < 6; n++) {
+    const x = f.x0 + (i + hash2(i, j, 40 + n)) * f.step;
+    const y = f.y0 + (j + hash2(i, j, 50 + n)) * f.step;
+    const r = 0.8 + hash2(i, j, 60 + n) * 1.7; // feet
+    const z = fieldAt(f, x, y);
+    const c = project(cam, view, x, y, z);
+    const e = project(cam, view, x + cy * r, y - sy * r, z); // a step to the camera's right
+    const a = project(cam, view, x + sy * r, y + cy * r, z); // and a step away from it
+    if (!c || !e || !a) continue;
+    const rx = Math.abs(e.x - c.x) + Math.abs(e.y - c.y) * 0.3;
+    const ry = Math.abs(a.y - c.y) + Math.abs(a.x - c.x) * 0.3;
+    if (rx < 1.5) continue;
+    ctx.fillStyle = colors[n];
+    ctx.beginPath();
+    ctx.ellipse(c.x, c.y, rx, Math.max(0.8, ry), 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// Grass close up: tufts and a few flecks of colour on the cells nearest the camera, in the same places every frame
+function drawGrass(ctx, cam, b, view, hole) {
+  const f = hole.field;
+  const gc = groundCells(hole);
+  const R = 80;
+  const i0 = Math.max(0, Math.floor((cam.x - R - f.x0) / f.step));
+  const i1 = Math.min(f.nx - 2, Math.ceil((cam.x + R - f.x0) / f.step));
+  const j0 = Math.max(0, Math.floor((cam.y - R - f.y0) / f.step));
+  const j1 = Math.min(f.ny - 2, Math.ceil((cam.y + R - f.y0) / f.step));
+  const blades = [[], []]; // dark, light
+  const flecks = [];
+  const fx = b.fwd[0];
+  const fy = b.fwd[1];
+  for (let j = j0; j <= j1; j++) {
+    for (let i = i0; i <= i1; i++) {
+      const kind = gc.cls[j * gc.nx + i];
+      if (kind === 3 || kind === 4) continue; // not on water or out of bounds
+      const mx = f.x0 + (i + 0.5) * f.step - cam.x;
+      const my = f.y0 + (j + 0.5) * f.step - cam.y;
+      if (mx * mx + my * my > R * R || mx * fx + my * fy < -f.step) continue;
+      const tufts = kind === 0 ? 4 : 2; // the rough is shaggier than the fairway
+      for (let n = 0; n < tufts; n++) {
+        if (hash2(i, j, n * 3 + 1) > (kind === 0 ? 0.9 : 0.55)) continue;
+        const x = f.x0 + (i + hash2(i, j, n * 3 + 2)) * f.step;
+        const y = f.y0 + (j + hash2(i, j, n * 3 + 3)) * f.step;
+        const base = project(cam, view, x, y, fieldAt(f, x, y));
+        if (!base) continue;
+        const hh = (0.55 + hash2(i, j, n + 9) * 0.8) * (kind === 0 ? 1 : 0.55) * base.s;
+        if (hh < 2) continue;
+        const lean = (hash2(i, j, n + 13) - 0.5) * hh * 0.9;
+        const group = blades[hash2(i, j, n + 17) < 0.5 ? 0 : 1];
+        for (let q = -2; q <= 2; q++) group.push([base.x + q * hh * 0.09, base.y, base.x + q * hh * 0.17 + lean * (1 + 0.2 * q), base.y - hh * (1 - Math.abs(q) * 0.12)]);
+      }
+      if (hash2(i, j, 31) < (kind === 0 ? 0.16 : 0.04)) { // a flower in the rough, a speck of dirt on the fairway
+        const x = f.x0 + (i + hash2(i, j, 32)) * f.step;
+        const y = f.y0 + (j + hash2(i, j, 33)) * f.step;
+        const base = project(cam, view, x, y, fieldAt(f, x, y) + 0.4);
+        if (base) flecks.push([base.x, base.y, Math.max(1.2, 0.22 * base.s), kind === 0 ? ['#e8d44d', '#f1efe2', '#d98ad2', '#f09a3e'][Math.floor(hash2(i, j, 34) * 4)] : 'rgba(30,20,8,0.5)']);
+      }
+    }
+  }
+  ctx.lineCap = 'round';
+  [['rgba(8,26,12,0.8)', 1.6], ['rgba(120,176,84,0.75)', 1.3]].forEach(([color, w], gi) => {
+    ctx.beginPath();
+    for (const [x0, y0, x1, y1] of blades[gi]) { ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = w;
+    ctx.stroke();
+  });
+  for (const [x, y, r, color] of flecks) { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
+}
+
+function drawGround(ctx, cam, b, view, hole) {
+  if (!hole.field) { drawFlatGround(ctx, cam, b, view, hole); return; }
+  const gz = groundAt(hole, cam.x, cam.y);
+  const near = [cam.x, cam.y];
+  const far = mixTo(PALETTE.rough, HAZE, fogAt(640));
+  fillGround(ctx, cam, b, view, [[near[0] - 6000, near[1] - 6000], [near[0] + 6000, near[1] - 6000], [near[0] + 6000, near[1] + 6000], [near[0] - 6000, near[1] + 6000]], far, gz - 4);
+  drawTerrain(ctx, cam, b, view, hole);
+  drawGrass(ctx, cam, b, view, hole);
+}
+
 function sky(ctx, cam, b, view) {
   const { W, H } = view;
   // the horizon is where a far point straight ahead lands
-  const far = project(cam, view, cam.x + b.fwd[0] * 6000, cam.y + b.fwd[1] * 6000, 0);
+  const far = project(cam, view, cam.x + b.fwd[0] * 6000, cam.y + b.fwd[1] * 6000, cam.z);
   const hy = far ? far.y : view.cy - Math.tan(cam.pitch) * view.focal;
   const g = ctx.createLinearGradient(0, hy - H * 0.9, 0, hy);
   g.addColorStop(0, '#09131c');
@@ -177,7 +371,7 @@ const autumn = (t) => ((Math.abs(Math.sin(t.x * 12.9898 + t.y * 78.233)) * 43758
 
 // white pine (a narrow cone of boughs), maple (round, some turning), oak (broad with a thick trunk), shrubs and bushes (low blobs)
 function drawTree(ctx, cam, b, view, t) {
-  const base = project(cam, view, t.x, t.y, 0);
+  const base = project(cam, view, t.x, t.y, t.z || 0); // a tree stands on the ground under it
   if (!base || base.d > FAR) return;
   const sx = base.x;
   if (sx < -250 || sx > view.W + 250) return;
@@ -251,14 +445,15 @@ const fillRing = (ctx, pts, color) => { ctx.beginPath(); pts.forEach((q, i) => (
 //   part: 'all' (a basket far away is one piece), 'base', 'back' or 'front'
 function drawBasket(ctx, cam, b, view, hole, jiggle = 0, t = 0, part = 'all') {
   const { x, y } = hole.basket;
-  const g = project(cam, view, x, y, 0);
+  const zb = groundAt(hole, x, y); // the basket stands on the ground
+  const g = project(cam, view, x, y, zb);
   if (!g || g.d > 2500) return;
   const near = g.d < 220;
   if (part !== 'all' && !near) { if (part === 'base') part = 'all'; else return; } // far off, the base layer draws everything
-  const top = project(cam, view, x, y, RING_H + 0.12);
+  const top = project(cam, view, x, y, zb + RING_H + 0.12);
   // a flag on a staff so you can find it from far off; standing at the basket, it is only a short staff
   const staffH = RING_H + 0.3 + Math.min(24, Math.max(0, (g.d - 40) * 0.12));
-  const flagTop = project(cam, view, x, y, staffH * ZS + (RING_H + 0.3) * (1 - ZS));
+  const flagTop = project(cam, view, x, y, zb + staffH * ZS + (RING_H + 0.3) * (1 - ZS));
   if (part === 'all' || part === 'base') {
     // the pole
     ctx.strokeStyle = 'rgba(214,219,225,0.95)';
@@ -284,8 +479,8 @@ function drawBasket(ctx, cam, b, view, hole, jiggle = 0, t = 0, part = 'all') {
       ctx.fill();
     }
     // the tray: a steel dish, 66 cm across and 24.5 cm deep, with radial rods and a bright lip
-    const lip = g.d < 700 ? ringAt(cam, view, x, y, TRAY_R, TRAY_H) : null;
-    const floor = lip ? ringAt(cam, view, x, y, TRAY_R * 0.8, TRAY_FLOOR) : null;
+    const lip = g.d < 700 ? ringAt(cam, view, x, y, TRAY_R, zb + TRAY_H) : null;
+    const floor = lip ? ringAt(cam, view, x, y, TRAY_R * 0.8, zb + TRAY_FLOOR) : null;
     if (lip && floor) {
       ctx.fillStyle = '#262a31';
       for (let i = 0; i < lip.length; i++) {
@@ -326,8 +521,8 @@ function drawBasket(ctx, cam, b, view, hole, jiggle = 0, t = 0, part = 'all') {
       const isNear = toCam(cam, b, x + Math.cos(a) * rTop, y + Math.sin(a) * rTop, 0)[2] < cd; // on the camera's side of the middle
       if (part !== 'all' && (part === 'front') !== isNear) return;
       const sway = jiggle * 0.5 * Math.sin(t / 38 + i * 1.9 + n); // the chains rattle when something has gone through
-      const up = project(cam, view, x + Math.cos(a) * rTop, y + Math.sin(a) * rTop, RING_H);
-      const dn = project(cam, view, x + Math.cos(a) * rBot + sway, y + Math.sin(a) * rBot - sway * 0.6, CHAIN_BOTTOM);
+      const up = project(cam, view, x + Math.cos(a) * rTop, y + Math.sin(a) * rTop, zb + RING_H);
+      const dn = project(cam, view, x + Math.cos(a) * rBot + sway, y + Math.sin(a) * rBot - sway * 0.6, zb + CHAIN_BOTTOM);
       if (!up || !dn) return;
       ctx.lineWidth = width;
       ctx.beginPath();
@@ -342,7 +537,7 @@ function drawBasket(ctx, cam, b, view, hole, jiggle = 0, t = 0, part = 'all') {
   }
   // the top: a band and a cap, over everything
   if (part === 'all' || part === 'front') {
-    const band = g.d < 700 ? ringAt(cam, view, x, y, BAND_R, RING_H, 20) : null;
+    const band = g.d < 700 ? ringAt(cam, view, x, y, BAND_R, zb + RING_H, 20) : null;
     if (band) {
       fillRing(ctx, band, 'rgba(120,126,134,0.55)');
       ctx.strokeStyle = '#cfd4da';
@@ -355,9 +550,9 @@ function drawBasket(ctx, cam, b, view, hole, jiggle = 0, t = 0, part = 'all') {
   }
 }
 
-function drawDisc(ctx, cam, view, p, color, t, dz = ZS) {
-  const g = project(cam, view, p.x, p.y, 0);
-  const a = project(cam, view, p.x, p.y, Math.max(0.4, p.h * dz));
+function drawDisc(ctx, cam, view, p, color, t, dz = ZS, gz = 0) {
+  const g = project(cam, view, p.x, p.y, gz);
+  const a = project(cam, view, p.x, p.y, gz + Math.max(0.4, p.h * dz));
   if (g) { // the shadow on the grass
     ctx.fillStyle = `rgba(0,0,0,${Math.max(0.12, 0.4 - p.h * 0.004)})`;
     ctx.beginPath();
@@ -381,11 +576,11 @@ function drawDisc(ctx, cam, view, p, color, t, dz = ZS) {
 }
 
 // the flight so far, as a ribbon that fades behind the disc
-function drawTrail(ctx, cam, view, pts, dz = ZS) {
+function drawTrail(ctx, cam, view, pts, dz = ZS, hole = null) {
   const n = pts.length;
   let prev = null;
   for (let i = 0; i < n; i++) {
-    const q = project(cam, view, pts[i].x, pts[i].y, pts[i].h * dz);
+    const q = project(cam, view, pts[i].x, pts[i].y, (hole ? groundAt(hole, pts[i].x, pts[i].y) : 0) + pts[i].h * dz);
     if (q && prev) {
       ctx.strokeStyle = `rgba(238,241,232,${0.15 + 0.6 * (i / n)})`;
       ctx.lineWidth = Math.max(1.5, 0.28 * q.s);
@@ -399,8 +594,8 @@ function drawTrail(ctx, cam, view, pts, dz = ZS) {
 }
 
 // a ring that spreads where the disc went in the water
-function drawSplash(ctx, cam, view, at, age) {
-  const g = project(cam, view, at.x, at.y, 0);
+function drawSplash(ctx, cam, view, at, age, gz = 0) {
+  const g = project(cam, view, at.x, at.y, gz);
   if (!g || age < 0) return;
   for (const k of [0, 0.25, 0.5]) {
     const u = Math.max(0, Math.min(1, age - k));
@@ -429,8 +624,8 @@ export function drawScene(ctx, scene) {
   drawGround(ctx, cam, b, view, hole);
   haze(ctx, view, hy);
   const dz = scene.dz ?? ZS; // a putt is drawn at its true height, so it meets the cage where the cage is
-  drawTrail(ctx, cam, view, trail, dz);
-  if (scene.splash) drawSplash(ctx, cam, view, scene.splash.at, scene.splash.age);
+  drawTrail(ctx, cam, view, trail, dz, hole);
+  if (scene.splash) drawSplash(ctx, cam, view, scene.splash.at, scene.splash.age, groundAt(hole, scene.splash.at.x, scene.splash.at.y));
   // everything that stands up, farthest first
   const things = [];
   for (const tr of hole.trees) {
@@ -441,7 +636,7 @@ export function drawScene(ctx, scene) {
   things.push({ d: dB + 1.6, draw: () => drawBasket(ctx, cam, b, view, hole, scene.chain || 0, t, 'base') });
   things.push({ d: dB + 1.4, draw: () => drawBasket(ctx, cam, b, view, hole, scene.chain || 0, t, 'back') });
   things.push({ d: dB - 1.4, draw: () => drawBasket(ctx, cam, b, view, hole, scene.chain || 0, t, 'front') });
-  things.push({ d: toCam(cam, b, disc.x, disc.y, 0)[2], draw: () => drawDisc(ctx, cam, view, disc, color, t, dz) });
+  things.push({ d: toCam(cam, b, disc.x, disc.y, 0)[2], draw: () => drawDisc(ctx, cam, view, disc, color, t, dz, groundAt(hole, disc.x, disc.y)) });
   things.sort((p, q) => q.d - p.d);
   for (const th of things) th.draw();
   ctx.restore();

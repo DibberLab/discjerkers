@@ -104,3 +104,64 @@ test('no camera position crashes the scene: near the basket, over water, inside 
   }
   assert.ok(calls > 1000);
 });
+
+test('hills in 3D: things stand on the ground, the chase camera rides the land and never goes under it', async () => {
+  const { C, course } = await load();
+  const hole = course.holeById(2); // uphill to the basket
+  assert.ok(C.groundAt(hole, hole.basket.x, hole.basket.y) > 8, 'the basket is up the hill');
+  assert.strictEqual(C.groundAt({ ...hole, field: undefined }, hole.basket.x, hole.basket.y), 0, 'no ground described, no height');
+  const ground = (x, y) => C.groundAt(hole, x, y);
+  const along = (s) => course.routeAhead(hole, 0, 0, s);
+  const a = along(0);
+  const b = along(60);
+  const dir = { x: (b.x - a.x) / Math.hypot(b.x - a.x, b.y - a.y), y: (b.y - a.y) / Math.hypot(b.x - a.x, b.y - a.y) };
+  const cam = C.startCamera(a, dir, ground(a.x, a.y));
+  assert.ok(Math.abs(cam.z - (ground(cam.x, cam.y) + 6.5)) < 12, 'it starts above the ground');
+  // fly a disc up the hill at a low height: the camera is lifted by the land and stays above it
+  for (let i = 0; i < 300; i++) {
+    const p = along(i);
+    const g = ground(p.x, p.y);
+    C.follow(cam, { x: p.x, y: p.y, h: 2, g }, dir, 1 / 60, { ground });
+    assert.ok(cam.z >= ground(cam.x, cam.y) + 3.4, `above the land at step ${i}: ${cam.z.toFixed(1)} vs ${ground(cam.x, cam.y).toFixed(1)}`);
+  }
+  assert.ok(cam.z > 8, `it has climbed with the hill: ${cam.z.toFixed(1)}`);
+});
+
+test('hills in 3D: the land is drawn as a mesh, farthest first, and costs more to draw than flat ground but not much more', async () => {
+  const { C, course } = await load();
+  const grad = { addColorStop() {} };
+  const count = (hole) => {
+    let calls = 0;
+    const ctx = new Proxy({}, { get: (_, k) => (k === 'createLinearGradient' ? () => grad : () => { calls++; }), set: () => true });
+    const a = course.routeAhead(hole, 0, 0, 100);
+    const cam = C.newCamera(a.x, a.y, C.groundAt(hole, a.x, a.y) + 7, 0, -0.1);
+    C.drawScene(ctx, { hole, cam, view: C.viewOf(900, 560, cam), disc: { x: a.x, y: a.y + 40, h: 10 }, trail: [], color: '#fff', t: 0 });
+    return calls;
+  };
+  const hilly = course.holeById(7);
+  const flat = { ...hilly, field: undefined };
+  Object.defineProperty(flat, '_grid', { value: hilly._grid, enumerable: false });
+  const [h, f] = [count(hilly), count(flat)];
+  assert.ok(h > f, `there is more to draw: ${h} vs ${f}`);
+  assert.ok(h < 20000, `but a frame stays cheap: ${h} canvas calls`);
+});
+
+test('ground colours: lit from the north-west, every cell of a hole has a colour, and water is blue', async () => {
+  const gr = await import('../public/js/ground.js');
+  const course = await import('../public/js/course.js');
+  assert.ok(gr.lightOf(0.2, -0.2) > gr.lightOf(0, 0) && gr.lightOf(-0.2, 0.2) < gr.lightOf(0, 0), 'a slope facing north-west is bright, the other way dark');
+  assert.ok(Math.abs(gr.lightOf(0, 0) - 1) < 0.02, 'level ground is the plain colour');
+  const hole = course.holeById(5);
+  const g = gr.groundCells(hole);
+  assert.strictEqual(g.cols.length, g.nx * g.ny * 3);
+  assert.strictEqual(g.cols, gr.groundCells(hole).cols, 'made once');
+  const f = hole.field;
+  const water = hole.water[0];
+  const wx = water.reduce((a, p) => a + p[0], 0) / water.length;
+  const wy = water.reduce((a, p) => a + p[1], 0) / water.length;
+  const k = Math.floor((wy - f.y0) / f.step) * g.nx + Math.floor((wx - f.x0) / f.step);
+  assert.strictEqual(g.cls[k], gr.KIND.water);
+  assert.ok(g.cols[k * 3 + 2] > g.cols[k * 3], 'and it is blue');
+  const lines = gr.contours(hole, 4);
+  assert.ok(lines.length > 50 && lines.every((s) => s.length === 5 && Number.isFinite(s[0]) && s[4] % 4 === 0), 'contour lines every 4 ft');
+});

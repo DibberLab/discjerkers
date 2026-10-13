@@ -157,6 +157,25 @@ that way; don't introduce React/Vite/Tailwind here.
   design (`gaps`, `shrubs`, low guard trees) are ways through. A tree you hit is out of the way of your next throw (the
   lie remembers it as `t`), so nobody is stuck. `test/gamecore.test.js` throws every way off the tee and checks the
   woods stop nearly all of it.
+- **Hills.** Every hole has ground (`terrain.js`, `buildField` in `course.js`): a grid of heights every 8 ft, in feet above the tee, made
+  from `GROUNDS` (per hole): a `rise` profile along the route (`[s, z]` knots, flat at the tee and at the basket), `mounds` (hills and
+  hollows), a `bowl` (the land climbs away from the fairway, up to 18 ft), `shelves` (a cliff or bank at the edge) and water, which is
+  level (`hole.waterLevel`) with the land cut to meet it (a pond in a basin, a creek in a gully). The grid is blurred before mounds go
+  on, because the nearest part of the route jumps from leg to leg at a bend. `elevAt(hole, x, y)` and `slopeAt` are how anything asks;
+  a hole without `field` (a test's bare hole) is level and everything behaves as it did. Trees carry `z` (the ground they stand on).
+  **Keep the fairway under about 1 foot in 4**, and a new hole must still be playable in par (`test/gamecore.test.js`: the bot, with a few grains of power).
+  - *Flight* (`samplePath(plan, from, n, hole)`): a point has `h` (above the ground under it) and `z` (above the tee). The flight carries on
+    past where level ground would have stopped it until it meets the ground, so a disc goes **farther downhill and shorter uphill**,
+    and comes down early on a ridge. Trees are compared by altitude (`z` against the tree's `z + h`), the basket by height over its ground.
+  - *Roll* (`rollOut`): the roll has a budget; uphill spends it faster, downhill slower (up to 70 ft), and on a steep slope it is pulled downhill.
+  - *Putting*: `riseTo` is how far the basket is above you. `puttDist` is how hard the putt is (a little shorter uphill, longer
+    downhill: radar size and speed, swipe tolerance, nasty chance) and `puttPush` is how far the swipe must carry (more uphill). Downhill misses run
+    away more. The page shows "▲ 12 ft uphill" with the distance (HUD, pick panel) and a note about what it does.
+  - *Seen* (`ground.js`): the map gets a picture laid over it per hole (`mapLayer`): hill shading lit from the north-west, mown stripes,
+    grass flecks and contour lines (every 4 ft, heavier every 12). The 3D view draws the land as a mesh of coloured quads (`drawTerrain` in
+    `cam3d.js`) farthest first, with blocks of 2 and 4 cells at a distance, so a hill hides what is behind it. Colours per cell (`groundCells`)
+    include the slope's light, a mown stripe and noise; close up there are patches (`mottle`), tufts and flowers (`drawGrass`), all
+    from a hash of the cell so nothing flickers. Everything that stands on the ground (trees, basket, disc, trail, camera) is placed at `groundAt`.
 - **Marebear heckles** (`public/js/trash.js`): the game talking, not a chat. `eventFor` turns a throw into an event (shank,
   splash, tree, grip lock, ace...), `remark`/`holeRemark`/`matchRemark` pick a line; she never repeats the last one. The
   owner's own lines live in `public/data/heckles.json` (from their Heckles.csv; categories Birdie, Par, Bogey, Double Bogey,
@@ -176,17 +195,23 @@ that way; don't introduce React/Vite/Tailwind here.
   stay on the map so it keeps moving. Tapping the hole skips a ride. A drawing mistake falls back to the map (`draw()` catches it)
   and `frame()` can never stop the loop.
 - **The putt has two steps**: the swirling radar (where the putt wants to go), then a **swipe** (phase `swipe`) toward the basket. A
-  swipe has an aim (degrees off straight up the screen, + right) and a power (its length against what this distance needs,
-  `swipeNeed()`; 1 is just enough). `swipeTolerance(dist)` is how far either may be off (about 10 deg and 22% close in, 3 deg and
+  swipe (draw back, then swipe forward) has an aim (degrees off straight up the screen, + right) and a power (its length against what
+  this distance needs, `swipeNeed()`; 1 is just enough). `swipeTolerance(dist)` is how far either may be off (about 10 deg and 22% close in, 3 deg and
   10% from 50 ft); outside it the putt **cannot go in**: `resolvePutt(..., swipe)` adds the swipe's error to the radar's, so it
   misses short (`why: 'weak'`), long (`'strong'`, and more likely a nasty roll), left or right, or lips out if only just off. A
   swipe near the limit still counts as true, and tap-ins need none. With no swipe (an older page, a test) it counts as true.
   The server takes `body.swipe` (`sanitizeSwipe`) and, like the meters, trusts the player about the gesture.
-- **A swipe is one smooth motion** (`SWIPE` in `game.js`): it is judged where the motion ends, and the motion ends the moment you stop
-  moving. A pause of ~110 ms commits it where you paused (checked every frame by `tickSwipe`, so a held finger counts too), pulling
-  back more than 14 px commits it at the farthest point reached, and a swipe whose peak speed never reached 260 px/s is thrown out
-  ("TOO SLOW") so nobody can crawl and adjust. Timing uses `performance.now()`, not the game clock.
-- **A drive ends with a swipe too** (phase `swipe`, after the release tap): a flick up the screen as long as the arm speed needs
+- **A swipe is a draw back and then a swipe forward**, in one smooth motion (`SWIPE`, `beginSwipe`/`moveSwipe`/`tickSwipe` in `game.js`):
+  pull down the screen (at least 30 px), turn, and flick up it. Only the forward stroke is judged: its aim is the angle of the
+  stroke from where you turned round (0 is straight up), its power is its length against `swipeNeed()`, and a draw back shorter than
+  60% of the forward stroke costs up to 40% of the power (`swipePower`). Forward first is "DRAW BACK FIRST", holding still at the
+  bottom for 0.7 s cancels it. The forward stroke is judged where the motion ends, and it ends the moment you stop: a pause of
+  ~110 ms commits it where you paused (checked every frame by `tickSwipe`, so a held finger counts too), pulling back more than 14
+  px commits it at the farthest point reached, and one whose peak speed never reached 260 px/s is thrown out ("TOO SLOW"), so
+  nobody can crawl and adjust. The guide (the wedge, the band, a mark for how far to draw back) stays at a fixed place, 66% down
+  the free part of the screen, wherever the finger lands. Timing uses `performance.now()`, not the game clock. The server only ever
+  sees `{ aim, power }`, so the gesture can change without touching it.
+- **A drive ends with a swipe too** (phase `swipe`, after the release tap): a draw back and a flick up the screen as long as the arm speed needs
   (`swipeNeed()`). It is **graded**, not pass or fail (`withSwipe` in `gamecore.js`): inside `DRIVE_SWIPE` (12 deg, 25% power) it
   changes nothing; past it, off line steers the throw the same way (`swipeAim`, up to 25 deg), too soft slows it (`swipeSpeed`,
   down to half) and too hard makes it loose. The page sends `ex.swipe` and `sanitizeExecution` applies it, so the server does the
@@ -206,7 +231,7 @@ that way; don't introduce React/Vite/Tailwind here.
   the server rolls them in a match; into water it costs a stroke). `puttScript` turns that into a film (where the disc is every
   millisecond, with marks for the drop, the rim lap, the spit and the roll) and `drawPuttFx` draws the reaction: CHAINS! with
   rings and confetti, a cold-washed RIMMED OUT, NASTY ROLL with the camera following the disc.
-- Modules import each other with `?v=N`: bump it when a module changes, or cached copies mix with new ones.
+- Modules import each other with `?v=N` (now `course.js` 9, `gamecore.js` 20, `cam3d.js` 10, `puttfx.js` 6, `ground.js` 1, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 
 ## Deploy

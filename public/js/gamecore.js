@@ -4,7 +4,7 @@
    same model the flight guide uses. Feet; x is east, y is north; heading 0 is north, positive is clockwise. */
 
 import { clamp, carryRaw, flightCurve, spinOf, spinsClockwise, angleDeg, armAt, ANGLE_MAX } from './flightmodel.js?v=1';
-import { surfaceAt, treesIn } from './course.js?v=8';
+import { surfaceAt, treesIn, elevAt, slopeAt } from './course.js?v=9';
 
 const DEG = Math.PI / 180;
 export const PUTT_RANGE = 50; // inside this you putt
@@ -236,7 +236,7 @@ export function typicalArm(disc) {
 export function previewThrow(hole, disc, settings, aimDeg, from, n = 40) {
   const mph = typicalArm(disc);
   const base = { hand: settings.hand, style: settings.style, mph, spin: null, angle: 0, nose: 0 };
-  const path = (o) => samplePath(planThrow(hole, disc, base, aimDeg, { o, pure: false, sloppy: Math.abs(o), grade: 'Preview' }), from, n);
+  const path = (o) => samplePath(planThrow(hole, disc, base, aimDeg, { o, pure: false, sloppy: Math.abs(o), grade: 'Preview' }), from, n, hole);
   const line = path(0.1);
   const early = path(-0.4);
   const late = path(0.4);
@@ -258,26 +258,43 @@ export function planThrow(hole, disc, settings, aimDeg, ex = PERFECT) {
   return { headingDeg, feet, lat: curve.lat.map((v) => v * scale), apex, t2, wind, ex, dir: curve.dir };
 }
 
-// the flight as points: world x and y, height off the ground, and how far along (0..1)
-export function samplePath(plan, from, n = 72) {
+// the flight as points: world x and y, height off the ground (h) and above the tee (z), and how far along (0..1)
+// On a hole with hills the disc comes down where the ground meets it, not where level ground would have: farther if the land falls
+// away, shorter if it rises. The flight carries on past where it would have landed until it does, or ends early at a ridge.
+const S_MAX = 1.5;
+export function samplePath(plan, from, n = 72, hole = null) {
   const { ux, uy, rx, ry } = headingVec(plan.headingDeg);
   const f = plan.feet;
   const P = [[0, 0], [plan.lat[0], f * 0.32], [plan.lat[1], f * 0.72], [plan.lat[2], f]]; // [right, forward]
-  const pts = [];
-  for (let i = 0; i <= n; i++) {
-    const s = i / n;
+  const at = (s) => { // s past 1 is the same curve carrying on
     const a = (1 - s) ** 3;
     const b = 3 * (1 - s) ** 2 * s;
     const c = 3 * (1 - s) * s * s;
     const d = s ** 3;
     const right = a * P[0][0] + b * P[1][0] + c * P[2][0] + d * P[3][0];
     const fwd = a * P[0][1] + b * P[1][1] + c * P[2][1] + d * P[3][1];
-    pts.push({
-      x: from.x + ux * fwd + rx * right,
-      y: from.y + uy * fwd + ry * right,
-      h: 4 * (1 - s) + (plan.apex - 4) * 4 * s * (1 - s),
-      s,
-    });
+    return { x: from.x + ux * fwd + rx * right, y: from.y + uy * fwd + ry * right, h: 4 * (1 - s) + (plan.apex - 4) * 4 * s * (1 - s) };
+  };
+  const hilly = !!hole?.field;
+  const z0 = hilly ? elevAt(hole, from.x, from.y) : 0;
+  let sEnd = 1;
+  if (hilly) {
+    const step = 1 / (n * 2);
+    let prev = z0 + 4 - elevAt(hole, from.x, from.y); // how far above the ground it is
+    sEnd = S_MAX;
+    for (let s = step; s <= S_MAX + 1e-9; s += step) {
+      const q = at(s);
+      const gap = z0 + q.h - elevAt(hole, q.x, q.y);
+      if (gap <= 0) { sEnd = s - step + (step * prev) / (prev - gap); break; }
+      prev = gap;
+    }
+  }
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    const q = at((sEnd * i) / n);
+    if (!hilly) { pts.push({ x: q.x, y: q.y, h: q.h, z: q.h, s: i / n }); continue; }
+    const z = z0 + q.h;
+    pts.push({ x: q.x, y: q.y, h: i === n ? 0 : Math.max(0, z - elevAt(hole, q.x, q.y)), z: i === n ? elevAt(hole, q.x, q.y) : z, s: i / n });
   }
   return pts;
 }
@@ -299,20 +316,41 @@ const CLEAR_OF = 2; // a tree touching where you stand does not count (woods are
 const BASKET_RADIUS = 1.5;
 const BASKET_TOP = 5.5;
 
+// How far a disc runs on landing. On the flat it is a few feet; the hill matters: it runs on downhill, and stops short going uphill.
+const ROLL_CAP = 70;
 function rollOut(hole, disc, plan, from, tangent, surface) {
   const a = angleDeg(plan.t2);
   const flip = clamp(1 - 0.015 * a, 0.5, 1.7); // hyzer discs stick; anhyzer discs run
   const feet = (2 + 0.8 * disc.speed) * flip * (ROLL[surface] ?? 0.35) * clamp(plan.feet / 200, 0.3, 1);
   const pts = [];
   let p = { ...from };
-  for (let walked = 1; walked <= feet; walked++) {
-    const q = { x: from.x + tangent.x * walked, y: from.y + tangent.y * walked };
+  let walked = 0;
+  let budget = feet;
+  const hilly = !!hole.field;
+  const dirAt = (q, t) => { // the way it is rolling: its own way, pulled downhill where the ground is steep
+    if (!hilly) return t;
+    const g = slopeAt(hole, q.x, q.y);
+    const gm = Math.hypot(g.gx, g.gy);
+    if (gm < 0.05) return t;
+    const k = Math.min(0.6, (gm - 0.05) * 4);
+    const x = t.x * (1 - k) - (g.gx / gm) * k;
+    const y = t.y * (1 - k) - (g.gy / gm) * k;
+    const l = Math.hypot(x, y) || 1;
+    return { x: x / l, y: y / l };
+  };
+  let dir = tangent;
+  while (budget >= 1 && walked < ROLL_CAP) {
+    dir = dirAt(p, dir);
+    const q = { x: p.x + dir.x, y: p.y + dir.y };
     if (distance(q, hole.basket) <= BASKET_RADIUS) return { pts: [...pts, q], kind: 'basket', end: q };
     const s = surfaceAt(hole, q.x, q.y);
     if (s === 'water' || s === 'oob') return { pts: [...pts, q], kind: s, end: q };
     const tr = hole.trees.find((t) => Math.hypot(q.x - t.x, q.y - t.y) < t.r * TREE_FORGIVE * 0.7);
     if (tr) break; // stopped by the trunk
     pts.push(q);
+    const rise = hilly ? elevAt(hole, q.x, q.y) - elevAt(hole, p.x, p.y) : 0; // feet gained in that one foot of run
+    budget -= clamp(1 + 6 * rise, 0.15, 3); // uphill costs more of what it has left; downhill costs less
+    walked++;
     p = q;
   }
   return { pts, kind: 'landed', end: p };
@@ -326,7 +364,8 @@ function rollOut(hole, disc, plan, from, tangent, surface) {
  */
 export function resolveThrow(hole, disc, settings, aimDeg, ex, from) {
   const plan = planThrow(hole, disc, settings, aimDeg, ex);
-  const all = samplePath(plan, from);
+  const all = samplePath(plan, from, 72, hole);
+  const zBasket = elevAt(hole, hole.basket.x, hole.basket.y);
   // the trees that could matter: not the one you just bounced off (a lie remembers it as `t`), nor one touching you, and only those near the path
   const skip = from.t !== undefined ? hole.trees[from.t] : null;
   const lo = { x: Math.min(...all.map((p) => p.x)) - 10, y: Math.min(...all.map((p) => p.y)) - 10 };
@@ -339,9 +378,9 @@ export function resolveThrow(hole, disc, settings, aimDeg, ex, from) {
     const b = all[i];
     for (const tr of trees) {
       const { d, u } = nearest(tr, a, b);
-      if (d < tr.r * TREE_FORGIVE && a.h + (b.h - a.h) * u < tr.h && (!hit || i + u < hit.at)) hit = { tree: tr, at: i + u, i, u };
+      if (d < tr.r * TREE_FORGIVE && a.z + (b.z - a.z) * u < (tr.z || 0) + tr.h && (!hit || i + u < hit.at)) hit = { tree: tr, at: i + u, i, u };
     }
-    if (b.h < BASKET_TOP && i > all.length * 0.5) {
+    if (b.z - zBasket < BASKET_TOP && i > all.length * 0.5) {
       const { d, u } = nearest(hole.basket, a, b);
       if (d <= BASKET_RADIUS && (!basket || i + u < basket.at)) basket = { at: i + u, i, u };
     }
@@ -353,7 +392,7 @@ export function resolveThrow(hole, disc, settings, aimDeg, ex, from) {
     const a = all[g.i - 1];
     const b = all[g.i];
     const p = { x: a.x + (b.x - a.x) * g.u, y: a.y + (b.y - a.y) * g.u };
-    return { pts: [...all.slice(0, g.i), { ...p, h: a.h + (b.h - a.h) * g.u, s: a.s + (b.s - a.s) * g.u }], p };
+    return { pts: [...all.slice(0, g.i), { ...p, h: a.h + (b.h - a.h) * g.u, z: a.z + (b.z - a.z) * g.u, s: a.s + (b.s - a.s) * g.u }], p };
   };
 
   if (basket && (!hit || basket.at < hit.at)) {
@@ -462,17 +501,33 @@ export function sanitizeSwipe(raw) {
   return { aim: clamp(aim, -60, 60), power: clamp(power, 0, 2.5) };
 }
 
+/* The lay of the land at the basket. `rise` is how many feet the basket is above you (negative: below). Uphill a putt is easier (the
+   disc comes in on a climb and stays in the basket) and needs more push; downhill it is harder, needs less push, and runs away more. */
+export const riseTo = (hole, lie) => elevAt(hole, hole.basket.x, hole.basket.y) - elevAt(hole, lie.x, lie.y);
+// how hard the putt is, as a distance: the real one, a little shorter uphill and longer downhill
+export function puttDist(hole, lie) {
+  const d = distance(lie, hole.basket);
+  return clamp(d - 0.9 * riseTo(hole, lie), d * 0.7, d * 1.4);
+}
+// how far the swipe has to carry the disc: the real distance and then some uphill, less downhill
+export function puttPush(hole, lie) {
+  const d = distance(lie, hole.basket);
+  return clamp(d + 1.8 * riseTo(hole, lie), d * 0.5, d * 1.8);
+}
+
 // `shot` is where the dot was when you tapped: { x, y } in the grid's units (a bare number is just x). `roll` is the dice
 // (0..1) for a nasty roll: the caller supplies it (the server, in a match), and the default never rolls one. `swipe` is the flick
 // after the radar ({ aim, power }, see above); without one the swipe counts as true.
 export function resolvePutt(hole, lie, disc, shot, roll = 1, swipe = null) {
   const dist = distance(lie, hole.basket);
+  const rise = riseTo(hole, lie);
+  const dd = puttDist(hole, lie); // how hard it is: the hill counts
   let v = typeof shot === 'number' ? { x: shot, y: 0 } : { x: Number(shot?.x) || 0, y: Number(shot?.y) || 0 };
-  const radius = puttRadius(dist, disc);
-  const zone = puttZone(dist, disc);
+  const radius = puttRadius(dd, disc);
+  const zone = puttZone(dd, disc);
   let why = null;
   if (swipe && dist > GIMME) {
-    const sq = swipeQuality(dist, swipe);
+    const sq = swipeQuality(dd, swipe);
     if (sq.q > 1) { // the swipe was off: it cannot go in, and the radar's miss is joined by the swipe's own
       v = { x: v.x + (sq.aimErr / sq.tol.aim) * radius, y: v.y + (sq.powErr / sq.tol.power) * radius };
       const m = Math.hypot(v.x, v.y);
@@ -484,13 +539,13 @@ export function resolvePutt(hole, lie, disc, shot, roll = 1, swipe = null) {
   if (dist <= GIMME || off <= radius) {
     // dead center is a clean swish; nearer the edge it rattles the chains before it drops
     const gimme = dist <= GIMME && off > radius;
-    return { kind: 'basket', made: true, gimme, finish: gimme ? 'tapin' : off <= radius * 0.55 ? 'swish' : 'rattle', strokes: 1, lie: hole.basket, dist, zone, radius };
+    return { kind: 'basket', made: true, gimme, finish: gimme ? 'tapin' : off <= radius * 0.55 ? 'swish' : 'rattle', strokes: 1, lie: hole.basket, dist, zone, radius, rise };
   }
   // a miss: a few feet from the basket, on the side the dot was: across is left or right, up is long, down is short
   const rim = off <= radius * 1.45; // just outside the target: it hits the cage and spits out
-  const nasty = roll < nastyChance(dist, disc, rim) + (why === 'strong' ? 0.22 : 0); // a putt hit too hard runs away more
+  const nasty = roll < nastyChance(dd, disc, rim) + (why === 'strong' ? 0.22 : 0) + clamp(-rise * 0.012, 0, 0.1); // downhill, a miss runs away more // a putt hit too hard runs away more
   let miss = clamp(2.5 + off * 10, 3, 14);
-  if (nasty) miss = clamp(miss * 2.4 + 6, 14, 46); // and then it runs
+  if (nasty) miss = clamp((miss * 2.4 + 6) * (rise < -1 ? 1 + Math.min(0.5, -rise * 0.05) : 1), 14, 56); // and then it runs, farther downhill
   const hv = headingVec(headingTo(lie, hole.basket));
   const along = (v.y / off) * miss;
   const across = (v.x / off) * miss;
@@ -502,7 +557,7 @@ export function resolvePutt(hole, lie, disc, shot, roll = 1, swipe = null) {
   const wet = s === 'water' || s === 'oob';
   const lieAfter = wet ? { x: hole.basket.x - hv.ux * 3, y: hole.basket.y - hv.uy * 3 } : spot;
   // a nasty roll into the water costs a stroke on top of the putt
-  return { kind: 'landed', made: false, finish: nasty ? 'nasty' : rim ? 'rim' : 'miss', rim, nasty, why, strokes: nasty && wet ? 2 : 1, lie: lieAfter, dist, zone, radius, miss };
+  return { kind: 'landed', made: false, finish: nasty ? 'nasty' : rim ? 'rim' : 'miss', rim, nasty, why, strokes: nasty && wet ? 2 : 1, lie: lieAfter, dist, zone, radius, miss, rise };
 }
 
 /* ---------- the round ---------- */

@@ -3,7 +3,7 @@
    when it does not, a long run away when it takes a nasty roll). Nothing here decides anything. Pure functions plus a drawing
    routine, so a test can walk a script frame by frame. Feet and milliseconds; x east, y north, h up. */
 
-import { project, ZS, RING_H, TRAY_H, TRAY_R, TRAY_FLOOR, BAND_R, CHAIN_BOTTOM } from './cam3d.js?v=9';
+import { project, groundAt, ZS, RING_H, TRAY_H, TRAY_R, TRAY_FLOOR, BAND_R, CHAIN_BOTTOM } from './cam3d.js?v=10';
 
 const RING_R = BAND_R; // how far the top band is from the middle (28 cm: the band is 56 cm across)
 const CHAIN_R = BAND_R * 0.88; // the curtain of chains
@@ -186,7 +186,7 @@ function confetti(ctx, px, py, e, n) {
 export function drawPuttFx(ctx, scene, script, ms, result) {
   const { cam, view, hole, W, H } = scene;
   const m = script.marks;
-  const ring = project(cam, view, hole.basket.x, hole.basket.y, RING_H);
+  const ring = project(cam, view, hole.basket.x, hole.basket.y, groundAt(hole, hole.basket.x, hole.basket.y) + RING_H);
   const camTweak = { fov: 0, drop: 0 };
   if (result.made && m.dropAt !== undefined) {
     const e = ms - m.dropAt;
