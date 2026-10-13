@@ -158,7 +158,10 @@
   .gm-read b { font-size: 1.45rem; }
   .gm-bar { height: 46px; }
   .gm-tap { min-height: 68px; font-size: 1.7rem; position: sticky; bottom: 0; z-index: 2; box-shadow: 0 -10px 10px -4px var(--panel); }
-  .gm-meter .gm-putt { width: min(100%, 280px, 25dvh); }
+  /* the green is as big as the panel leaves room for, so it and the Tap button always show together */
+  .gm-meter .gm-putt { width: min(100%, 280px, calc(50dvh - 150px)); }
+  .gm-meter--putt .gm-tap { position: static; box-shadow: none; }
+  .gm-meter--putt .gm-meter__h { font-size: 0.74rem; }
   .gm-panel:has(.gm-putt) { max-height: 50dvh; } /* a putt needs the whole green in view, and the hole is zoomed in on it anyway */
 }
 @media (max-width: 900px) and (max-height: 700px) { .gm-panel { max-height: 50dvh; } }

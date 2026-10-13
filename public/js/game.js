@@ -340,10 +340,20 @@ function panelMeter() {
     release: releaseHint(risk),
     putt: `Tap when the dot is in the green circle; a miss goes the way the dot was.${toBasket() > G.LONG_PUTT ? ' Past 30 ft the target is a pinprick.' : ''} ${d ? esc(d.name) : ''}, ${ft(toBasket())}.`,
   };
+  const hint = `<div class="gm-meter__h">${Object.entries(hints).filter(([k]) => (k === 'putt') === (kind === 'putt')).map(([k, h]) => `<p${k === kind ? '' : ' aria-hidden="true"'}${k === kind ? '' : ' class="is-off"'}>${h}</p>`).join('')}<p class="is-off" aria-hidden="true">${releaseHint(40)}</p></div>`;
+  // a putt shows the whole green and the Tap button first; its hint waits underneath, where it cannot cover anything
+  if (kind === 'putt') {
+    return `<div class="gm-meter gm-meter--putt">
+      <p class="gm-meter__t">${title}</p>
+      ${barMarkup(kind)}
+      <button class="gm-tap" type="button" data-tap>Tap</button>
+      ${hint}
+    </div>`;
+  }
   return `<div class="gm-meter">
       ${stages.length ? `<div class="gm-steps" aria-hidden="true">${stages.map((_, i) => `<i class="${i < n ? 'is-on' : ''}"></i>`).join('')}</div>` : ''}
       <p class="gm-meter__t">${title}</p>
-      <div class="gm-meter__h">${Object.entries(hints).filter(([k]) => (k === 'putt') === (kind === 'putt')).map(([k, h]) => `<p${k === kind ? '' : ' aria-hidden="true"'}${k === kind ? '' : ' class="is-off"'}>${h}</p>`).join('')}<p class="is-off" aria-hidden="true">${releaseHint(40)}</p></div>
+      ${hint}
       ${barMarkup(kind)}
       <button class="gm-tap" type="button" data-tap>Tap</button>
     </div>`;
