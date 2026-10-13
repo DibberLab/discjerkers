@@ -68,6 +68,32 @@ export function combine(release) {
   return { o: release.o, pure, sloppy, grade };
 }
 
+// A slow arm can lose the disc: it sticks to the fingers (a grip lock) or slips out early. Below Intermediate Plus the
+// chance grows as the arm slows, more for a fast disc, and a little more when the spin is far from the usual for that
+// arm or the angle is extreme. Nothing here rolls the dice: the caller supplies the roll (0..1), so it stays testable
+// and a match server can roll for both players.
+export const SLIP_BELOW = 66; // mph: Intermediate Plus and under
+export function slipChance(disc, settings) {
+  const arm = clamp((SLIP_BELOW - settings.mph) / (SLIP_BELOW - ARM.min), 0, 1);
+  if (!arm) return 0;
+  const fast = 0.6 + 0.4 * clamp(disc.speed / 12, 0, 1);
+  const spinOff = clamp(Math.abs(spinOf(settings) - typicalSpin(settings.mph)) / 600, 0, 1);
+  const edge = Math.abs(settings.angle) >= 5 ? 1 : 0;
+  return clamp(0.3 * arm ** 1.5 * fast + arm * (0.06 * spinOff + 0.04 * edge), 0, 0.4);
+}
+// 'grip' (a grip lock), 'early' (an early release), or null for a clean throw
+export function rollSlip(disc, settings, roll) {
+  const c = slipChance(disc, settings);
+  return roll < c ? (roll < c / 2 ? 'grip' : 'early') : null;
+}
+// the throw as it comes out when it slips: a grip lock comes out late, short and hooked; an early release goes
+// toward the turn side, flat and a little short
+export function applySlip(ex, kind) {
+  if (kind === 'grip') return { ...ex, o: 0.9, sloppy: 1, pure: false, grade: 'Grip lock', slip: 'grip' };
+  if (kind === 'early') return { ...ex, o: -0.9, sloppy: 1, pure: false, grade: 'Early release', slip: 'early' };
+  return ex;
+}
+
 // How the release changes the throw: an early one goes toward the turn side and flattens, a late one goes toward the
 // fade side and tips onto hyzer, and a sloppy one loses spin and a little speed.
 export function applyExecution(settings, aimDeg, ex) {
@@ -76,7 +102,7 @@ export function applyExecution(settings, aimDeg, ex) {
     t2: {
       hand: settings.hand,
       style: settings.style,
-      mph: settings.mph * (1 - 0.06 * ex.sloppy),
+      mph: settings.mph * (1 - 0.06 * ex.sloppy) * (ex.slip === 'grip' ? 0.7 : ex.slip === 'early' ? 0.85 : 1),
       spin: Math.round(spinOf(settings) * (1 - 0.38 * clamp(ex.sloppy - 0.08, 0, 1.2))),
       angle: settings.angle,
       angleExtra: ex.o * 8,

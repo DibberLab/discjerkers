@@ -431,3 +431,38 @@ test('the settings the meters choose change the flight: faster, more spin, and t
   assert.ok(go({ angle: 5 }).plan.feet < flat.plan.feet);
   assert.ok(go({ spin: 400 }).plan.feet < go({ spin: 1400 }).plan.feet || go({ spin: 400 }).end.x !== go({ spin: 1400 }).end.x, 'the spin meter changes the flight');
 });
+
+test('a slow arm can slip: grip lock or early release, rarer as the arm speeds up, and never from a fast one', async () => {
+  const G = await load();
+  const chance = (disc, mph, extra = {}) => G.slipChance(disc, { ...RIGHT, mph, ...extra });
+  assert.strictEqual(chance(DRIVER, 66), 0, 'Intermediate Plus is where it ends');
+  assert.strictEqual(chance(DRIVER, 80), 0);
+  assert.ok(chance(DRIVER, 60) > 0 && chance(DRIVER, 60) < chance(DRIVER, 40), 'slower, likelier');
+  assert.ok(chance(DRIVER, 40) < chance(DRIVER, 12));
+  assert.ok(chance(DRIVER, 12) <= 0.4, 'capped');
+  assert.ok(chance(PUTTER, 30) < chance(DRIVER, 30), 'a fast disc is harder to hold on to');
+  assert.ok(chance(DRIVER, 40, { spin: 1500 }) > chance(DRIVER, 40), 'a spin far from the usual adds to it');
+  assert.ok(chance(DRIVER, 40, { angle: 6 }) > chance(DRIVER, 40), 'so does an extreme angle');
+
+  // the caller rolls: a low roll slips, a high one does not, and the two kinds split the chance
+  const c = chance(DRIVER, 30);
+  assert.strictEqual(G.rollSlip(DRIVER, { ...RIGHT, mph: 30 }, c / 4), 'grip');
+  assert.strictEqual(G.rollSlip(DRIVER, { ...RIGHT, mph: 30 }, c * 0.75), 'early');
+  assert.strictEqual(G.rollSlip(DRIVER, { ...RIGHT, mph: 30 }, c + 0.01), null);
+  assert.strictEqual(G.rollSlip(DRIVER, { ...RIGHT, mph: 80 }, 0), null, 'a fast arm never slips');
+
+  // what a slip does to the flight
+  const hole = await field();
+  const go = (ex, mph = 56) => G.resolveThrow(hole, DRIVER, { ...RIGHT, mph }, 0, ex, { x: 0, y: 0 });
+  const clean = go(CLEAN);
+  const grip = go(G.applySlip(CLEAN, 'grip'));
+  const early = go(G.applySlip(CLEAN, 'early'));
+  assert.strictEqual(G.applySlip(CLEAN, null), CLEAN);
+  assert.strictEqual(G.applySlip(CLEAN, 'grip').grade, 'Grip lock');
+  assert.strictEqual(G.applySlip(CLEAN, 'early').grade, 'Early release');
+  assert.ok(grip.plan.feet < clean.plan.feet * 0.8, 'a grip lock is short');
+  assert.ok(grip.end.x < clean.end.x - 5, 'and hooks to the fade side (left for a right-hand backhand)');
+  assert.ok(early.end.x > clean.end.x + 5, 'an early release goes to the turn side');
+  assert.ok(early.plan.feet < clean.plan.feet);
+  assert.ok(!G.sanitizeExecution({ o: 0, slip: 'grip' }).slip, 'a browser cannot hand itself a slip');
+});

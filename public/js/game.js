@@ -5,7 +5,7 @@
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=2';
-import * as G from './gamecore.js?v=7';
+import * as G from './gamecore.js?v=8';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -227,7 +227,7 @@ function settingsBlock() {
 }
 
 const tipSeen = () => { try { return localStorage.getItem('dj_game_tip') === '1'; } catch { return false; } };
-const tipHtml = () => (tipSeen() ? '' : `<div class="gm-tip"><p><b>How to play:</b> pick a disc, choose forehand or backhand, and aim (drag on the hole). Then <b>Throw</b> and tap four times: where you stop the power, spin and angle bars is your arm speed, your spin and your hyzer; the last tap is the release. Trees stop low throws, water costs a stroke, and a triple bogey draws Marebear.</p><button type="button" data-tip-close aria-label="Got it">×</button></div>`);
+const tipHtml = () => (tipSeen() ? '' : `<div class="gm-tip"><p><b>How to play:</b> pick a disc, choose forehand or backhand, and aim (drag on the hole). Then <b>Throw</b> and tap four times: where you stop the power, spin and angle bars is your arm speed, your spin and your hyzer; the last tap is the release. A slow arm can grip lock or let go early, so watch the slip percentage. Trees stop low throws, water costs a stroke, and a triple bogey draws Marebear.</p><button type="button" data-tip-close aria-label="Got it">×</button></div>`);
 
 function panelPick() {
   const d = curDisc();
@@ -320,12 +320,13 @@ function panelMeter() {
   const stages = kind === 'putt' ? [] : METER_STAGES;
   const n = stages.indexOf(kind) + 1;
   const names = { power: 'Power', spin: 'Spin', angle: 'Angle', release: 'Release', putt: 'Putt' };
+  const risk = kind === 'release' && d ? Math.round(G.slipChance(d, S.settings) * 100) : 0;
   const title = kind === 'putt' ? 'Putt' : `<span>${n} ·</span> ${names[kind]}`;
   const hints = {
     power: 'Tap to set your arm speed: where the marker stops is how hard you throw. Harder is farther, but harder to time on the release.',
     spin: 'Tap to set the spin. The tick is the usual spin for your arm speed; more holds the line, less lets it turn over.',
     angle: 'Tap to set the release angle. The middle is flat; right tips it onto hyzer, left onto anhyzer.',
-    release: 'Tap when the needle crosses the middle. Early goes toward the turn side, late toward the fade side.',
+    release: `Tap when the needle crosses the middle. Early goes toward the turn side, late toward the fade side.${risk ? ` <b>${risk}% chance the disc slips</b>: a slow arm can grip lock or let go early.` : ''}`,
     putt: `Tap when the dot is inside the green circle. It never takes the same path twice, and a miss goes the way the dot was. ${d ? esc(d.name) : ''}, ${ft(toBasket())}.`,
   };
   return `<div class="gm-meter">
@@ -340,6 +341,8 @@ function panelMeter() {
 const panelFlight = () => `<div class="gm-card"><h2>${esc(S.last?.ex?.grade ?? '')}</h2><p>${S.last?.ex ? describeExecution(S.last.ex) : 'Here it goes…'}</p></div>`;
 
 function describeExecution(ex) {
+  if (ex.slip === 'grip') return 'The disc stuck to your fingers and came out late and short.';
+  if (ex.slip === 'early') return 'The disc slipped out of your hand early.';
   return ex.o < -0.08 ? 'Released early.' : ex.o > 0.08 ? 'Released late.' : 'Released on time.';
 }
 
@@ -364,7 +367,7 @@ function panelResult() {
   return `<div class="gm-card">
       <h2 class="${c.tone === 'good' ? 'is-good' : c.tone === 'bad' ? 'is-bad' : ''}">${c.h}</h2>
       <p>${where}${c.p}</p>
-      ${ex ? `<p>${esc(ex.grade)} throw: ${describeExecution(ex)}</p>` : ''}
+      ${ex ? `<p>${ex.slip ? esc(ex.grade) : `${esc(ex.grade)} throw`}: ${describeExecution(ex)}</p>` : ''}
       <button class="btn" type="button" data-next>Next throw</button>
     </div>`;
 }
@@ -506,7 +509,9 @@ function tap() {
     next('release');
     toast(angleName(S.settings), '', 900);
   } else if (S.phase === 'release') {
-    throwDisc(G.combine(G.readRelease(G.releaseAt(t, m.rel), m.rel.w)));
+    const ex = G.combine(G.readRelease(G.releaseAt(t, m.rel), m.rel.w));
+    // solo rolls the slip here; in a match the server does, and the throw comes back with it
+    throwDisc(S.mode === 'match' ? ex : G.applySlip(ex, G.rollSlip(curDisc(), S.settings, Math.random())));
   } else if (S.phase === 'putt') {
     puttDisc(G.puttCursorAt(m.params, t, m.speed));
   }
@@ -521,7 +526,7 @@ function throwDisc(ex) {
   S.last = { result, ex, disc, from };
   const flightMs = clamp(900 + result.plan.feet * 4.2, 1200, 3300);
   S.anim = { type: 'flight', t0: now(), dur: flightMs, pts: result.pts, roll: result.roll, result };
-  toast(ex.grade, ex.pure ? 'good' : ex.grade === 'Shank' ? 'bad' : '', 1300);
+  toast(ex.grade, ex.pure ? 'good' : ex.slip || ex.grade === 'Shank' ? 'bad' : '', 1300);
   setPhase('flight');
   retarget(false, result.pts);
 }
@@ -1217,7 +1222,7 @@ function update(t) {
     mark.style.left = `${v * 100}%`;
     const read = $('#gm-read');
     if (read && S.phase !== 'release') {
-      const text = S.phase === 'power' ? (() => { const mph = G.mphAt(v); return `${mph} mph · ${tierName(Math.max(30, mph))}`; })()
+      const text = S.phase === 'power' ? (() => { const mph = G.mphAt(v); const risk = Math.round(G.slipChance(curDisc(), { ...S.settings, mph, spin: null, angle: 0 }) * 100); return `${mph} mph · ${tierName(Math.max(30, mph))}${risk ? ` · ${risk}% slip` : ''}`; })()
         : S.phase === 'spin' ? `${G.spinAt(v)} rpm`
           : angleName({ angle: G.angleAt(v * 2 - 1) });
       if (read.textContent !== text) read.textContent = text;
@@ -1651,7 +1656,7 @@ function startMoveAnim(view, last, who) {
   S.last = { result, ex: last.ex, disc, from: last.from, who };
   S.anim = { type: 'flight', t0: now(), dur: last.putt ? 750 : clamp(900 + last.feet * 4.2, 1200, 3300), pts, roll, result };
   const name = who === 'opp' ? `${oppPlayer(view).name}: ` : '';
-  toast(`${name}${last.putt ? (last.made ? (last.gimme ? 'Tap-in' : 'Chains!') : 'Rimmed out') : last.ex?.grade || ''}`, last.putt ? (last.made ? 'good' : 'bad') : last.ex?.pure ? 'good' : last.ex?.grade === 'Shank' ? 'bad' : '', 1400);
+  toast(`${name}${last.putt ? (last.made ? (last.gimme ? 'Tap-in' : 'Chains!') : 'Rimmed out') : last.ex?.grade || ''}`, last.putt ? (last.made ? 'good' : 'bad') : last.ex?.pure ? 'good' : last.ex?.slip || last.ex?.grade === 'Shank' ? 'bad' : '', 1400);
   setPhase('flight');
   retarget(false, pts);
 }

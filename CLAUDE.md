@@ -112,6 +112,10 @@ that way; don't introduce React/Vite/Tailwind here.
   a putt is one tap on a swirling circular green (the dot's path is seeded and never repeats, and a miss goes the way
   the dot was). Only the release is a skill test (`sanitizeExecution` is what a server accepts back for it); the other
   three are choices, and `sanitizeSettings` range-checks them.
+- A slow arm can slip (`slipChance`/`rollSlip`/`applySlip` in `gamecore.js`): below 66 mph (Intermediate Plus) there is a
+  growing chance of a **grip lock** (short, hooks to the fade side) or an **early release** (flat, to the turn side);
+  more for fast discs, odd spin, extreme angles. The core never rolls: solo rolls in the browser, and in a match the
+  **server rolls** (browsers cannot hand themselves or dodge a slip; `sanitizeExecution` drops it).
 - Marebear eats the disc you just threw, once per hole, the first time you are at a triple bogey or worse and have
   not holed out. That rule lives in `applyResult` and is tested; the bear is drawn in `drawBear`.
 - **Head-to-head** (`/api/game`, `server/routes/game.js`, `server/lib/matches.js`): two signed-in players, host picks
