@@ -867,6 +867,32 @@ function bagRow(d) {
       <span class="fg-d-cmp__full" id="fg-bag-msg" role="status"></span>`;
 }
 
+// What each brand sells, for the plastic picker. A brand missing here gets the general list; the field
+// still takes anything typed.
+const GENERIC_PLASTICS = ['Champion', 'Star', 'Pro', 'DX', 'Z', 'ESP', 'Neutron', 'Plasma', 'Proton', 'Fuzion', 'Lucid', 'Prime', 'Classic', 'Opto', 'Gold Line', 'VIP', 'K1', 'C-Line', 'S-Line', 'Frost', 'Glow', 'Burst', 'Swirl', 'Blend', 'Base'];
+const PLASTICS = {
+  Innova: ['DX', 'Pro', 'R-Pro', 'KC Pro', 'XT', 'Nexus', 'Champion', 'Star', 'GStar', 'Halo Star', 'Echo Star', 'Shimmer Star', 'Metal Flake Champion', 'Luster Champion', 'Blizzard Champion', 'Charge Champion', 'Glow Champion', 'Proto Glow Champion', 'Color Glow Champion', 'I-Dye'],
+  Discraft: ['Pro-D', 'X', 'Elite X', 'Elite Z', 'Z', 'Z Lite', 'Z FLX', 'ESP', 'ESP FLX', 'ESP Glo', 'Swirl ESP', 'Sparkle Z', 'UV Z', 'Z Metallic', 'CryZtal', 'CryZtal FLX', 'Big Z', 'Titanium', 'Jawbreaker', 'Rubber Blend', 'Recycled ESP'],
+  'Dynamic Discs': ['Classic', 'Classic Blend', 'Classic Soft', 'Classic Burst', 'Prime', 'Prime Burst', 'Fuzion', 'Fuzion Burst', 'BioFuzion', 'Lucid', 'Lucid Air', 'Lucid Ice', 'Lucid-X Chameleon', 'Moonshine', 'Fluid'],
+  'Latitude 64': ['Zero Soft', 'Zero Medium', 'Zero Hard', 'Retro', 'Retro Burst', 'Frost', 'Opto', 'Opto Air', 'Opto Ice', 'Opto-X', 'Gold Line', 'Gold Orbit', 'Moonshine'],
+  'Westside Discs': ['BT Soft', 'BT Medium', 'BT Hard', 'Origio', 'Origio Burst', 'Tournament', 'Tournament Burst', 'VIP', 'VIP Air', 'VIP Ice', 'VIP-X'],
+  Kastaplast: ['K1', 'K1 Soft', 'K1 Glow', 'K2', 'K3', 'K3 Hard'],
+  Discmania: ['Neo', 'Lux', 'Lumen', 'Horizon', 'Active', 'Active Premium', 'Exo Soft', 'Exo Hard', 'G-Line', 'C-Line', 'D-Line', 'S-Line', 'P-Line', 'Metal Flake'],
+  Prodigy: ['200', '300', '300 Soft', '350G', '400', '400G', '400 Spectrum', '500', '500 Spectrum', '750', '750G', '750 Spectrum', 'Air Spectrum'],
+  MVP: ['Electron Soft', 'Electron Medium', 'Electron Firm', 'Neutron', 'Cosmic Neutron', 'Prism Neutron', 'Plasma', 'Proton', 'Fission', 'Eclipse', 'Total Eclipse', 'Gyro'],
+  Streamline: ['Electron', 'Neutron', 'Cosmic Neutron', 'Plasma', 'Proton', 'Fission', 'Eclipse', 'Gyro'],
+  'Axiom Discs': ['Electron', 'Neutron', 'Cosmic Neutron', 'Prism Neutron', 'Plasma', 'Proton', 'Fission', 'Eclipse', 'Total Eclipse'],
+  Gateway: ['Sure Grip Firm', 'Sure Grip Medium', 'Sure Grip Super Soft', 'Sure Grip Stupid Soft', 'Sure Grip Super Stupid Soft', 'Eraser', 'Diamond', 'Hyper Diamond', 'Platinum', 'Evolution'],
+  Legacy: ['Icon', 'Pinnacle', 'Pinnacle Gravity', 'Excel', 'Gravity'],
+  Millennium: ['Standard', 'Quantum', 'Sirius', 'Lunar', 'Omega'],
+  'Infinite Discs': ['I-Blend', 'S-Blend', 'C-Blend', 'D-Blend', 'G-Blend', 'P-Blend', 'Glow C-Blend', 'Swirly S-Blend'],
+  'Lone Star Discs': ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Victor'],
+  'Thought Space Athletics': ['Aura', 'Ethos', 'Nebula Aura', 'Nebula Ethos', 'Ethos Glow'],
+  'Clash Discs': ['Steady', 'Hardy', 'Softy'],
+  'Mint Discs': ['Freshmint', 'Eterna', 'Apex', 'Sublime'],
+  Vibram: ['Soft', 'Medium', 'Firm', 'Ledge'],
+  DGA: ['Proline', 'SP Line', 'Signature Line', 'Rubber Blend'],
+};
 const SWATCHES = ['#e53935', '#fb8c00', '#fdd835', '#7cb342', '#00897b', '#1e88e5', '#5e35b1', '#d81b60', '#f5f5f5', '#212121', '#9e9e9e'];
 
 // "Your copy": the color, plastic and photo of this disc in the active bag
@@ -875,6 +901,9 @@ function ownSection(d) {
   if (!bag || !inBag(d.id, bag)) return '';
   const it = bag.items?.[d.id] || {};
   const custom = it.color && !SWATCHES.includes(it.color);
+  const brand = brands[d.b].n;
+  const known = PLASTICS[brand];
+  const plastics = known || GENERIC_PLASTICS;
   const swatches = SWATCHES.map((c) => `<button class="fg-sw${it.color === c ? ' is-on' : ''}" type="button" data-own-color="${c}" style="--c:${c}" aria-label="Color ${c}" aria-pressed="${it.color === c}"></button>`).join('');
   return `<p class="fg-own__h">Your copy <span>· ${esc(bag.name)}</span></p>
     <div class="fg-own__colors" role="group" aria-label="Disc color">
@@ -883,9 +912,11 @@ function ownSection(d) {
       ${it.color ? '<button class="fg-rng__auto" type="button" data-own-color="" title="Back to the chart color">No color</button>' : ''}
     </div>
     <div class="fg-own__pw">
-      <label class="fg-own__plastic"><span class="fg-wind__l">Plastic</span><input data-own-plastic list="fg-plastics" maxlength="30" value="${esc(it.plastic || '')}" placeholder="Champion, Star, Z…" autocomplete="off" spellcheck="false"></label>
+      <label class="fg-own__plastic"><span class="fg-wind__l">Plastic</span><input data-own-plastic list="fg-plastics" maxlength="30" value="${esc(it.plastic || '')}" placeholder="${known ? 'Pick one or type your own' : 'Type the plastic'}" autocomplete="off" spellcheck="false"></label>
       <label class="fg-own__weight"><span class="fg-wind__l">Weight</span><input data-own-weight type="number" inputmode="decimal" min="20" max="250" step="0.5" value="${it.weight ?? ''}" placeholder="172" aria-label="Weight in grams"><span class="fg-wind__l">g</span></label>
     </div>
+    <datalist id="fg-plastics">${plastics.map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
+    ${known ? `<div class="fg-plastics" role="group" aria-label="${esc(brand)} plastics">${known.map((p) => `<button class="fg-pchip${it.plastic === p ? ' is-on' : ''}" type="button" data-own-plastic-pick="${esc(p)}" aria-pressed="${it.plastic === p}">${esc(p)}</button>`).join('')}</div>` : ''}
     <div class="fg-own__photo">
       ${it.photo ? `<img src="${photoUrl(it.photo)}" alt="Your photo of this disc" width="64" height="64">` : ''}
       <label class="chip fg-cmpbtn fg-filebtn">${it.photo ? 'Change photo' : 'Add photo'}<input class="sr-only" type="file" accept="image/*" data-own-photo></label>
@@ -936,6 +967,12 @@ async function ownEdit(fn, working) {
 function handleOwnClick(e) {
   const color = e.target.closest('[data-own-color]');
   if (color) { ownEdit((id, bag) => setItem(id, { color: color.dataset.ownColor || null }, bag)); return true; }
+  const pick = e.target.closest('[data-own-plastic-pick]');
+  if (pick) {
+    const on = pick.getAttribute('aria-pressed') === 'true'; // tapping the lit one clears it
+    ownEdit((id, bag) => setItem(id, { plastic: on ? '' : pick.dataset.ownPlasticPick }, bag));
+    return true;
+  }
   if (e.target.closest('[data-own-photo-clear]')) { ownEdit((id, bag) => clearPhoto(id, bag)); return true; }
   return false;
 }
