@@ -45,6 +45,12 @@ function plan(gp, view, uid) {
   return { kind: 'throw', body: { discId: disc.id, settings: { ...SETTINGS, mph: best ? best.mph : 40 }, aimOff: best ? best.off : 0, ex: CLEAN } };
 }
 
+// everyone sits down, then the host starts it
+function begin(store, gp, id, ...rest) {
+  for (const u of rest.length ? rest : [BEN]) store.join(u, id, { gp, bag: null });
+  return store.start(ANA, id, { gp });
+}
+
 async function seated(holes = 9, opts = {}) {
   const gp = await gameplay();
   const store = createMatchStore(opts.file || tmp('matches.json'));
@@ -54,7 +60,7 @@ async function seated(holes = 9, opts = {}) {
 
 /* ---------- the store ---------- */
 
-test('a match: hosted, joined by a code, and started with a coin flip', async () => {
+test('a match: hosted, joined by a code, and started by the host', async () => {
   const gp = await gameplay();
   const store = createMatchStore(tmp('matches.json'));
   const made = store.create(ANA, { gp, holes: 18, invite: null, bag: null });
@@ -62,21 +68,45 @@ test('a match: hosted, joined by a code, and started with a coin flip', async ()
   assert.strictEqual(made.status, 'waiting');
   assert.strictEqual(made.holes, 18);
   assert.strictEqual(made.players.length, 1);
+  assert.strictEqual(made.host, ANA.id);
+  assert.strictEqual(made.maxPlayers, 8);
   assert.ok(made.players[0].discs.length >= 5, 'a bag with nothing in it brings the starter bag');
   assert.throws(() => store.create(ANA, { gp, holes: 12, bag: null }), /nine or eighteen/);
 
   assert.throws(() => store.join(BEN, 'ZZZZZZ', { gp, bag: null }), (e) => e.status === 404);
   const joined = store.join(BEN, made.id.toLowerCase(), { gp, bag: null }); // codes are not case sensitive
-  assert.strictEqual(joined.status, 'active');
+  assert.strictEqual(joined.status, 'waiting', 'joining does not start it: the host decides when everyone is here');
   assert.strictEqual(joined.players.length, 2);
-  assert.ok([ANA.id, BEN.id].includes(joined.round.turn), 'somebody has the honor');
-  assert.strictEqual(joined.round.holeId, 1);
-  assert.deepStrictEqual(Object.keys(joined.round.rounds).sort(), ['u1', 'u2']);
-  assert.throws(() => store.join(CAL, made.id, { gp, bag: null }), (e) => e.status === 409, 'a third player cannot sit down');
-  assert.strictEqual(store.join(ANA, made.id, { gp, bag: null }).status, 'active', 'the host reopening their own match is fine');
+  assert.throws(() => store.start(BEN, made.id, { gp }), (e) => e.status === 403, 'only the host starts it');
+  assert.strictEqual(store.join(ANA, made.id, { gp, bag: null }).status, 'waiting', 'the host reopening their own match is fine');
+  store.join(CAL, made.id, { gp, bag: null }); // a third can still sit down
+
+  const started = store.start(ANA, made.id, { gp });
+  assert.strictEqual(started.status, 'active');
+  assert.strictEqual(started.players.length, 3);
+  assert.ok([ANA.id, BEN.id, CAL.id].includes(started.round.turn), 'somebody has the honor');
+  assert.strictEqual(started.round.holeId, 1);
+  assert.deepStrictEqual(Object.keys(started.round.rounds).sort(), ['u1', 'u2', 'u3']);
+  assert.throws(() => store.join({ id: 'u9', name: 'Dee', bags: [] }, made.id, { gp, bag: null }), (e) => e.status === 409, 'nobody sits down once it has started');
+
+  const lone = store.create(ANA, { gp, holes: 9, bag: null });
+  assert.throws(() => store.start(ANA, lone.id, { gp }), (e) => e.status === 409, 'it takes at least two');
 });
 
-test('an invitation is for one player, and a bag is frozen when they sit down', async () => {
+test('up to eight can play, and the ninth is turned away', async () => {
+  const gp = await gameplay();
+  const store = createMatchStore(tmp('matches.json'));
+  const made = store.create(ANA, { gp, holes: 9, bag: null });
+  const crowd = Array.from({ length: 7 }, (_, i) => ({ id: `x${i}`, name: `Player${i}`, bags: [] }));
+  for (const u of crowd) store.join(u, made.id, { gp, bag: null });
+  assert.strictEqual(store.view(store.get(made.id), ANA.id).players.length, 8);
+  assert.throws(() => store.join({ id: 'x9', name: 'Late', bags: [] }, made.id, { gp, bag: null }), (e) => e.status === 409 && /full/.test(e.message));
+  const v = store.start(ANA, made.id, { gp });
+  assert.strictEqual(Object.keys(v.round.rounds).length, 8);
+  assert.strictEqual(new Set(v.round.turn ? [v.round.turn] : []).size, 1);
+});
+
+test('an invitation shows up for the player invited, and a bag is frozen when they sit down', async () => {
   const gp = await gameplay();
   const store = createMatchStore(tmp('matches.json'));
   const bag = { id: 'b1', main: true, discs: [61, 1467, 99999], items: { 61: { color: '#1e88e5', photo: 'secret.jpg', plastic: 'Star' } } };
@@ -84,15 +114,16 @@ test('an invitation is for one player, and a bag is frozen when they sit down', 
   assert.deepStrictEqual(made.players[0].discs, [{ id: 61, color: '#1e88e5' }, { id: 1467 }], 'known discs only, color kept, nothing private');
   assert.deepStrictEqual(store.list(BEN).map((m) => [m.id, m.invitedYou]), [[made.id, true]], 'it shows up for the one invited');
   assert.deepStrictEqual(store.list(CAL), []);
-  assert.throws(() => store.join(CAL, made.id, { gp, bag: null }), (e) => e.status === 403);
-  assert.strictEqual(store.join(BEN, made.id, { gp, bag: null }).status, 'active');
+  assert.strictEqual(store.join(CAL, made.id, { gp, bag: null }).players.length, 2, 'the code is what lets you in, so anyone holding it can sit down');
+  assert.strictEqual(store.join(BEN, made.id, { gp, bag: null }).players.length, 3);
 });
 
 test('only the player whose turn it is can throw, and a throw is checked', async () => {
   const { gp, store, id } = await seated();
-  const start = store.join(BEN, id, { gp, bag: null });
+  const start = begin(store, gp, id);
   const [first, second] = start.round.turn === ANA.id ? [ANA, BEN] : [BEN, ANA];
   const v = () => store.view(store.get(id), first.id);
+  const seq0 = store.get(id).seq;
   const mv = plan(gp, v(), first.id);
   const good = mv.body;
   assert.throws(() => store.move(second, id, 'throw', good, gp), (e) => e.status === 409 && /not your throw/.test(e.message));
@@ -100,18 +131,18 @@ test('only the player whose turn it is can throw, and a throw is checked', async
   assert.throws(() => store.move(first, id, 'throw', { ...good, discId: 424242 }, gp), /not in your bag/);
   assert.throws(() => store.move(first, id, 'throw', { ...good, settings: { ...good.settings, mph: 61 } }, gp), /not allowed/);
   assert.throws(() => store.move(first, id, 'putt', { discId: good.discId, x: 0 }, gp), /too far/);
-  assert.strictEqual(store.get(id).seq, 1, 'refused moves change nothing');
+  assert.strictEqual(store.get(id).seq, seq0, 'refused moves change nothing');
 
   const out = store.move(first, id, 'throw', good, gp);
   assert.strictEqual(out.last.uid, first.id);
   assert.ok(out.last.pts.length > 30 && out.last.feet > 20, 'the other player can watch it');
-  assert.strictEqual(out.match.seq, 2);
+  assert.strictEqual(out.match.seq, seq0 + 1);
   assert.ok(out.match.round.rounds[first.id].strokes >= 1);
 });
 
 test('the farthest player from the basket throws next', async () => {
   const { gp, store, id } = await seated();
-  store.join(BEN, id, { gp, bag: null });
+  begin(store, gp, id);
   const m = store.get(id);
   const hole = gp.hole(1);
   const stand = (uid, y) => { m.round.rounds[uid].lie = { x: hole.tee.x, y }; };
@@ -126,7 +157,7 @@ test('the farthest player from the basket throws next', async () => {
   const mm = store.get(id);
   mm.round.rounds[ANA.id].lie = { x: 10, y: 200 };
   mm.round.rounds[BEN.id].lie = { x: -10, y: 200 };
-  mm.round.lastThrower = ANA.id;
+  mm.round.lastSeq[ANA.id] = 99;
   assert.ok(true);
   stand(ANA.id, 250);
   stand(BEN.id, 150);
@@ -137,7 +168,7 @@ test('the farthest player from the basket throws next', async () => {
 
 test('a throw inside fifty feet is a putt, and a putt is one needle', async () => {
   const { gp, store, id } = await seated();
-  store.join(BEN, id, { gp, bag: null });
+  begin(store, gp, id);
   const m = store.get(id);
   const hole = gp.hole(1);
   const who = m.round.turn;
@@ -155,7 +186,7 @@ test('a throw inside fifty feet is a putt, and a putt is one needle', async () =
 
 test('a hole ends when both are done: cards, then the next hole, honor to the better score', async () => {
   const { gp, store, id } = await seated();
-  store.join(BEN, id, { gp, bag: null });
+  begin(store, gp, id);
   const users = { u1: ANA, u2: BEN };
   let guard = 0;
   while (store.get(id).holeIdx === 0 && store.get(id).status === 'active' && guard++ < 40) {
@@ -178,7 +209,7 @@ test('a hole ends when both are done: cards, then the next hole, honor to the be
 
 test('a whole nine-hole match plays out to a winner', async () => {
   const { gp, store, id } = await seated(9);
-  store.join(BEN, id, { gp, bag: null });
+  begin(store, gp, id);
   const users = { u1: ANA, u2: BEN };
   let guard = 0;
   while (store.get(id).status === 'active' && guard++ < 700) {
@@ -200,7 +231,7 @@ test('a whole nine-hole match plays out to a winner', async () => {
 
 test('Marebear comes for a disc at a triple bogey, and the bear is on the record for both players to watch', async () => {
   const { gp, store, id } = await seated();
-  store.join(BEN, id, { gp, bag: null });
+  begin(store, gp, id);
   const m = store.get(id);
   const who = m.round.turn;
   const user = who === ANA.id ? ANA : BEN;
@@ -217,14 +248,14 @@ test('Marebear comes for a disc at a triple bogey, and the bear is on the record
 
 test('leaving: a match nobody joined is cancelled; leaving one in play forfeits it', async () => {
   const { gp, store, id } = await seated();
-  assert.strictEqual(store.leave(ANA, id).status, 'cancelled');
+  assert.strictEqual(store.leave(ANA, id, gp).status, 'cancelled');
   const second = store.create(ANA, { gp, holes: 9, bag: null });
-  store.join(BEN, second.id, { gp, bag: null });
-  const out = store.leave(ANA, second.id);
+  begin(store, gp, second.id);
+  const out = store.leave(ANA, second.id, gp);
   assert.strictEqual(out.status, 'done');
   assert.strictEqual(out.endedBy, 'forfeit');
   assert.strictEqual(out.winner, BEN.id);
-  assert.throws(() => store.leave(CAL, second.id), (e) => e.status === 404);
+  assert.throws(() => store.leave(CAL, second.id, gp), (e) => e.status === 404);
 });
 
 test('nobody has more than a handful of matches going at once', async () => {
@@ -239,7 +270,7 @@ test('matches survive a restart; an unreadable file is set aside and never block
   const file = tmp('matches.json');
   const a = createMatchStore(file);
   const made = a.create(ANA, { gp, holes: 9, bag: null });
-  a.join(BEN, made.id, { gp, bag: null });
+  begin(a, gp, made.id);
   const b = createMatchStore(file);
   assert.strictEqual(b.get(made.id).status, 'active');
   assert.strictEqual(b.view(b.get(made.id), ANA.id).players.length, 2);
@@ -316,8 +347,7 @@ test('over HTTP: sign in, challenge, join, throw, and watch the other player mov
     const made = await ana.call('POST', '/game/matches', { holes: 9, invite: 'Ben' });
     assert.strictEqual(made.status, 201);
     const id = made.json.match.id;
-    assert.strictEqual((await cal.call('POST', `/game/matches/${id}/join`, {})).status, 403, 'reserved for Ben');
-    assert.strictEqual((await cal.call('GET', `/game/matches/${id}`)).status, 404, 'and Cal cannot look');
+    assert.strictEqual((await cal.call('GET', `/game/matches/${id}`)).status, 404, 'Cal is not in it and cannot look');
     assert.strictEqual((await ben.call('GET', '/game/matches')).json.matches[0].invitedYou, true);
 
     // Ana opens the live stream before Ben sits down
@@ -342,14 +372,16 @@ test('over HTTP: sign in, challenge, join, throw, and watch the other player mov
     await new Promise((r) => setTimeout(r, 150));
     assert.strictEqual(events.at(-1).status, 'waiting');
 
-    const joined = await ben.call('POST', `/game/matches/${id}/join`, {});
+    assert.strictEqual((await ben.call('POST', `/game/matches/${id}/join`, {})).json.match.status, 'waiting');
+    assert.strictEqual((await ben.call('POST', `/game/matches/${id}/start`, {})).status, 403, 'only the host starts it');
+    const joined = await ana.call('POST', `/game/matches/${id}/start`, {});
     assert.strictEqual(joined.json.match.status, 'active');
     await new Promise((r) => setTimeout(r, 150));
     assert.strictEqual(events.at(-1).status, 'active', 'Ana sees Ben sit down without asking');
 
     const gp = await gameplay();
     const turn = joined.json.match.round.turn;
-    const [mover, watcher] = joined.json.match.you === turn ? [ben, ana] : [ana, ben];
+    const [mover, watcher] = turn === 'u1' ? [ana, ben] : [ben, ana];
     assert.strictEqual((await watcher.call('POST', `/game/matches/${id}/throw`, { discId: 1 })).status, 409, 'not your throw');
     const seen = events.length;
     const mv = plan(gp, (await mover.call('GET', `/game/matches/${id}`)).json.match, turn);
@@ -366,4 +398,119 @@ test('over HTTP: sign in, challenge, join, throw, and watch the other player mov
     for (let i = 0; i < 3; i++) await ana.call('POST', '/game/matches', { holes: 9 }); // 4th create in the window (limit 4) includes the first
     assert.strictEqual((await ana.call('POST', '/game/matches', { holes: 9 })).status, 429);
   } finally { close(); }
+});
+
+/* ---------- more than two ---------- */
+
+const DEE = { id: 'u4', name: 'Dee', bags: [] };
+
+test('four players: the farthest from the basket throws next, and everybody gets a hole card', async () => {
+  const gp = await gameplay();
+  const store = createMatchStore(tmp('matches.json'));
+  const made = store.create(ANA, { gp, holes: 9, bag: null });
+  begin(store, gp, made.id, BEN, CAL, DEE);
+  const users = { u1: ANA, u2: BEN, u3: CAL, u4: DEE };
+  const m = store.get(made.id);
+  const hole = gp.hole(1);
+  const order = [...m.round.order];
+  assert.strictEqual(new Set(order).size, 4, 'the honor order has everybody once');
+  assert.strictEqual(m.round.turn, order[0], 'on the tee the honor decides');
+
+  // spread them out: after any throw, whoever is now farthest from the basket is up next
+  const along = [0.9, 0.35, 0.6, 0.15]; // how far each is up the hole
+  order.forEach((uid, i) => { m.round.rounds[uid].lie = { x: hole.tee.x + (hole.basket.x - hole.tee.x) * along[i], y: hole.tee.y + (hole.basket.y - hole.tee.y) * along[i] }; });
+  const dist = (g, uid) => gp.G.distance(g.round.rounds[uid].lie, hole.basket);
+  for (let k = 0; k < 3; k++) {
+    const g = store.get(made.id);
+    // chooseTurn is exercised by a real move: set the one farthest out as the mover, then check who is up after it
+    const farthest = Object.keys(g.round.rounds).filter((u) => !g.round.rounds[u].done).sort((a, b) => dist(g, b) - dist(g, a))[0];
+    g.round.turn = farthest;
+    const mv = plan(gp, store.view(g, farthest), farthest);
+    store.move(users[farthest], made.id, mv.kind, mv.body, gp);
+    const after = store.get(made.id);
+    const live = Object.keys(after.round.rounds).filter((u) => !after.round.rounds[u].done);
+    const expect = [...live].sort((a, b) => dist(after, b) - dist(after, a))[0];
+    assert.strictEqual(after.round.turn, expect, `throw ${k + 1}: the farthest one is up`);
+  }
+
+  // and a full hole with four real players plays out, every player with a card entry
+  const full = store.create(ANA, { gp, holes: 9, bag: null });
+  begin(store, gp, full.id, BEN, CAL, DEE);
+  let guard = 0;
+  while (store.get(full.id).holeIdx === 0 && store.get(full.id).status === 'active' && guard++ < 200) {
+    const g = store.get(full.id);
+    const who = g.round.turn;
+    const mv = plan(gp, store.view(g, who), who);
+    store.move(users[who], full.id, mv.kind, mv.body, gp);
+  }
+  const g = store.get(full.id);
+  assert.strictEqual(g.holeIdx, 1);
+  for (const uid of ['u1', 'u2', 'u3', 'u4']) assert.strictEqual(g.cards[uid].length, 1, `${uid} has a card`);
+  assert.strictEqual(g.last.holeEnd.results.length, 4);
+  const scores = Object.fromEntries(['u1', 'u2', 'u3', 'u4'].map((u) => [u, g.cards[u][0].score]));
+  assert.strictEqual(scores[g.round.order[0]], Math.min(...Object.values(scores)), 'a best score throws first on the next hole');
+  const ranked = g.round.order.map((u) => scores[u]);
+  assert.deepStrictEqual(ranked, [...ranked].sort((x, y) => x - y), 'and the honor order runs from the best score down');
+});
+
+test('when someone leaves a match of several, the rest play on; the last one standing wins', async () => {
+  const gp = await gameplay();
+  const store = createMatchStore(tmp('matches.json'));
+  const made = store.create(ANA, { gp, holes: 9, bag: null });
+  begin(store, gp, made.id, BEN, CAL);
+  const turnOf = () => store.get(made.id).round.turn;
+  const quitter = turnOf() === 'u2' ? CAL : BEN; // somebody who is not the host, and may well be up
+  const out = store.leave(quitter, made.id, gp);
+  assert.strictEqual(out.status, 'active', 'two are left, so it goes on');
+  assert.ok(out.players.find((p) => p.uid === quitter.id).left);
+  assert.notStrictEqual(out.round.turn, quitter.id, 'their turn is somebody else\'s now');
+  assert.strictEqual(store.list(quitter)[0].left, true);
+  assert.throws(() => store.move(quitter, made.id, 'throw', { discId: 1 }, gp), (e) => e.status === 409);
+  assert.throws(() => store.join({ id: 'u7', name: 'Late', bags: [] }, made.id, { gp, bag: null }), (e) => e.status === 409);
+
+  const second = out.players.find((p) => !p.left && p.uid !== ANA.id).uid;
+  const left = store.leave(second === 'u2' ? BEN : CAL, made.id, gp);
+  assert.strictEqual(left.status, 'done');
+  assert.strictEqual(left.endedBy, 'forfeit');
+  assert.strictEqual(left.winner, ANA.id, 'the one left wins');
+  assert.deepStrictEqual(left.winners, [ANA.id]);
+  assert.strictEqual(store.list(ANA)[0].won, true);
+});
+
+test('a player leaving the lobby takes their seat with them, and the host leaving hands the match on', async () => {
+  const gp = await gameplay();
+  const store = createMatchStore(tmp('matches.json'));
+  const made = store.create(ANA, { gp, holes: 9, bag: null });
+  store.join(BEN, made.id, { gp, bag: null });
+  store.join(CAL, made.id, { gp, bag: null });
+  assert.strictEqual(store.leave(BEN, made.id, gp).players.length, 2, 'Ben stands up');
+  assert.deepStrictEqual(store.view(store.get(made.id), ANA.id).players.map((p) => p.uid), ['u1', 'u3']);
+  const after = store.leave(ANA, made.id, gp);
+  assert.strictEqual(after.status, 'waiting', 'it is still there for Cal');
+  assert.strictEqual(after.host, CAL.id, 'and Cal is the host now');
+  assert.throws(() => store.start(CAL, made.id, { gp }), (e) => e.status === 409, 'but one is not enough');
+  assert.strictEqual(store.leave(CAL, made.id, gp).status, 'cancelled', 'the last one out cancels it');
+});
+
+test('a tie for the lead is shared, and the winners are listed', async () => {
+  const gp = await gameplay();
+  const store = createMatchStore(tmp('matches.json'));
+  const made = store.create(ANA, { gp, holes: 9, bag: null });
+  begin(store, gp, made.id, BEN, CAL);
+  const users = { u1: ANA, u2: BEN, u3: CAL };
+  let guard = 0;
+  while (store.get(made.id).status === 'active' && guard++ < 1500) {
+    const g = store.get(made.id);
+    const who = g.round.turn;
+    const mv = plan(gp, store.view(g, who), who);
+    store.move(users[who], made.id, mv.kind, mv.body, gp);
+  }
+  const g = store.get(made.id);
+  assert.strictEqual(g.status, 'done');
+  for (const uid of ['u1', 'u2', 'u3']) assert.strictEqual(g.cards[uid].length, 9);
+  const totals = Object.fromEntries(['u1', 'u2', 'u3'].map((u) => [u, g.cards[u].reduce((n, c) => n + c.score, 0)]));
+  const best = Math.min(...Object.values(totals));
+  const winners = Object.keys(totals).filter((u) => totals[u] === best);
+  assert.deepStrictEqual([...g.winners].sort(), winners.sort());
+  assert.strictEqual(g.winner, winners.length === 1 ? winners[0] : 'tie');
 });

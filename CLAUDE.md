@@ -128,17 +128,30 @@ that way; don't introduce React/Vite/Tailwind here.
   **server rolls** (browsers cannot hand themselves or dodge a slip; `sanitizeExecution` drops it).
 - Marebear eats the disc you just threw, once per hole, the first time you are at a triple bogey or worse and have
   not holed out. That rule lives in `applyResult` and is tested; the bear is drawn in `drawBear`.
-- **Head-to-head** (`/api/game`, `server/routes/game.js`, `server/lib/matches.js`): two signed-in players, host picks
-  9 or 18 holes in the lobby, invite by username or share the 6-letter code/link (`/game?match=CODE`). Turn by turn,
-  the player farthest from the basket throws next; a coin flip decides the first tee, then the lowest score on the
-  last hole tees first. The **server is authoritative about the result**: it re-plans and re-resolves every throw
+- **Matches** (`/api/game`, `server/routes/game.js`, `server/lib/matches.js`): two to **eight** signed-in players. The host
+  picks 9 or 18 holes, shares the 6-letter code or link (`/game?match=CODE`; naming a player also puts it in their lobby,
+  but the code is what lets anyone in), and **starts** it once at least two are seated (`POST /matches/:id/start`). Turn by
+  turn, the player farthest from the basket throws next; on a tie (everyone, on the tee) whoever has waited longest, then
+  the honor order: shuffled on hole 1, then best score on the last hole first. **Everyone sees every throw**: each move is
+  pushed to every seated player over SSE, and each browser animates the newest move whoever threw it. Leaving a match
+  that has not started takes your seat (the host leaving hands it to the next player); leaving one in play forfeits your
+  place and the rest play on, the last one standing wins. The **server is authoritative about the result**: it re-plans and re-resolves every throw
   with the same `flightmodel`/`gamecore`/`course` modules the browser uses (loaded by dynamic `import()` in
-  `loadGameplay()`), so a client cannot report a lie about where the disc landed. The meter itself is honor system:
+  `loadGameplay()`), so a client cannot report a lie about where the disc landed, and it rolls the slips. The meter itself is honor system:
   `sanitizeSettings`/`sanitizeExecution` clamp what a browser may claim, but a player can still claim perfect
   execution. Bags are snapshotted at join (ids and color only; photos stay private). Marebear applies per player.
-  Leaving is a forfeit. Live updates are SSE like the change log (keep `X-Accel-Buffering: no` and the ping).
+  Live updates are SSE like the change log (keep `X-Accel-Buffering: no` and the ping).
   Matches live in `data/matches.json` (gitignored, atomic writes, fail-soft like accounts): back it up with
-  `accounts.json`. Limits: 6 open matches per user, unjoined matches expire after 24h, finished ones are kept 14 days.
+  `accounts.json`. Limits: 6 open matches per user, unstarted matches expire after 24h, finished ones are kept 14 days.
+- **The woods are solid.** A disc is a point and a trunk stops it within 0.9 of its radius, so `woods` put a tree every
+  6-8 ft (a wall) and the tee is boxed in behind: you play down the fairway, not any way you like. Only features you
+  design (`gaps`, `shrubs`, low guard trees) are ways through. A tree you hit is out of the way of your next throw (the
+  lie remembers it as `t`), so nobody is stuck. `test/gamecore.test.js` throws every way off the tee and checks the
+  woods stop nearly all of it.
+- **Marebear heckles** (`public/js/trash.js`): the game talking, not a chat. `eventFor` turns a throw into an event (shank,
+  splash, tree, grip lock, ace...), `remark`/`holeRemark`/`matchRemark` pick a line (`{name}` for someone else's throw, so
+  everyone in a match hears about the others' disasters). Pure functions with the dice passed in; she never repeats the last
+  line. Keep it cheeky, not cruel, and no crew names (`test/trash.test.js` checks).
 - Modules import each other with `?v=N`: bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 

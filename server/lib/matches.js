@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Head-to-head disc golf. A match is two signed-in players, one course (nine or eighteen holes), and a turn order:
+ * Disc golf for two to eight. A match is signed-in players, one course (nine or eighteen holes), and a turn order:
  * on each hole the farthest player from the basket throws next. The server decides every throw, using the very same
  * flight model and rules the browser has (public/js), so nobody can invent a result. What it cannot know is how well
  * someone timed their meter taps: that part is the honor system, like most casual games.
@@ -18,6 +18,8 @@ const { pathToFileURL } = require('node:url');
 const { EventEmitter } = require('node:events');
 
 const LIMITS = {
+  maxPlayers: 8,
+  minPlayers: 2,
   openMatchesPerUser: 6, // waiting + active
   maxMatches: 3000,
   discsInBag: 40,
@@ -64,39 +66,44 @@ function snapshot(gp, bag) {
 /* ---------- playing a hole ---------- */
 
 const freshRound = (hole, eaten) => ({ lie: { x: hole.tee.x, y: hole.tee.y }, strokes: 0, throws: [], eaten: [...eaten], bearCame: false, done: false, holed: false });
+const inPlay = (m) => m.players.filter((p) => !p.left);
 
 function startHole(gp, m) {
   const hole = gp.hole(gp.G.HOLES[m.holeIdx].id);
+  const players = inPlay(m);
   const rounds = {};
-  for (const p of m.players) {
+  for (const p of players) {
     rounds[p.uid] = freshRound(hole, m.eaten[p.uid] || []);
     if (!p.discs.some((d) => !rounds[p.uid].eaten.includes(d.id))) rounds[p.uid].done = true; // Marebear ate the whole bag
   }
-  // the first hole's order is a coin flip; after that, the best score on the last hole throws first
-  let first;
+  // the honor: the first hole's order is a shuffle; after that, the best score on the last hole tees off first, and a tie
+  // keeps the order it had
+  let order;
   if (m.holeIdx === 0) {
-    first = m.players[crypto.randomInt(2)].uid;
+    order = players.map((p) => p.uid);
+    for (let i = order.length - 1; i > 0; i--) { const j = crypto.randomInt(i + 1); [order[i], order[j]] = [order[j], order[i]]; }
   } else {
-    const last = m.cards;
-    const [a, b] = m.players;
-    const sa = last[a.uid].at(-1).score;
-    const sb = last[b.uid].at(-1).score;
-    first = sa < sb ? a.uid : sb < sa ? b.uid : m.round.startUid === a.uid ? b.uid : a.uid; // a tie hands the honor over
+    const score = (uid) => m.cards[uid].at(-1).score;
+    order = (m.round.order || []).filter((uid) => rounds[uid]).sort((x, y) => score(x) - score(y));
+    for (const p of players) if (!order.includes(p.uid)) order.push(p.uid);
   }
-  m.round = { holeId: hole.id, rounds, trails: Object.fromEntries(m.players.map((p) => [p.uid, []])), startUid: first, lastThrower: null, turn: null };
+  m.round = { holeId: hole.id, rounds, trails: Object.fromEntries(players.map((p) => [p.uid, []])), order, lastSeq: {}, turn: null };
   chooseTurn(gp, m);
 }
 
-// The farthest player from the basket throws next. A tie goes to whoever did not throw last (or the honor, at the start).
+// The farthest player from the basket throws next. When some are as far as each other (everyone, on the tee), it goes to
+// whoever has waited longest since their last throw, and then to the honor order.
 function chooseTurn(gp, m) {
   const hole = gp.hole(m.round.holeId);
-  const live = m.players.filter((p) => !m.round.rounds[p.uid].done);
+  const live = inPlay(m).filter((p) => !m.round.rounds[p.uid].done);
   if (!live.length) { m.round.turn = null; return; }
   if (live.length === 1) { m.round.turn = live[0].uid; return; }
   const dist = (p) => gp.G.distance(m.round.rounds[p.uid].lie, hole.basket);
-  const [far, near] = [...live].sort((a, b) => dist(b) - dist(a));
-  if (dist(far) - dist(near) > 0.5) { m.round.turn = far.uid; return; }
-  m.round.turn = m.round.lastThrower === null ? m.round.startUid : live.find((p) => p.uid !== m.round.lastThrower).uid;
+  const far = Math.max(...live.map(dist));
+  const tied = live.filter((p) => far - dist(p) <= 0.5);
+  const waited = (p) => m.round.lastSeq[p.uid] ?? -1;
+  tied.sort((x, y) => waited(x) - waited(y) || m.round.order.indexOf(x.uid) - m.round.order.indexOf(y.uid));
+  m.round.turn = tied[0].uid;
 }
 
 function discFor(m, uid, discId) {
@@ -133,8 +140,8 @@ function record(gp, m, uid, disc, result, extra) {
   const trail = m.round.trails[uid];
   trail.push({ pts: trailOf(result), kind: result.kind, n: r.throws.length });
   if (trail.length > LIMITS.trailsPerHole) trail.shift();
-  m.round.lastThrower = uid;
   m.seq += 1;
+  m.round.lastSeq[uid] = m.seq;
 
   const last = {
     seq: m.seq,
@@ -168,11 +175,11 @@ function record(gp, m, uid, disc, result, extra) {
   return last;
 }
 
-// Put the hole just played on both cards.
+// Put the hole just played on everyone's card.
 function cardHole(gp, m) {
   const hole = gp.hole(m.round.holeId);
   const results = [];
-  for (const p of m.players) {
+  for (const p of inPlay(m)) {
     const r = m.round.rounds[p.uid];
     const score = gp.G.holeScore(r.strokes, hole.par, r.holed);
     m.cards[p.uid].push({ hole: hole.id, par: hole.par, strokes: r.strokes, score, holed: r.holed });
@@ -182,20 +189,26 @@ function cardHole(gp, m) {
   return { holeId: hole.id, par: hole.par, results };
 }
 
+const totalOf = (m, uid) => m.cards[uid].reduce((n, c) => n + c.score, 0);
+
 function finishMatch(m) {
-  const totals = m.players.map((p) => m.cards[p.uid].reduce((n, c) => n + c.score, 0));
+  const ps = inPlay(m);
+  const best = Math.min(...ps.map((p) => totalOf(m, p.uid)));
+  const winners = ps.filter((p) => totalOf(m, p.uid) === best).map((p) => p.uid);
   m.status = 'done';
   m.endedBy = 'finished';
-  m.winner = totals[0] === totals[1] ? 'tie' : totals[0] < totals[1] ? m.players[0].uid : m.players[1].uid;
+  m.winners = winners;
+  m.winner = winners.length === 1 ? winners[0] : 'tie';
   m.round.turn = null;
 }
 
 // Everyone is done with this hole: card it, then on to the next (or the end). A hole nobody has a disc left to play is
-// carded as the worst a hole can be, and skipped.
-function endHole(gp, m) {
+// carded as the worst a hole can be, and skipped. `announce` puts the hole's results on the last move (a player leaving
+// is not a move, so then there is nothing to hang them on).
+function endHole(gp, m, announce = true) {
   const done = cardHole(gp, m);
   const finished = m.holeIdx >= m.holes - 1;
-  m.last.holeEnd = { ...done, matchDone: finished };
+  if (announce && m.last) m.last.holeEnd = { ...done, matchDone: finished };
   for (;;) {
     if (m.holeIdx >= m.holes - 1) { finishMatch(m); return; }
     m.holeIdx += 1;
@@ -308,7 +321,7 @@ function createMatchStore(file, { now = () => Date.now() } = {}) {
     return out === undefined ? draft : out;
   }
 
-  const open = (uid) => db.matches.filter((m) => ['waiting', 'active'].includes(m.status) && isMember(m, uid));
+  const open = (uid) => db.matches.filter((m) => ['waiting', 'active'].includes(m.status) && m.players.some((p) => p.uid === uid && !p.left));
 
   // what one player is allowed to see (photos and other private things are not in a match at all)
   function view(m, uid) {
@@ -319,13 +332,16 @@ function createMatchStore(file, { now = () => Date.now() } = {}) {
       holeIdx: m.holeIdx,
       invite: m.invite,
       you: uid,
-      players: m.players.map((p) => ({ uid: p.uid, name: p.name, discs: p.discs })),
+      host: m.players[0].uid,
+      maxPlayers: LIMITS.maxPlayers,
+      players: m.players.map((p) => ({ uid: p.uid, name: p.name, discs: p.discs, left: !!p.left })),
       cards: m.cards,
       round: m.round ? { holeId: m.round.holeId, turn: m.round.turn, rounds: m.round.rounds, trails: m.round.trails } : null,
       eaten: m.eaten,
       seq: m.seq,
       last: m.last,
       winner: m.winner,
+      winners: m.winners || (m.winner && m.winner !== 'tie' ? [m.winner] : []),
       endedBy: m.endedBy,
       updatedAt: m.updatedAt,
     };
@@ -345,17 +361,20 @@ function createMatchStore(file, { now = () => Date.now() } = {}) {
         .slice(0, 30)
         .map((m) => {
           const me = m.players.find((p) => p.uid === user.id);
-          const other = m.players.find((p) => p.uid !== user.id);
+          const others = m.players.filter((p) => p.uid !== user.id && !p.left).map((p) => p.name);
+          const winners = m.winners || (m.winner && m.winner !== 'tie' ? [m.winner] : []);
           return {
             id: m.id,
             status: m.status,
             holes: m.holes,
             holeIdx: m.holeIdx,
-            opponent: other ? other.name : null,
+            others,
+            players: m.players.length,
             invitedYou: !me && m.status === 'waiting',
             host: m.players[0].name,
-            yourTurn: !!me && m.status === 'active' && m.round.turn === user.id,
-            won: m.status === 'done' ? (m.winner === 'tie' ? null : m.winner === user.id) : undefined,
+            yourTurn: !!me && !me.left && m.status === 'active' && m.round.turn === user.id,
+            left: !!me?.left,
+            won: m.status === 'done' ? (winners.length === 1 ? winners[0] === user.id : winners.includes(user.id) ? null : false) : undefined,
             updatedAt: m.updatedAt,
           };
         });
@@ -402,12 +421,24 @@ function createMatchStore(file, { now = () => Date.now() } = {}) {
       if (!m) throw new MatchError('No match with that code.', 404);
       if (isMember(m, user.id)) return view(m, user.id); // already in: just open it
       if (m.status !== 'waiting') throw new MatchError('That match has already started.', 409);
-      if (m.invite && m.invite !== user.name.toLowerCase()) throw new MatchError('That match is reserved for someone else.', 403);
+      if (m.players.length >= LIMITS.maxPlayers) throw new MatchError(`That match is full: ${LIMITS.maxPlayers} players.`, 409);
       if (open(user.id).length >= LIMITS.openMatchesPerUser) throw new MatchError(`You already have ${LIMITS.openMatchesPerUser} matches going. Finish or leave one first.`, 409);
       return view(change(id, (d) => {
         d.players.push({ uid: user.id, name: user.name, discs: snapshot(gp, bag) });
         d.cards[user.id] = [];
         d.eaten[user.id] = [];
+        d.seq += 1;
+      }), user.id);
+    },
+
+    // the host starts it once at least two are seated
+    start(user, id, { gp }) {
+      const m = find(id);
+      if (!m || !isMember(m, user.id)) throw new MatchError('No such match.', 404);
+      if (m.status !== 'waiting') return view(m, user.id);
+      if (m.players[0].uid !== user.id) throw new MatchError('Only the host can start the match.', 403);
+      if (m.players.length < LIMITS.minPlayers) throw new MatchError('Wait for at least one more player.', 409);
+      return view(change(id, (d) => {
         d.status = 'active';
         d.seq += 1;
         startHole(gp, d);
@@ -423,18 +454,35 @@ function createMatchStore(file, { now = () => Date.now() } = {}) {
       return { match: view(next, user.id), last };
     },
 
-    leave(user, id) {
+    // Leaving a match nobody has started takes you out of it (the host leaving hands it to the next player, or cancels it
+    // if you were alone). Leaving one in play forfeits your place: the rest play on, and if one player is left they win.
+    leave(user, id, gp) {
       const m = find(id);
       if (!m || !isMember(m, user.id)) throw new MatchError('No such match.', 404);
-      if (['done', 'cancelled'].includes(m.status)) return view(m, user.id);
+      if (['done', 'cancelled'].includes(m.status) || m.players.find((p) => p.uid === user.id).left) return view(m, user.id);
       return view(change(id, (d) => {
         if (d.status === 'waiting') {
-          d.status = 'cancelled';
+          if (d.players.length === 1) {
+            d.status = 'cancelled';
+          } else {
+            d.players = d.players.filter((p) => p.uid !== user.id);
+            delete d.cards[user.id];
+            delete d.eaten[user.id];
+          }
         } else {
-          d.status = 'done';
-          d.endedBy = 'forfeit';
-          d.winner = d.players.find((p) => p.uid !== user.id).uid;
-          if (d.round) d.round.turn = null;
+          d.players.find((p) => p.uid === user.id).left = true;
+          if (d.round && d.round.rounds[user.id]) d.round.rounds[user.id].done = true;
+          const rest = inPlay(d);
+          if (rest.length < 2) {
+            d.status = 'done';
+            d.endedBy = 'forfeit';
+            d.winner = rest[0] ? rest[0].uid : 'tie';
+            d.winners = rest.map((p) => p.uid);
+            if (d.round) d.round.turn = null;
+          } else if (d.round) {
+            chooseTurn(gp, d);
+            if (!d.round.turn) endHole(gp, d, false);
+          }
         }
         d.seq += 1;
       }), user.id);

@@ -134,6 +134,17 @@ export function routeLeft(hole, x, y) {
   return hole.route.len - near.s + Math.max(0, near.d - near.hw);
 }
 
+// The point on the route `feet` further along than where you are: where a careful player aims.
+export function routeAhead(hole, x, y, feet) {
+  const near = nearestOnRoute(hole.route, x, y);
+  const target = Math.min(hole.route.len, near.s + feet);
+  const { pts, s } = hole.route;
+  let i = 1;
+  while (i < pts.length - 1 && s[i] < target) i++;
+  const f = (target - s[i - 1]) / (s[i] - s[i - 1] || 1);
+  return { x: pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * f, y: pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * f };
+}
+
 /* ---------- building a hole from a description ---------- */
 
 /**
@@ -146,7 +157,7 @@ export function routeLeft(hole, x, y) {
  *   creeks: { s, w, gap }  water straight across, with an optional dry ford [o0, o1]           oob: { s0, s1, o0, o1 }
  */
 function build(spec) {
-  const { id, name, note, par, path, wind, woods = [], trees: explicit = [], shrubs = [], groves = [], walls = [], rows = [], ponds = [], creeks = [], oob = [], backstop = true, front = 0, padBottom = 60, seed = id * 131 } = spec;
+  const { id, name, note, par, path, wind, woods = [], trees: explicit = [], shrubs = [], groves = [], walls = [], rows = [], ponds = [], creeks = [], oob = [], backstop = true, teeWall = true, front = 0, padBottom = 60, seed = id * 131 } = spec;
   const rnd = seeded(seed);
   const line = smooth(path);
   const route = { pts: line, s: [0] };
@@ -187,12 +198,13 @@ function build(spec) {
 
   // the woods along the edges
   for (const w of woods) {
-    const { side, from = 26, to = L - 16, d = 7, rows = 1, dense = 0.7, gaps = [], h = [48, 66] } = w;
-    const space = 36 - 24 * dense;
-    for (let sAt = from; sAt <= to; sAt += space * (0.8 + rnd() * 0.4)) {
+    const { side, from = -20, to = L - 10, d = 7, rows = 1, dense = 0.7, gaps = [], h = [48, 66] } = w;
+    // a tree every 6 to 8 feet is a wall: a disc is a point, and a trunk stops it within 0.9 of its radius (4.4 and up here)
+    const space = 8.5 - 3 * dense;
+    for (let sAt = from; sAt <= to; sAt += space * (0.92 + rnd() * 0.16)) {
       if (gaps.some(([a, b]) => sAt >= a && sAt <= b)) continue;
       const f = frame(sAt);
-      for (let k = 0; k < rows; k++) treeAt(sAt + rnd() * 8 + k * 5, side * (f.hw + d + k * 11 + rnd() * 8), undefined, h[0] + rnd() * (h[1] - h[0]));
+      for (let k = 0; k < rows; k++) treeAt(sAt + rnd() * 3 + k * 4, side * (f.hw + d + k * 10 + rnd() * 5), 4.4 + rnd() * 1.3, h[0] + rnd() * (h[1] - h[0]));
     }
   }
   for (const [sAt, o, r, h] of explicit) treeAt(sAt, o, r, h);
@@ -216,6 +228,8 @@ function build(spec) {
     const { s0, s1, o, h = [56, 74], gap = 5.2 } = r; // a disc is a point and a trunk stops it within 3/4 of its radius, so a solid row is a tree every 5 feet
     for (let sAt = s0; sAt <= s1; sAt += gap + rnd() * 0.5) treeAt(sAt, o + rnd() * 4 - 2, 4 + rnd() * 1.5, h[0] + rnd() * (h[1] - h[0]));
   }
+  // the tee is boxed in behind: you play down the hole, not out of the back of the tee
+  if (teeWall) for (let o = -(path[0][2] + 26); o <= path[0][2] + 26; o += 5.2 + rnd() * 0.4) treeAt(-26, o, 4.4 + rnd() * 1.3, 56 + rnd() * 16);
   // a backstop behind the basket, and shrubs and trees in front of it
   if (backstop) for (let k = -3; k <= 3; k++) { const f = frame(L + 14 + Math.abs(k) * 2 + rnd() * 8, k * 14 + rnd() * 6); tree(f.x + end.tx * 14, f.y + end.ty * 14, 4.2 + rnd(), 58); }
   for (let k = 0; k < front; k++) { const side = rnd() < 0.5 ? -1 : 1; treeAt(L - 22 - rnd() * 24, side * (13 + rnd() * 12), 2.7 + rnd() * 0.4, 8 + rnd() * 2); }
@@ -284,7 +298,7 @@ const HOLE_SPECS = [
     woods: [{ side: -1, dense: 0.4 }, { side: 1, dense: 0.4 }], ponds: [{ s: 170, o: -30, rx: 48, ry: 46 }], front: 2 },
   // 6: wide open prairie running northeast into a headwind, with groves to play around
   { id: 6, note: "Open prairie into the wind. Plan around the groves and keep the disc low.", name: 'Prairie', par: 4, path: trail(48, 50, [[220, -8, 50], [225, 10, 44]]), wind: { mph: 14, from: 45 },
-    woods: [], groves: [{ s: 120, o: -34, n: 6, spread: 20 }, { s: 250, o: 26, n: 7, spread: 24 }, { s: 350, o: -22, n: 5, spread: 16 }], trees: [[190, 0, 5.6, 78]] },
+    woods: [{ side: -1, d: 22, dense: 0.5 }, { side: 1, d: 22, dense: 0.5 }], groves: [{ s: 120, o: -34, n: 6, spread: 20 }, { s: 250, o: 26, n: 7, spread: 24 }, { s: 350, o: -22, n: 5, spread: 16 }], trees: [[190, 0, 5.6, 78]] },
   // 7: a cliff down the right: miss that way and it is out of bounds
   { id: 7, note: "The cliff is on your right: anything out there is out of bounds. Play left of the line.", name: 'Cliffside', par: 4, path: trail(5, 32, [[200, -6, 30], [205, -10, 28]]), wind: { mph: 9, from: 270 },
     woods: [{ side: -1, dense: 0.85, rows: 2 }], oob: [{ s0: 40, s1: 420, o0: 46, o1: 170 }], shrubs: [[240, 36]], trees: [[260, -8, 4.4, 62]] },

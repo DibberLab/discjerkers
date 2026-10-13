@@ -4,13 +4,15 @@
 
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
-import { HOLES, holeById, holesFor } from './course.js?v=4';
-import * as G from './gamecore.js?v=14';
+import { HOLES, holeById, holesFor } from './course.js?v=5';
+import * as G from './gamecore.js?v=15';
+import * as T from './trash.js?v=1';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const nf = new Intl.NumberFormat('en-US');
-const OPP_COLOR = '#38c8e8';
+const OPP_COLORS = ['#38c8e8', '#f0a030', '#c07cf0', '#f06292', '#5ad0a0', '#e8d84a', '#8aa4ff']; // one for each of up to seven other players
+const hexRgba = (hex, a) => `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${a})`;
 const ft = (n) => `${nf.format(Math.round(n))} ft`;
 
 /* ---------- the clock ---------- */
@@ -71,9 +73,11 @@ const S = {
   hole: HOLES[0],
   round: null,
   mode: 'menu', // menu | solo | lobby | match
-  mp: null, // the head-to-head match being played: { id, view, me, es, shownSeq, queue, ... }
-  opp: null, // the other player's lie on this hole: { name, lie, strokes, done, holed }
-  oppTrail: [],
+  mp: null, // the match being played (two to eight players): { id, view, me, es, shownSeq, queue, ... }
+  others: [], // the other players on this hole, as I see them: [{ uid, name, color, lie, strokes, done, holed, trail }]
+  quip: '', // Marebear's latest remark
+  lastQuip: '',
+  boardOpen: null, // the scoreboard in a match: open or folded (null: open for a small group)
   lobby: { matches: [], msg: '', holes: 18, invite: '', code: '', busy: false },
   course: null, // the round being played: { length, holes, idx, card, eaten }
   phase: 'loading', // menu | lobby | pick | power | spin | angle | release | putt | flight | result | bear | done | summary | mwait | mturn | mhole | mdone
@@ -132,6 +136,7 @@ function suggest() {
 
 // a new hole: a fresh round of it, with the discs Marebear has already eaten staying eaten
 function startHole() {
+  S.quip = '';
   S.round = G.newRound(S.hole);
   S.round.eaten = [...(S.course?.eaten || [])];
   S.trail = [];
@@ -231,6 +236,13 @@ function settingsBlock() {
 const tipSeen = () => { try { return localStorage.getItem('dj_game_tip') === '1'; } catch { return false; } };
 const tipHtml = () => (tipSeen() ? '' : `<div class="gm-tip"><p><b>How to play:</b> pick a disc, choose forehand or backhand, and aim (drag on the hole). Then <b>Throw</b> and tap four times: where you stop the power, spin and angle bars is your arm speed, your spin and your hyzer; the last tap is the release. A slow arm can grip lock or let go early, so watch the slip percentage. Trees stop low throws, water costs a stroke, and a triple bogey draws Marebear.</p><button type="button" data-tip-close aria-label="Got it">×</button></div>`);
 
+// Marebear's remark, in a card of its own under whatever it is about
+function say(text) {
+  S.quip = text || '';
+  if (text) S.lastQuip = text;
+}
+const quipHtml = () => (S.quip ? `<p class="gm-quip">“${esc(S.quip)}”<small>Marebear</small></p>` : '');
+
 function panelPick() {
   const d = curDisc();
   if (!d) return panelNoDiscs();
@@ -239,7 +251,7 @@ function panelPick() {
   const dist = toBasket();
   const strokes = S.round.strokes;
   const caddy = S.round.strokes === 0 && S.hole.note ? `<p class="gm-caddy"><b>${esc(S.hole.name)}.</b> ${esc(S.hole.note)}</p>` : '';
-  return `${roundBar()}${caddy}${S.mode === 'match' ? boardHtml() : tipHtml()}${bagBar()}
+  return `${roundBar()}${caddy || quipHtml()}${S.mode === 'match' ? boardHtml() : tipHtml()}${bagBar()}
     <div class="gm-block">
       <p class="gm-h">Your disc <span>· ${available().length} left in the bag</span></p>
       ${discRow()}
@@ -264,7 +276,7 @@ function panelMenu() {
         <button class="btn" type="button" data-solo="9">Front 9<small>par ${parTotal(HOLES.slice(0, 9))}</small></button>
         <button class="btn" type="button" data-solo="18">Full 18<small>par ${parTotal(HOLES)}</small></button>
       </div>
-      <button class="btn btn--ghost" type="button" data-versus>Play a friend <small>head to head, turn by turn</small></button>
+      <button class="btn btn--ghost" type="button" data-versus>Play with friends <small>up to 8 players, turn by turn</small></button>
       <div class="gm-row">
         <label class="gm-practice"><span class="fg-wind__l">Practice a hole</span><select data-practice aria-label="Which hole">${options}</select></label>
         <button class="chip" type="button" data-solo="1">Play it</button>
@@ -276,8 +288,9 @@ function panelMenu() {
 function roundBar() {
   if (S.mode === 'match' && S.mp) {
     const v = S.mp.view;
-    const opp = v.players.find((p) => p.uid !== S.mp.me);
-    return `<div class="gm-roundbar"><span>${opp ? `vs <b>${esc(opp.name)}</b>` : 'Match'} · hole <b>${v.holeIdx + 1}</b> of ${v.holes}</span><button class="chip" type="button" data-mp-leave>Forfeit</button></div>`;
+    const others = v.players.filter((p) => p.uid !== S.mp.me && !p.left);
+    const who = others.length === 1 ? `vs <b>${esc(others[0].name)}</b>` : others.length ? `<b>${others.length + 1}</b> players` : 'Match';
+    return `<div class="gm-roundbar"><span>${who} · hole <b>${v.holeIdx + 1}</b> of ${v.holes}</span><button class="chip" type="button" data-mp-leave>Forfeit</button></div>`;
   }
   const c = S.course;
   if (!c) return '';
@@ -388,6 +401,7 @@ function panelResult() {
   return `<div class="gm-card">
       <h2 class="${c.tone === 'good' ? 'is-good' : c.tone === 'bad' ? 'is-bad' : ''}">${c.h}</h2>
       <p>${where}${c.p}</p>
+      ${quipHtml()}
       ${ex ? `<p>${ex.slip ? esc(ex.grade) : `${esc(ex.grade)} throw`}: ${describeExecution(ex)}</p>` : ''}
       <button class="btn" type="button" data-next>Next throw</button>
     </div>`;
@@ -395,8 +409,8 @@ function panelResult() {
 
 function panelBear() {
   const disc = DISCS.get(S.bear.discId);
-  if (S.bear.owner === 'opp') {
-    const name = S.mp?.view.players.find((p) => p.uid !== S.mp.me)?.name || 'They';
+  if (S.bear.owner !== 'me') {
+    const name = S.mp?.view.players.find((p) => p.uid === S.bear.owner)?.name || 'They';
     return `<div class="gm-card"><h2 class="is-bad">Marebear!</h2><p>${esc(name)} is at a triple bogey, and Marebear smelled it. She is eating their ${esc(splitName(disc.name))}.</p></div>`;
   }
   return `<div class="gm-card"><h2 class="is-bad">Marebear!</h2><p>Triple bogey, and Marebear smelled it. She is eating your ${esc(splitName(disc.name))}.</p></div>`;
@@ -418,6 +432,7 @@ function panelDone() {
   const par = c.card.reduce((n, h) => n + h.par, 0);
   return `<div class="gm-card">
       <h2 class="${r.holed && diff <= 0 ? 'is-good' : 'is-bad'}">${name}</h2>
+      ${quipHtml()}
       <div class="gm-score"><div><b>${r.holed ? r.strokes : entry.score}</b><span>${r.holed ? 'Strokes' : 'Scored'}</span></div><div><b>${S.hole.par}</b><span>Par</span></div><div><b>${vsPar(entry.score - S.hole.par)}</b><span>To par</span></div></div>
       ${c.length > 1 ? `<p>Round so far: <b>${total}</b> (${vsPar(total - par)}) after ${c.card.length} ${c.card.length === 1 ? 'hole' : 'holes'}.</p>` : (S.best ? `<p>Best on this hole: <b>${S.best}</b></p>` : '')}
       <ol class="gm-log">${log}</ol>
@@ -469,9 +484,10 @@ function updateHud() {
   const c = S.course;
   if (S.mode === 'match' && S.mp && S.mp.view.round) {
     const v = S.mp.view;
-    const opp = v.players.find((p) => p.uid !== S.mp.me);
-    const turn = v.status !== 'active' ? '' : v.round.turn === S.mp.me ? 'Your throw' : `${esc(opp.name)}'s throw`;
-    $('#gm-hud').innerHTML = `<span>Hole ${v.holeIdx + 1}/${v.holes} · ${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}</small><span>You <b>${r.strokes}</b> · ${esc(opp.name)} <b>${S.opp ? S.opp.strokes : 0}</b></span><small>${turn}${turn ? ' · ' : ''}${ft(G.distance(r.lie, h.basket))} to the basket</small>`;
+    const up = v.players.find((p) => p.uid === v.round.turn);
+    const turn = v.status !== 'active' || !up ? '' : up.uid === S.mp.me ? 'Your throw' : `${esc(up.name)}'s throw`;
+    const rivals = S.others.length === 1 ? ` · ${esc(S.others[0].name)} <b>${S.others[0].strokes}</b>` : '';
+    $('#gm-hud').innerHTML = `<span>Hole ${v.holeIdx + 1}/${v.holes} · ${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}</small><span>You <b>${r.strokes}</b>${rivals}</span><small>${turn}${turn ? ' · ' : ''}${ft(G.distance(r.lie, h.basket))} to the basket</small>`;
   } else if (!c && S.phase === 'menu' && h.id !== HOLES[0].id) { // the menu is previewing the hole picked for practice
     $('#gm-hud').innerHTML = `<span>${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}</small>`;
   } else if (!c) {
@@ -584,6 +600,7 @@ function finishThrow() {
   if (S.mode === 'match') { finishMove(); return; }
   const { result, disc, from } = S.last;
   const out = G.applyResult(S.round, disc, result);
+  say(T.remark(T.eventFor({ kind: result.kind, putt: !result.plan, made: result.made, gimme: result.gimme, ex: S.last.ex, strokes: S.round.strokes, dist: result.dist, surface: result.surface }), { who: 'me' }, Math.random, S.lastQuip));
   S.trail.push({ pts: [...result.pts ?? [], ...(result.roll ?? [])], kind: result.kind, n: S.round.throws.length, from });
   const at = result.end ?? result.lie;
   if (result.kind === 'water' || result.kind === 'oob') S.fx.push({ type: 'splash', x: at.x, y: at.y, t0: now() });
@@ -611,6 +628,7 @@ function finishHole() {
   c.card.push({ id: S.hole.id, par: S.hole.par, strokes: r.strokes, score: G.holeScore(r.strokes, S.hole.par, r.holed), holed: r.holed });
   c.eaten = [...r.eaten];
   if (r.holed) toast(G.scoreName(r.strokes, S.hole.par), r.strokes <= S.hole.par ? 'good' : 'bad', 2400);
+  say(T.holeRemark(r.strokes, S.hole.par, r.holed, Math.random, S.lastQuip));
   setPhase('done');
   retarget(false);
 }
@@ -690,7 +708,7 @@ function resize() {
 // frame the lie and the basket, with room to see where the throw goes
 function retarget(snap, extra = []) {
   if (!S.round) return;
-  const lie = S.mode === 'match' && S.phase === 'mturn' && S.opp ? S.opp.lie : lieOf();
+  const lie = S.mode === 'match' && S.phase === 'mturn' && upNow() ? upNow().lie : lieOf();
   const b = S.hole.basket;
   const putting = inPutt();
   const pts = [lie, b, ...extra.filter((_, i) => i % 6 === 0)];
@@ -978,8 +996,8 @@ function drawDisc(wx, wy, h, discId, size = 1, owner = 'me') {
 
 function discLook(id, owner = 'me') {
   const d = DISCS.get(id);
-  if (owner === 'opp' && S.mp) {
-    const them = S.mp.view.players.find((p) => p.uid !== S.mp.me);
+  if (owner !== 'me' && S.mp) {
+    const them = S.mp.view.players.find((p) => p.uid === owner);
     return { color: them?.discs.find((x) => x.id === id)?.color || gradeColor(d.col), photo: '' };
   }
   const it = itemOf(id);
@@ -998,44 +1016,45 @@ function drawLie(t) {
   drawDisc(lie.x, lie.y, 0, S.discId);
 }
 
-// the other player: their earlier throws in blue, and a ring where their disc is now
 function drawOpp(t) {
-  if (S.mode !== 'match' || !S.opp) return;
-  S.oppTrail.forEach((tr, i) => {
-    if (tr.pts.length < 2) return;
-    poly(tr.pts.map((p) => [p.x, p.y]), false);
-    ctx.strokeStyle = tr.kind === 'water' || tr.kind === 'oob' ? 'rgba(211,84,0,0.55)' : 'rgba(56,200,232,0.45)';
-    ctx.setLineDash([4, 5]);
+  if (S.mode !== 'match') return;
+  for (const o of S.others) {
+    o.trail.forEach((tr, i) => {
+      if (tr.pts.length < 2) return;
+      poly(tr.pts.map((p) => [p.x, p.y]), false);
+      ctx.strokeStyle = tr.kind === 'water' || tr.kind === 'oob' ? 'rgba(211,84,0,0.55)' : hexRgba(o.color, 0.45);
+      ctx.setLineDash([4, 5]);
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const e = tr.pts.at(-1);
+      const [x, y] = P(e.x, e.y);
+      ctx.beginPath();
+      ctx.arc(x, y, 7, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(8,16,12,0.82)';
+      ctx.fill();
+      ctx.fillStyle = o.color;
+      ctx.font = '700 9px "Space Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(i + 1), x, y + 0.5);
+    });
+    if (o.done || S.anim) continue;
+    const [x, y] = P(o.lie.x, o.lie.y);
+    ctx.beginPath();
+    ctx.arc(x, y, 13 + Math.sin(t / 300 + 1) * 1.5, 0, Math.PI * 2);
+    ctx.strokeStyle = o.color;
     ctx.lineWidth = 2;
     ctx.stroke();
-    ctx.setLineDash([]);
-    const e = tr.pts.at(-1);
-    const [x, y] = P(e.x, e.y);
     ctx.beginPath();
-    ctx.arc(x, y, 7, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(8,30,40,0.8)';
+    ctx.arc(x, y, 5, 0, Math.PI * 2);
+    ctx.fillStyle = o.color;
     ctx.fill();
-    ctx.fillStyle = OPP_COLOR;
-    ctx.font = '700 9px "Space Mono", monospace';
+    ctx.fillStyle = '#eef1e8';
+    ctx.font = '700 10px "Space Mono", monospace';
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(String(i + 1), x, y + 0.5);
-  });
-  if (S.opp.done || S.anim) return;
-  const [x, y] = P(S.opp.lie.x, S.opp.lie.y);
-  ctx.beginPath();
-  ctx.arc(x, y, 13 + Math.sin(t / 300 + 1) * 1.5, 0, Math.PI * 2);
-  ctx.strokeStyle = OPP_COLOR;
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(x, y, 5, 0, Math.PI * 2);
-  ctx.fillStyle = OPP_COLOR;
-  ctx.fill();
-  ctx.fillStyle = '#eef1e8';
-  ctx.font = '700 10px "Space Mono", monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText(S.opp.name.slice(0, 10), x, y - 20);
+    ctx.fillText(o.name.slice(0, 10), x, y - 20);
+  }
 }
 
 function drawFx(t) {
@@ -1200,7 +1219,7 @@ function drawFlight(t) {
     poly([a.pts.at(-1), ...a.roll.slice(0, ri + 1)].map((q) => [q.x, q.y]), false);
     ctx.stroke();
   }
-  drawDisc(shown.x, shown.y, p >= 1 ? 0 : pos.h, S.last.disc.id, 1, S.last.who === 'opp' ? 'opp' : 'me');
+  drawDisc(shown.x, shown.y, p >= 1 ? 0 : pos.h, S.last.disc.id, 1, S.last.who);
   const doneAt = a.dur + (a.roll.length ? 500 : 0) + 250;
   if (t - a.t0 >= doneAt) finishThrow();
 }
@@ -1400,12 +1419,17 @@ function onPanelClick(e) {
     drainQueue();
   } else if (t.closest('[data-mp-rematch]')) {
     mpRematch();
+  } else if (t.closest('[data-mp-start]')) {
+    mpStart();
+  } else if (t.closest('[data-board-toggle]')) {
+    S.boardOpen = !boardOpen(S.mp.view);
+    renderPanel();
   } else if (t.closest('[data-mp-leave]')) {
     const btn = t.closest('[data-mp-leave]');
     if (btn.dataset.armed) { mpLeave(); return; }
     btn.dataset.armed = '1'; // two taps: leaving forfeits
-    btn.textContent = S.mp.view.status === 'waiting' ? 'Really cancel?' : 'Really forfeit?';
-    setTimeout(() => { if (btn.isConnected) { delete btn.dataset.armed; btn.textContent = S.mp.view.status === 'waiting' ? 'Cancel the match' : 'Forfeit'; } }, 3000);
+    btn.textContent = S.mp.view.status === 'waiting' ? 'Really leave?' : 'Really forfeit?';
+    setTimeout(() => { if (btn.isConnected) { delete btn.dataset.armed; btn.textContent = S.mp.view.status === 'waiting' ? (S.mp.view.players.length === 1 ? 'Cancel the match' : 'Leave the match') : 'Forfeit'; } }, 3000);
   } else if (t.closest('[data-solo]')) {
     const length = Number(t.closest('[data-solo]').dataset.solo);
     startSolo(length, length === 1 ? Number($('[data-practice]', panel())?.value) || 1 : undefined);
@@ -1490,15 +1514,17 @@ async function gapi(path, { method = 'GET', body } = {}) {
   return data;
 }
 
-const oppPlayer = (view = S.mp.view) => view.players.find((p) => p.uid !== S.mp.me) || null;
+const playerOf = (uid, view = S.mp.view) => view.players.find((p) => p.uid === uid) || null;
+const upNow = () => (S.mp?.view.round ? S.others.find((o) => o.uid === S.mp.view.round.turn) || null : null); // the other player whose throw it is
+const myself = (view = S.mp.view) => playerOf(S.mp.me, view);
 const mpBusy = () => !!S.anim || S.phase === 'bear' || S.phase === 'mhole' || !!S.mp?.sending;
 
 // back to a bare stage (the menu and the lobby share it)
 function resetStage() {
   closeStream();
+  S.quip = '';
   S.mp = null;
-  S.opp = null;
-  S.oppTrail = [];
+  S.others = [];
   S.course = null;
   S.hole = HOLES[0];
   S.round = G.newRound(S.hole);
@@ -1539,11 +1565,12 @@ async function refreshLobby() {
 }
 
 const matchLine = (m) => {
-  const who = m.invitedYou ? `${esc(m.host)} challenged you` : m.opponent ? `vs ${esc(m.opponent)}` : 'Waiting for a player';
-  const state = m.status === 'waiting' ? (m.invitedYou ? 'your invitation' : 'waiting')
-    : m.status === 'active' ? (m.yourTurn ? '<b>your throw</b>' : 'their throw')
-      : m.status === 'cancelled' ? 'cancelled'
-        : m.won === true ? '<b>you won</b>' : m.won === false ? 'you lost' : 'a tie';
+  const who = m.invitedYou ? `${esc(m.host)} invited you` : m.others.length === 1 ? `vs ${esc(m.others[0])}` : m.others.length ? `${esc(m.others[0])} and ${m.others.length - 1} more` : 'Waiting for players';
+  const state = m.left ? 'you left'
+    : m.status === 'waiting' ? (m.invitedYou ? 'your invitation' : `waiting · ${m.players} of 8 seated`)
+      : m.status === 'active' ? (m.yourTurn ? '<b>your throw</b>' : 'in play')
+        : m.status === 'cancelled' ? 'cancelled'
+          : m.won === true ? '<b>you won</b>' : m.won === false ? 'finished' : 'you tied';
   return `<li><span>${who}<small>${m.holes} holes${m.status === 'active' ? ` · on hole ${m.holeIdx + 1}` : ''} · ${state}</small></span>${m.invitedYou
     ? `<button class="chip" type="button" data-mp-accept="${esc(m.id)}">Accept</button>`
     : `<button class="chip" type="button" data-mp-open="${esc(m.id)}">${m.status === 'active' || m.status === 'waiting' ? 'Open' : 'Look'}</button>`}</li>`;
@@ -1552,21 +1579,21 @@ const matchLine = (m) => {
 function panelLobby() {
   const L = S.lobby;
   if (!account.user) {
-    return `<div class="gm-card"><h2>Play a friend</h2><p>Head to head needs you both signed in, so the match is yours and stays yours. It takes a username and a password, nothing else.</p>
+    return `<div class="gm-card"><h2>Play with friends</h2><p>A match needs everyone signed in, so it is yours and stays yours. It takes a username and a password, nothing else.</p>
       <button class="btn" type="button" data-signin>Sign in or create an account</button>
       <button class="btn btn--ghost" type="button" data-menu>Back</button></div>`;
   }
   const mine = L.matches.length ? `<ul class="gm-matches">${L.matches.map(matchLine).join('')}</ul>` : '<p class="gm-note">Nothing yet.</p>';
   return `${bagBar()}
     <div class="gm-card">
-      <h2>Play a friend</h2>
-      <p>Turn by turn: the player farthest from the basket throws next. You each bring your own bag, and a coin flip picks who tees off.</p>
+      <h2>Play with friends</h2>
+      <p>Two to eight players, turn by turn: whoever is farthest from the basket throws next, and everyone watches every throw. You each bring your own bag. You start the match once everyone has joined.</p>
       <div class="gm-row" role="group" aria-label="Round length"><span class="fg-wind__l">Round</span>
         <div class="fg-seg"><button class="chip" type="button" data-lobby-holes="9" aria-pressed="${L.holes === 9}">Front 9</button><button class="chip" type="button" data-lobby-holes="18" aria-pressed="${L.holes === 18}">All 18</button></div>
       </div>
-      <label class="gm-field"><span class="fg-wind__l">Challenge a player (optional)</span><input data-lobby-invite value="${esc(L.invite)}" maxlength="24" placeholder="their username" autocomplete="off" autocapitalize="none" spellcheck="false"></label>
-      <button class="btn" type="button" data-mp-create${L.busy ? ' disabled' : ''}>${L.busy ? 'Starting…' : 'Start a match'}</button>
-      <p class="gm-note">Leave the name empty and you get a code and a link to send to anyone.</p>
+      <label class="gm-field"><span class="fg-wind__l">Invite a player (optional)</span><input data-lobby-invite value="${esc(L.invite)}" maxlength="24" placeholder="their username" autocomplete="off" autocapitalize="none" spellcheck="false"></label>
+      <button class="btn" type="button" data-mp-create${L.busy ? ' disabled' : ''}>${L.busy ? 'Opening…' : 'Open a match'}</button>
+      <p class="gm-note">You get a code and a link to send to anyone, up to eight players. Naming someone puts it in their lobby too.</p>
     </div>
     <div class="gm-card">
       <p class="gm-h">Join with a code</p>
@@ -1622,6 +1649,7 @@ async function mpOpen(id) {
 
 function enterMatch(view) {
   closeStream();
+  S.quip = '';
   S.mode = 'match';
   S.mp = { id: view.id, view, me: view.you, shownSeq: view.seq, queue: [], es: null, beat: Date.now(), sending: false, holeSeen: 0 };
   S.discId = null;
@@ -1656,36 +1684,33 @@ function connectStream() {
   }, 15000);
 }
 
+// the other players' colors stay with them for the whole match
+const colorOf = (uid, view) => OPP_COLORS[view.players.filter((p) => p.uid !== S.mp.me).findIndex((p) => p.uid === uid) % OPP_COLORS.length];
+
 // the whole screen from the match as the server sees it
 function applyView(view) {
   const mp = S.mp;
   const before = S.hole;
   mp.view = view;
   const me = mp.me;
-  const opp = oppPlayer(view);
   if (view.round) {
     S.hole = holeById(view.round.holeId);
-    const r = view.round.rounds[me];
+    const r = view.round.rounds[me] || { lie: { ...S.hole.tee }, strokes: 0, throws: [], eaten: [], bearCame: false, done: true, holed: false }; // someone who left has no place on this hole
     S.round = { hole: S.hole, lie: { ...r.lie }, strokes: r.strokes, throws: r.throws, eaten: [...r.eaten], bearCame: r.bearCame, done: r.done, holed: r.holed };
     const path = (tr) => tr.map((t) => ({ pts: t.pts.map(([x, y]) => ({ x, y })), kind: t.kind, n: t.n }));
     S.trail = path(view.round.trails[me] || []);
-    if (opp) {
-      const o = view.round.rounds[opp.uid];
-      S.opp = { name: opp.name, lie: { ...o.lie }, strokes: o.strokes, done: o.done, holed: o.holed };
-      S.oppTrail = path(view.round.trails[opp.uid] || []);
-    } else {
-      S.opp = null;
-      S.oppTrail = [];
-    }
+    S.others = view.players.filter((p) => p.uid !== me && !p.left && view.round.rounds[p.uid]).map((p) => {
+      const o = view.round.rounds[p.uid];
+      return { uid: p.uid, name: p.name, color: colorOf(p.uid, view), lie: { ...o.lie }, strokes: o.strokes, done: o.done, holed: o.holed, trail: path(view.round.trails[p.uid] || []) };
+    });
   } else {
     S.hole = HOLES[0];
     S.round = G.newRound(S.hole);
     S.trail = [];
-    S.opp = null;
-    S.oppTrail = [];
+    S.others = [];
   }
   S.course = { length: view.holes, holes: HOLES.slice(0, view.holes), idx: view.holeIdx, card: (view.cards[me] || []).map((c) => ({ id: c.hole, par: c.par, strokes: c.strokes, score: c.score, holed: c.holed })), eaten: view.eaten[me] || [] };
-  const mine = view.players.find((p) => p.uid === me);
+  const mine = myself(view);
   S.bag = {
     starter: false,
     discs: mine.discs.map((d) => {
@@ -1697,13 +1722,15 @@ function applyView(view) {
   S.aimOff = 0;
   setPhase(matchPhase());
   retarget(true);
+  if (before !== S.hole) S.quip = '';
+  if (matchPhase() === 'mdone' && mp.endQuip !== `${view.status}${view.seq}`) { mp.endQuip = `${view.status}${view.seq}`; say(matchEndRemark(view)); }
   if (before !== S.hole && view.round && view.holeIdx > 0) toast(`Hole ${view.holeIdx + 1}: ${S.hole.name}`, '', 1700);
 }
 
 function matchPhase() {
   const v = S.mp.view;
   if (v.status === 'waiting') return 'mwait';
-  if (v.status === 'done' || v.status === 'cancelled') return 'mdone';
+  if (v.status === 'done' || v.status === 'cancelled' || myself(v).left) return 'mdone';
   return v.round.turn === S.mp.me ? 'pick' : 'mturn';
 }
 
@@ -1720,7 +1747,7 @@ function onMatchState(view) {
 function processView(view) {
   const mp = S.mp;
   const last = view.last;
-  if (last && last.seq > mp.shownSeq) startMoveAnim(view, last, last.uid === mp.me ? 'me' : 'opp');
+  if (last && last.seq > mp.shownSeq) startMoveAnim(view, last, last.uid === mp.me ? 'me' : last.uid); // everyone seated sees every throw, whoever's it was
   else applyView(view);
 }
 
@@ -1746,7 +1773,7 @@ function startMoveAnim(view, last, who) {
   const result = { kind: last.kind, pts, roll, end: last.end, lie: last.lie, strokes: last.strokes, made: last.made, gimme: last.gimme, plan: last.putt ? undefined : { feet: last.feet } };
   S.last = { result, ex: last.ex, disc, from: last.from, who };
   S.anim = { type: 'flight', t0: now(), dur: last.putt ? 750 : clamp(900 + last.feet * 4.2, 1200, 3300), pts, roll, result };
-  const name = who === 'opp' ? `${oppPlayer(view).name}: ` : '';
+  const name = who === 'me' ? '' : `${playerOf(who, view).name}: `;
   toast(`${name}${last.putt ? (last.made ? (last.gimme ? 'Tap-in' : 'Chains!') : 'Rimmed out') : last.ex?.grade || ''}`, last.putt ? (last.made ? 'good' : 'bad') : last.ex?.pure ? 'good' : last.ex?.slip || last.ex?.grade === 'Shank' ? 'bad' : '', 1400);
   setPhase('flight');
   retarget(false, pts);
@@ -1765,8 +1792,11 @@ function finishMove() {
   if (result.kind === 'tree') S.fx.push({ type: 'thunk', x: at.x, y: at.y, t0: now() });
   if (result.kind === 'basket') S.fx.push({ type: 'chains', x: S.hole.basket.x, y: S.hole.basket.y, t0: now() });
   if (L.who === 'me' && navigator.vibrate && ['tree', 'water', 'oob', 'basket'].includes(result.kind)) navigator.vibrate(result.kind === 'basket' ? [30, 40, 30] : 40);
-  const trail = L.who === 'me' ? S.trail : S.oppTrail;
+  const trail = L.who === 'me' ? S.trail : (S.others.find((o) => o.uid === L.who)?.trail || []);
   trail.push({ pts: [...result.pts, ...result.roll].map((p) => ({ x: p.x, y: p.y })), kind: result.kind, n: trail.length + 1 });
+  const mover = playerOf(L.who === 'me' ? mp.me : L.who, mp.view);
+  const total = mp.view.round?.rounds[mover.uid]?.strokes ?? 0;
+  say(T.remark(T.eventFor({ kind: last.kind, putt: last.putt, made: last.made, gimme: last.gimme, ex: last.ex, strokes: total, dist: G.distance(last.from, S.hole.basket), surface: S.last.result.surface }), { who: L.who === 'me' ? 'me' : 'them', name: mover.name }, Math.random, S.lastQuip));
   if (last.bear) { startBear({ discId: last.bear.discId, at: last.bear.at, owner: L.who }); return; }
   afterMove();
 }
@@ -1777,6 +1807,7 @@ function afterMove() {
   const last = mp.view.last;
   if (last && last.holeEnd && mp.holeSeen !== last.seq) {
     mp.holeSeen = last.seq;
+    say(matchHoleRemark(last.holeEnd, mp.view));
     setPhase('mhole');
     return;
   }
@@ -1814,62 +1845,103 @@ function mpPutt(shot) {
 
 /* ----- the match screens ----- */
 
+const boardOpen = (v) => S.boardOpen ?? v.players.length <= 4;
+
 function boardHtml() {
   const v = S.mp.view;
   if (!v.round) return '';
   const hole = S.hole;
+  const up = playerOf(v.round.turn, v);
+  const open = boardOpen(v);
+  const bar = `<button class="gm-boardbar" type="button" data-board-toggle aria-expanded="${open}"><span>Scoreboard · ${v.players.length} players</span><em>${up ? (up.uid === S.mp.me ? 'your throw' : `${esc(up.name)} is up`) : ''}</em><i aria-hidden="true">${open ? '−' : '+'}</i></button>`;
+  if (!open) return bar;
   const rows = v.players.map((p) => {
     const r = v.round.rounds[p.uid];
     const total = (v.cards[p.uid] || []).reduce((n, c) => n + c.score, 0);
     const par = (v.cards[p.uid] || []).reduce((n, c) => n + c.par, 0);
-    return `<li class="${p.uid === S.mp.me ? 'is-me' : 'is-them'}${v.round.turn === p.uid ? ' is-turn' : ''}"><span>${esc(p.name)}${p.uid === S.mp.me ? ' (you)' : ''}</span><span>${r.done ? (r.holed ? 'in' : 'out') : ft(G.distance(r.lie, hole.basket))}</span><b>${r.strokes}</b><span>${(v.cards[p.uid] || []).length ? vsPar(total - par) : '–'}</span></li>`;
+    const dot = p.uid === S.mp.me ? '' : `<i class="gm-dot" style="--pc:${colorOf(p.uid, v)}"></i>`;
+    const where = p.left ? 'left' : !r ? '–' : r.done ? (r.holed ? 'in' : 'out') : ft(G.distance(r.lie, hole.basket));
+    return `<li class="${p.uid === S.mp.me ? 'is-me' : 'is-them'}${v.round.turn === p.uid ? ' is-turn' : ''}${p.left ? ' is-left' : ''}"><span>${dot}${esc(p.name)}${p.uid === S.mp.me ? ' (you)' : ''}</span><span>${where}</span><b>${r ? r.strokes : '–'}</b><span>${(v.cards[p.uid] || []).length ? vsPar(total - par) : '–'}</span></li>`;
   }).join('');
-  return `<ol class="gm-board" aria-label="Scoreboard"><li class="gm-board__h"><span>Player</span><span>To basket</span><span>Hole</span><span>Round</span></li>${rows}</ol>`;
+  return `${bar}<ol class="gm-board" aria-label="Scoreboard"><li class="gm-board__h"><span>Player</span><span>To basket</span><span>Hole</span><span>Round</span></li>${rows}</ol>`;
 }
 
 function panelMwait() {
   const v = S.mp.view;
+  const me = S.mp.me;
   const link = `${location.origin}/game?match=${v.id}`;
+  const isHost = v.host === me;
+  const seats = v.players.map((p) => `<li class="${p.uid === me ? 'is-me' : ''}"><span>${p.uid !== me ? `<i class="gm-dot" style="--pc:${colorOf(p.uid, v)}"></i>` : ''}${esc(p.name)}${p.uid === me ? ' (you)' : ''}</span><small>${p.uid === v.host ? 'host' : ''}</small></li>`).join('');
+  const ready = v.players.length >= 2;
+  const hostName = esc(playerOf(v.host, v).name);
   return `<div class="gm-card">
-      <h2>Waiting for a player</h2>
-      <p>${v.invite ? `You challenged <b>${esc(v.invite)}</b>. It is waiting in their lobby; you can also send them the link.` : 'Send this code or link to a friend. They need to be signed in.'}</p>
+      <h2>${isHost ? 'Gather your players' : 'Waiting to start'}</h2>
+      <p>${v.invite ? `You invited <b>${esc(v.invite)}</b>; it is in their lobby. ` : ''}Send this code or link to up to ${v.maxPlayers - 1} friends. They need to be signed in.</p>
       <div class="gm-code" aria-label="Match code">${esc(v.id)}</div>
       <input class="gm-link" readonly value="${esc(link)}" aria-label="Match link" data-mp-link>
-      <button class="btn" type="button" data-mp-copy>Copy the link</button>
-      <p class="gm-note">${v.holes} holes · each of you brings your own bag · the farthest player from the basket throws next. This page updates the moment someone joins.</p>
-      <button class="btn btn--ghost" type="button" data-mp-leave>Cancel the match</button>
+      <button class="btn btn--ghost" type="button" data-mp-copy>Copy the link</button>
+      <p class="gm-h">Seated <span>· ${v.players.length} of ${v.maxPlayers}</span></p>
+      <ul class="gm-seats">${seats}</ul>
+      ${isHost
+        ? `<button class="btn" type="button" data-mp-start${ready ? '' : ' disabled'}>${ready ? `Start with ${v.players.length} players` : 'Waiting for a second player'}</button>`
+        : `<p class="gm-note">${hostName} starts the match once everyone is here. This page updates the moment it begins.</p>`}
+      <p class="gm-note">${v.holes} holes · everyone brings their own bag · the farthest player from the basket throws next, and you all watch every throw.</p>
+      <button class="btn btn--ghost" type="button" data-mp-leave>${isHost && v.players.length === 1 ? 'Cancel the match' : 'Leave the match'}</button>
       <button class="btn btn--ghost" type="button" data-lobby>Back to the lobby</button>
     </div>`;
 }
 
 function panelMturn() {
   const v = S.mp.view;
-  const opp = oppPlayer(v);
+  const up = playerOf(v.round.turn, v) || { name: 'Someone', uid: null };
   const mine = v.round.rounds[S.mp.me];
-  const theirs = v.round.rounds[opp.uid];
+  const theirs = v.round.rounds[up.uid];
   const hole = S.hole;
+  const playing = v.players.filter((p) => !p.left && p.uid !== S.mp.me && v.round.rounds[p.uid] && !v.round.rounds[p.uid].done);
   const reason = mine.done
-    ? `You are done with this hole. ${esc(opp.name)} is still playing it.`
-    : `${esc(opp.name)} is ${ft(G.distance(theirs.lie, hole.basket))} from the basket and you are ${ft(G.distance(mine.lie, hole.basket))}, so ${esc(opp.name)} throws.`;
+    ? `You are done with this hole. ${playing.length === 1 ? `${esc(playing[0].name)} is` : `${playing.length} players are`} still playing it.`
+    : theirs ? `${esc(up.name)} is ${ft(G.distance(theirs.lie, hole.basket))} from the basket and you are ${ft(G.distance(mine.lie, hole.basket))}, so ${esc(up.name)} throws${v.players.length > 2 ? ': the farthest out is always up' : ''}.` : '';
   return `${roundBar()}${boardHtml()}
-    <div class="gm-card"><h2>${esc(opp.name)}'s throw</h2><p>${reason}</p><p class="gm-note">You will see it as it happens. This page updates by itself.</p></div>`;
+    <div class="gm-card"><h2>${esc(up.name)}'s throw</h2><p>${reason}</p>${quipHtml()}<p class="gm-note">You will see it as it happens. This page updates by itself.</p></div>`;
+}
+
+// Marebear on how a hole went in a match, and on how the match went
+function matchHoleRemark(he, v) {
+  const sorted = [...he.results].sort((a, b) => a.score - b.score);
+  const winners = sorted.filter((r) => r.score === sorted[0].score);
+  const me = S.mp.me;
+  const nameOf = (uid) => playerOf(uid, v)?.name || '';
+  if (winners.length > 1) return T.matchRemark('holeShare', {}, Math.random, S.lastQuip);
+  if (winners[0].uid === me) return T.matchRemark('holeWin', { name: nameOf(sorted[1]?.uid) }, Math.random, S.lastQuip);
+  return T.matchRemark('holeLose', { name: nameOf(winners[0].uid) }, Math.random, S.lastQuip);
+}
+function matchEndRemark(v) {
+  const me = S.mp.me;
+  const winners = v.winners || [];
+  const other = v.players.find((p) => p.uid !== me && winners.includes(p.uid)) || v.players.find((p) => p.uid !== me);
+  if (myself(v).left) return T.matchRemark('left', {}, Math.random, S.lastQuip);
+  if (v.status !== 'done') return '';
+  if (winners.length > 1) return T.matchRemark('tie', {}, Math.random, S.lastQuip);
+  return T.matchRemark(winners[0] === me ? 'win' : 'lose', { name: winners[0] === me ? (other?.name || '') : playerOf(winners[0], v)?.name || '' }, Math.random, S.lastQuip);
 }
 
 function panelMhole() {
   const v = S.mp.view;
   const he = v.last.holeEnd;
   const hole = holeById(he.holeId);
-  const rows = he.results.map((r) => {
-    const p = v.players.find((x) => x.uid === r.uid);
+  const sorted = [...he.results].sort((a, b) => a.score - b.score);
+  const rows = sorted.map((r) => {
+    const p = playerOf(r.uid, v);
     return `<li class="${r.uid === S.mp.me ? 'is-me' : ''}"><span>${esc(p.name)}${r.uid === S.mp.me ? ' (you)' : ''}</span><span>${r.holed ? G.scoreName(r.strokes, hole.par) : 'no discs'}</span><b>${r.holed ? r.strokes : `${r.score}*`}</b></li>`;
   }).join('');
   const next = HOLES[v.holeIdx];
-  const best = Math.min(...he.results.map((r) => r.score));
-  const winners = he.results.filter((r) => r.score === best);
-  const title = winners.length === 2 ? 'Halved' : winners[0].uid === S.mp.me ? 'You take the hole' : `${esc(oppPlayer(v).name)} takes the hole`;
+  const best = sorted[0].score;
+  const winners = sorted.filter((r) => r.score === best);
+  const title = winners.length > 1 ? (winners.some((w) => w.uid === S.mp.me) ? 'You share the hole' : 'Shared hole') : winners[0].uid === S.mp.me ? 'You take the hole' : `${esc(playerOf(winners[0].uid, v).name)} takes the hole`;
   return `<div class="gm-card">
       <h2 class="${winners.length === 1 && winners[0].uid === S.mp.me ? 'is-good' : ''}">${title}</h2>
       <p>${esc(hole.name)}, par ${hole.par}.</p>
+      ${quipHtml()}
       <ol class="gm-vs-list">${rows}</ol>
       ${he.matchDone
         ? '<button class="btn" type="button" data-mp-continue>See the result</button>'
@@ -1880,24 +1952,40 @@ function panelMhole() {
 function panelMdone() {
   const v = S.mp.view;
   const me = S.mp.me;
-  const opp = oppPlayer(v);
+  const mine = myself(v);
   if (v.status === 'cancelled') {
     return `<div class="gm-card"><h2 class="is-bad">Match cancelled</h2><p>Nobody joined in time, or it was called off.</p><button class="btn" type="button" data-lobby>Back to the lobby</button></div>`;
   }
   const total = (uid) => (v.cards[uid] || []).reduce((n, c) => n + c.score, 0);
   const par = (v.cards[me] || []).reduce((n, c) => n + c.par, 0);
-  const headline = v.winner === 'tie' ? 'A tie' : v.winner === me ? 'You win!' : `${esc(opp.name)} wins`;
-  const note = v.endedBy === 'forfeit' ? (v.winner === me ? `${esc(opp.name)} left the match.` : 'You left the match.') : '';
+  const standing = v.players.filter((p) => !p.left).sort((a, b) => total(a.uid) - total(b.uid));
+  const gone = v.players.filter((p) => p.left);
+  const rivals = standing.filter((p) => p.uid !== me);
+  const winners = v.winners || [];
+  const finished = v.status === 'done';
+  const names = (uids) => uids.map((u) => esc(playerOf(u, v).name)).join(' and ');
+  const headline = !finished ? 'You left the match'
+    : winners.includes(me) ? (winners.length > 1 ? 'You share the win' : 'You win!')
+      : winners.length > 1 ? `${names(winners)} tie` : winners.length ? `${esc(playerOf(winners[0], v).name)} wins` : 'No winner';
+  const tone = !finished ? 'is-bad' : winners.includes(me) ? 'is-good' : 'is-bad';
+  const note = v.endedBy === 'forfeit' ? (mine.left ? 'You left the match.' : 'Everyone else left the match.') : !finished ? 'The others are still playing. Here is where it stood.' : '';
+  const place = (p, i) => `<li class="${p.uid === me ? 'is-me' : ''}"><span>${i + 1}. ${esc(p.name)}${p.uid === me ? ' (you)' : ''}</span><span>${vsPar(total(p.uid) - (v.cards[p.uid] || []).reduce((n, c) => n + c.par, 0))}</span><b>${total(p.uid)}</b></li>`;
+  const board = `<ol class="gm-vs-list">${standing.map(place).join('')}${gone.map((p) => `<li class="is-left"><span>${esc(p.name)}</span><span>left</span><b>–</b></li>`).join('')}</ol>`;
+  // you against the best of the rest, hole by hole
+  const rival = rivals.sort((a, b) => total(a.uid) - total(b.uid))[0];
   const rows = (v.cards[me] || []).map((c, i) => {
-    const o = (v.cards[opp.uid] || [])[i];
+    const o = rival ? (v.cards[rival.uid] || [])[i] : null;
     return `<li><span>${c.hole}. ${esc(HOLES[c.hole - 1].name)}</span><span>par ${c.par}</span><b class="${c.score < (o?.score ?? 99) ? 'is-under' : ''}">${c.holed ? c.strokes : `${c.score}*`}</b><b class="${o && o.score < c.score ? 'is-under' : ''}">${o ? (o.holed ? o.strokes : `${o.score}*`) : '–'}</b></li>`;
   }).join('');
+  const rematch = finished && v.players.length === 2 ? `Play ${esc(rivals[0]?.name || 'them')} again` : 'Open a new match';
   return `<div class="gm-card">
-      <h2 class="${v.winner === me ? 'is-good' : v.winner === 'tie' ? '' : 'is-bad'}">${headline}</h2>
+      <h2 class="${tone}">${headline}</h2>
       ${note ? `<p>${note}</p>` : ''}
-      <div class="gm-score"><div><b>${total(me)}</b><span>You</span></div><div><b>${total(opp.uid)}</b><span>${esc(opp.name)}</span></div><div><b>${vsPar(total(me) - par)}</b><span>You to par</span></div></div>
-      <ol class="gm-vs-list gm-vs-list--card"><li class="gm-vs-list__h"><span>Hole</span><span></span><b>You</b><b>${esc(opp.name.slice(0, 5))}</b></li>${rows}</ol>
-      <button class="btn" type="button" data-mp-rematch>Play ${esc(opp.name)} again</button>
+      ${quipHtml()}
+      <div class="gm-score"><div><b>${total(me)}</b><span>You</span></div><div><b>${rival ? total(rival.uid) : '–'}</b><span>${rival ? esc(rival.name.slice(0, 10)) : ''}${v.players.length > 2 ? ' (best of the rest)' : ''}</span></div><div><b>${vsPar(total(me) - par)}</b><span>You to par</span></div></div>
+      ${board}
+      ${rows ? `<ol class="gm-vs-list gm-vs-list--card"><li class="gm-vs-list__h"><span>Hole</span><span></span><b>You</b><b>${esc(rival ? rival.name.slice(0, 5) : '')}</b></li>${rows}</ol>` : ''}
+      ${finished ? `<button class="btn" type="button" data-mp-rematch>${rematch}</button>` : ''}
       <button class="btn btn--ghost" type="button" data-lobby>Back to the lobby</button>
       <button class="btn btn--ghost" type="button" data-menu>Menu</button>
     </div>`;
@@ -1906,6 +1994,7 @@ function panelMdone() {
 async function mpLeave() {
   try {
     const d = await gapi(`/matches/${encodeURIComponent(S.mp.id)}/leave`, { method: 'POST' });
+    if (d.match.status === 'cancelled' || (d.match.status === 'waiting' && !d.match.players.some((p) => p.uid === S.mp.me))) { openLobby(); return; } // out of a match that had not started
     S.mp.view = d.match;
     applyView(d.match);
   } catch (err) {
@@ -1915,12 +2004,23 @@ async function mpLeave() {
 
 async function mpRematch() {
   const v = S.mp.view;
-  const opp = oppPlayer(v);
+  const others = v.players.filter((p) => p.uid !== S.mp.me);
   try {
-    const d = await gapi('/matches', { method: 'POST', body: { holes: v.holes, invite: opp.name, bagId: account.activeId } });
+    // two players can go again at once; a bigger group gets a fresh code to send round
+    const d = await gapi('/matches', { method: 'POST', body: { holes: v.holes, invite: others.length === 1 ? others[0].name : '', bagId: account.activeId } });
     enterMatch(d.match);
   } catch (err) {
     toast(err.message, 'bad', 2600);
+  }
+}
+
+async function mpStart() {
+  try {
+    const d = await gapi(`/matches/${encodeURIComponent(S.mp.id)}/start`, { method: 'POST' });
+    S.mp.view = d.match;
+    applyView(d.match);
+  } catch (err) {
+    toast(err.message, 'bad', 2400);
   }
 }
 

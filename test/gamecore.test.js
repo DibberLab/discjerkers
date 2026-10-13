@@ -128,7 +128,7 @@ test('a tree is never a trap: you play on from beside it, and the same trunk doe
   assert.ok(!(again.kind === 'tree' && again.hit.tree === tree), 'not the same tree again');
   assert.ok(again.end.y > hit.lie.y + 100, 'and it is a real throw');
   // and when you are standing beside a tree, even a tree right in front of you is behind you
-  const close = await field({ trees: [{ x: 0, y: 6, r: 4, h: 200 }] });
+  const close = await field({ trees: [{ x: 0, y: 4.5, r: 4, h: 200 }] });
   assert.strictEqual(G.resolveThrow(close, DRIVER, RIGHT, 0, CLEAN, { x: 0, y: 0 }).kind, 'landed');
 
   // three throws in a row from a bad spot always get somewhere
@@ -344,23 +344,32 @@ test('every hole can be played: a careful player with a clean meter makes par or
     let lie = { ...hole.tee };
     let strokes = 0;
     for (let n = 0; n < 9 && strokes < 99; n++) {
-      const dist = G.distance(lie, hole.basket);
-      if (dist <= G.PUTT_RANGE) { strokes += 1; break; } // a clean putt goes in
-      const discs = dist > 280 ? [DRIVER, FW] : dist > 160 ? [FW, MID, DRIVER] : [MID, PUT, FW];
-      const base = G.headingTo(lie, hole.basket);
+      if (G.distance(lie, hole.basket) <= G.PUTT_RANGE) { strokes += 1; break; } // a centered tap goes in
+      const left = G.routeLeft(hole, lie.x, lie.y);
+      const discs = left > 280 ? [DRIVER, FW] : left > 160 ? [FW, MID, DRIVER] : [MID, PUT, FW];
+      // the woods are solid, so a careful player plays down the hole: aims along the route, at points further on, and at the basket
+      const aims = new Set([Math.round(G.headingTo(lie, hole.basket))]);
+      for (const look of [50, 90, 140, 200, 300]) {
+        const h = G.headingTo(lie, G.routeAhead(hole, lie.x, lie.y, look));
+        for (const off of [-9, -4.5, 0, 4.5, 9]) aims.add(Math.round(h + off));
+      }
       let best = null;
-      for (const disc of discs) {
-        for (let off = -45; off <= 45; off += 5) {
-          for (const angle of [-1, 0, 1]) {
-            for (let mph = 12; mph <= 86; mph += 8) {
-              const r = G.resolveThrow(hole, disc, { ...RIGHT, mph, angle }, base + off, CLEAN, lie);
-              if (r.kind !== 'landed' && r.kind !== 'basket') continue;
-              const d = G.distance(r.lie, hole.basket);
-              if (!best || d < best.d) best = { d, r };
+      const tryAims = (list) => {
+        for (const disc of discs) {
+          for (const aim of list) {
+            for (const angle of [-2, 0, 2]) {
+              for (let mph = 12; mph <= 86; mph += 8) {
+                const r = G.resolveThrow(hole, disc, { ...RIGHT, mph, angle }, aim, CLEAN, lie);
+                if (r.kind !== 'landed' && r.kind !== 'basket') continue;
+                const d = r.kind === 'basket' ? 0 : G.distance(r.lie, hole.basket) <= G.PUTT_RANGE ? G.distance(r.lie, hole.basket) : G.routeLeft(hole, r.lie.x, r.lie.y) + 60;
+                if (!best || d < best.d) best = { d, r };
+              }
             }
           }
         }
-      }
+      };
+      tryAims(aims);
+      if (!best) tryAims(Array.from({ length: 60 }, (_, i) => i * 6)); // boxed in on the line of the hole: look every way
       assert.ok(best, `hole ${hole.id} (${hole.name}): there is always a way to play on`);
       strokes += 1;
       if (best.r.kind === 'basket') break;
@@ -370,6 +379,26 @@ test('every hole can be played: a careful player with a clean meter makes par or
   }
 });
 
+test('the woods are solid: you cannot just throw any way from the tee, the fairway is the way', async () => {
+  const G = await load();
+  let off = 0;
+  let through = 0;
+  for (const hole of G.HOLES) {
+    const first = G.headingTo(hole.tee, G.routeAhead(hole, hole.tee.x, hole.tee.y, 150)); // down the hole
+    for (let aim = 0; aim < 360; aim += 6) {
+      const away = Math.abs(((aim - first + 540) % 360) - 180);
+      if (away < 75) continue; // along the hole is fair
+      for (const mph of [40, 62, 80]) {
+        const r = G.resolveThrow(hole, DRIVER, { ...RIGHT, mph }, aim, CLEAN, hole.tee);
+        off++;
+        // a throw that is not along the hole should be stopped by trees (or end up wet or out), not be a good shot
+        if (r.kind === 'landed' && G.routeLeft(hole, r.lie.x, r.lie.y) < G.routeLeft(hole, hole.tee.x, hole.tee.y) - 60) through++;
+      }
+    }
+  }
+  assert.ok(off > 500);
+  assert.ok(through / off < 0.02, `throws away from the hole that still made real progress: ${through} of ${off}`);
+});
 
 test('what a server accepts: settings in range, and a meter reading that is a real reading', async () => {
   const G = await load();

@@ -14,12 +14,13 @@ const KEEPALIVE_MS = 15_000;
  * Head-to-head matches. Mounted at /api/game. Everything needs a signed-in player.
  *   GET  /matches               my matches, and invitations to me
  *   POST /matches               start one: { holes: 9|18, invite?: username, bagId? }
- *   POST /matches/:id/join      sit down at a match by its code: { bagId? }
+ *   POST /matches/:id/join      sit down at a match by its code: { bagId? }  (two to eight players)
+ *   POST /matches/:id/start     the host starts it once two or more are seated
  *   GET  /matches/:id           where it stands
  *   GET  /matches/:id/stream    server-sent events: the match, pushed as it changes
  *   POST /matches/:id/throw     { discId, settings, aimOff, ex }   (only on your turn)
  *   POST /matches/:id/putt      { discId, x, y }   where the dot was when you tapped, on the unit circle
- *   POST /matches/:id/leave     forfeit, or cancel one nobody has joined
+ *   POST /matches/:id/leave     forfeit, or leave one that has not started
  * Every response is no-store: it is about two people.
  */
 function createGameRouter({
@@ -108,6 +109,10 @@ function createGameRouter({
     res.json({ match: matches.join(user, req.params.id, { gp, bag: bagFor(user, (req.body || {}).bagId) }) });
   }));
 
+  router.post('/matches/:id/start', wrap(async (req, res, user, gp) => {
+    res.json({ match: matches.start(user, req.params.id, { gp }) });
+  }));
+
   router.get('/matches/:id', wrap(async (req, res, user) => {
     const m = matches.get(req.params.id);
     if (!m || !matches.isMember(m, user.id)) throw new MatchError('No such match.', 404);
@@ -142,8 +147,8 @@ function createGameRouter({
     }));
   }
 
-  router.post('/matches/:id/leave', wrap(async (req, res, user) => {
-    res.json({ match: matches.leave(user, req.params.id) });
+  router.post('/matches/:id/leave', wrap(async (req, res, user, gp) => {
+    res.json({ match: matches.leave(user, req.params.id, gp) });
   }));
 
   // on shutdown, release open streams so the container can stop promptly (browsers reconnect on their own)

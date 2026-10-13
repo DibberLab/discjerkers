@@ -4,7 +4,7 @@
    same model the flight guide uses. Feet; x is east, y is north; heading 0 is north, positive is clockwise. */
 
 import { clamp, carryRaw, flightCurve, spinOf, spinsClockwise, angleDeg, armAt, SPIN, ANGLE_MAX, typicalSpin } from './flightmodel.js?v=1';
-import { surfaceAt } from './course.js?v=4';
+import { surfaceAt } from './course.js?v=5';
 
 const DEG = Math.PI / 180;
 export const PUTT_RANGE = 50; // inside this you putt
@@ -267,8 +267,8 @@ function nearest(p, a, b) {
 const ROLL = { fairway: 1, tee: 1, rough: 0.35 };
 // Trees are forgiving. Only the heart of one stops a disc (the canopy you see is wider than the part that matters),
 // a tree you are standing beside is behind you, not in your way, and a disc that hits one kicks out to the open side.
-export const TREE_FORGIVE = 0.75;
-const CLEAR_OF = 8; // trees this close to where you stand do not count on the next throw
+export const TREE_FORGIVE = 0.9; // a trunk stops a disc within this share of the tree's radius
+const CLEAR_OF = 2; // a tree touching where you stand does not count (woods are otherwise solid)
 const BASKET_RADIUS = 1.5;
 const BASKET_TOP = 5.5;
 
@@ -300,7 +300,11 @@ function rollOut(hole, disc, plan, from, tangent, surface) {
 export function resolveThrow(hole, disc, settings, aimDeg, ex, from) {
   const plan = planThrow(hole, disc, settings, aimDeg, ex);
   const all = samplePath(plan, from);
-  const trees = hole.trees.filter((tr) => distance(from, tr) >= tr.r + CLEAR_OF); // the ones beside you are behind you
+  // the trees that could matter: not the one you just bounced off (a lie remembers it as `t`), nor one touching you, and only those near the path
+  const skip = from.t !== undefined ? hole.trees[from.t] : null;
+  const lo = { x: Math.min(...all.map((p) => p.x)) - 10, y: Math.min(...all.map((p) => p.y)) - 10 };
+  const hi = { x: Math.max(...all.map((p) => p.x)) + 10, y: Math.max(...all.map((p) => p.y)) + 10 };
+  const trees = hole.trees.filter((tr) => tr !== skip && distance(from, tr) >= tr.r + CLEAR_OF && tr.x >= lo.x && tr.x <= hi.x && tr.y >= lo.y && tr.y <= hi.y);
   let hit = null;
   let basket = null;
   for (let i = 1; i < all.length; i++) {
@@ -349,7 +353,7 @@ export function resolveThrow(hole, disc, settings, aimDeg, ex, from) {
     const drop = candidates.find(open) || (open(base) ? base : candidates[0]);
     const s = surfaceAt(hole, drop.x, drop.y);
     if (s === 'water' || s === 'oob') return penalty(plan, pts, s, drop, from, { tree: hit.tree, at: p });
-    return { kind: 'tree', plan, pts, roll: [], end: drop, lie: drop, strokes: 1, surface: s, hit: { tree: hit.tree, at: p } };
+    return { kind: 'tree', plan, pts, roll: [], end: drop, lie: { x: drop.x, y: drop.y, t: hole.trees.indexOf(hit.tree) }, strokes: 1, surface: s, hit: { tree: hit.tree, at: p } }; // the tree you hit is out of the way of the next throw
   }
 
   const end = all.at(-1);
