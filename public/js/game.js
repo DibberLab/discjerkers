@@ -5,7 +5,7 @@
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=2';
-import * as G from './gamecore.js?v=8';
+import * as G from './gamecore.js?v=9';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -223,6 +223,7 @@ function settingsBlock() {
         <div class="fg-seg">${chip('style', 'backhand', 'Backhand')}${chip('style', 'forehand', 'Forehand')}</div>
       </div>
       ${rangeRow({ key: 'aim', label: 'Aim', text: aimText(S.aimOff), value: S.aimOff, min: -60, max: 60, step: 1, aria: 'aim', dec: '‹', inc: '›' })}
+      <p class="gm-note">The dotted line is a typical throw with this disc; the shaded band is where a mistimed release can land. Your meters decide the real one.</p>
     </div>`;
 }
 
@@ -300,7 +301,7 @@ const METER_STAGES = ['power', 'spin', 'angle', 'release'];
 
 // a bar with a marker that sweeps; power, spin and angle read out the value under the marker as it goes
 function valueBar(kind, left, right, tick) {
-  return `<output class="gm-read" id="gm-read" aria-live="off">&nbsp;</output>
+  return `<output class="gm-read" id="gm-read" aria-live="off"><b>&nbsp;</b></output>
     <div class="gm-bar" id="gm-bar">${tick == null ? '' : `<i class="gm-tick" style="left:${tick * 100}%"></i>`}<b class="gm-mark" id="gm-mark" style="left:0%"></b></div>
     <div class="gm-ends"><span>${left}</span><span>${right}</span></div>`;
 }
@@ -661,6 +662,7 @@ function retarget(snap, extra = []) {
   const b = S.hole.basket;
   const putting = inPutt();
   const pts = [lie, b, ...extra.filter((_, i) => i % 6 === 0)];
+  if (S.phase === 'pick' && !putting && curDisc()) pts.push(G.previewThrow(S.hole, curDisc(), S.settings, heading(), lie, 12).end);
   const xs = pts.map((p) => p.x);
   const ys = pts.map((p) => p.y);
   const pad = putting ? 16 : 36;
@@ -838,16 +840,30 @@ function drawPreview() {
   if (inPutt()) {
     poly([lie, S.hole.basket].map((p) => [p.x, p.y]), false);
   } else {
-    // where you are aiming; how far and how it bends is up to the meters
-    const h = G.headingVec(heading());
-    const len = Math.max(toBasket() + 30, 140);
-    poly([[lie.x, lie.y], [lie.x + h.ux * len, lie.y + h.uy * len]], false);
+    // a typical throw with this disc, and the shaded ground a mistimed release can reach; the meters decide the real one
+    const pv = G.previewThrow(S.hole, curDisc(), S.settings, heading(), lie);
+    poly(pv.band.map((p) => [p.x, p.y]));
+    ctx.fillStyle = 'rgba(163,230,53,0.13)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(163,230,53,0.22)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    poly(pv.line.map((p) => [p.x, p.y]), false);
   }
   ctx.strokeStyle = 'rgba(163,230,53,0.85)';
   ctx.setLineDash([7, 6]);
   ctx.lineWidth = 2.5;
   ctx.stroke();
   ctx.setLineDash([]);
+  if (!inPutt()) {
+    const end = G.previewThrow(S.hole, curDisc(), S.settings, heading(), lie, 8).end;
+    const [x, y] = P(end.x, end.y);
+    ctx.beginPath();
+    ctx.arc(x, y, 8, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(163,230,53,0.9)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
 }
 
 // a disc seen from above: raised by its height, with its shadow on the ground
@@ -1222,10 +1238,11 @@ function update(t) {
     mark.style.left = `${v * 100}%`;
     const read = $('#gm-read');
     if (read && S.phase !== 'release') {
-      const text = S.phase === 'power' ? (() => { const mph = G.mphAt(v); const risk = Math.round(G.slipChance(curDisc(), { ...S.settings, mph, spin: null, angle: 0 }) * 100); return `${mph} mph · ${tierName(Math.max(30, mph))}${risk ? ` · ${risk}% slip` : ''}`; })()
-        : S.phase === 'spin' ? `${G.spinAt(v)} rpm`
-          : angleName({ angle: G.angleAt(v * 2 - 1) });
-      if (read.textContent !== text) read.textContent = text;
+      const [big, small] = S.phase === 'power' ? (() => { const mph = G.mphAt(v); const risk = Math.round(G.slipChance(curDisc(), { ...S.settings, mph, spin: null, angle: 0 }) * 100); return [`${mph} mph`, `${tierName(Math.max(30, mph))}${risk ? ` · ${risk}% slip` : ''}`]; })()
+        : S.phase === 'spin' ? [`${G.spinAt(v)} rpm`, '']
+          : [angleName({ angle: G.angleAt(v * 2 - 1) }), ''];
+      const text = `${big}|${small}`;
+      if (read.dataset.t !== text) { read.dataset.t = text; read.innerHTML = `<b>${big}</b>${small ? `<small>${small}</small>` : ''}`; }
     }
   }
 }

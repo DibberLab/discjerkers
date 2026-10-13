@@ -466,3 +466,21 @@ test('a slow arm can slip: grip lock or early release, rarer as the arm speeds u
   assert.ok(early.plan.feet < clean.plan.feet);
   assert.ok(!G.sanitizeExecution({ o: 0, slip: 'grip' }).slip, 'a browser cannot hand itself a slip');
 });
+
+test('the aim preview: a typical throw and a band either side of it', async () => {
+  const G = await load();
+  const hole = await field();
+  assert.ok(G.typicalArm(PUTTER) < G.typicalArm(DRIVER), 'a faster disc wants a faster arm');
+  assert.ok(G.typicalArm(DRIVER) >= 30 && G.typicalArm(DRIVER) <= 90);
+  const pv = G.previewThrow(hole, DRIVER, RIGHT, 0, { x: 0, y: 0 });
+  const perfect = G.resolveThrow(hole, DRIVER, { ...RIGHT, mph: pv.mph }, 0, { ...CLEAN, pure: true }, { x: 0, y: 0 });
+  assert.ok(pv.line.at(-1).y > 100 && pv.line.at(-1).y < perfect.plan.feet * 1.05, 'about as far as a clean throw at that arm speed');
+  const xs = pv.band.map((p) => p.x);
+  assert.ok(Math.min(...xs) < pv.line.at(-1).x - 3 && Math.max(...xs) > pv.line.at(-1).x + 3, 'the band has width either side of the line');
+  assert.deepStrictEqual(pv.end, pv.line.at(-1));
+  // it follows the aim and the hand
+  const right = G.previewThrow(hole, DRIVER, RIGHT, 20, { x: 0, y: 0 });
+  assert.ok(right.end.x > pv.end.x + 30, 'aiming right moves it right');
+  const lefty = G.previewThrow(hole, DRIVER, { ...RIGHT, hand: 'left' }, 0, { x: 0, y: 0 });
+  assert.notStrictEqual(Math.round(lefty.end.x), Math.round(pv.end.x), 'a left-hander finishes the other way');
+});

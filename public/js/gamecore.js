@@ -3,7 +3,7 @@
    same place and the whole thing can be tested without a screen. The flight itself comes from flightmodel.js, the
    same model the flight guide uses. Feet; x is east, y is north; heading 0 is north, positive is clockwise. */
 
-import { clamp, carryRaw, flightCurve, spinOf, spinsClockwise, angleDeg, SPIN, ANGLE_MAX, typicalSpin } from './flightmodel.js?v=1';
+import { clamp, carryRaw, flightCurve, spinOf, spinsClockwise, angleDeg, armAt, SPIN, ANGLE_MAX, typicalSpin } from './flightmodel.js?v=1';
 import { surfaceAt } from './course.js?v=2';
 
 const DEG = Math.PI / 180;
@@ -134,6 +134,25 @@ export function sanitizeExecution(raw = {}) {
 }
 
 const PERFECT = { o: 0, pure: false, sloppy: 0, grade: 'Preview' };
+
+/* ---------- the aim preview ---------- */
+
+// The arm speed a typical player throws this disc at: the slowest arm that gets it fully up to speed (30 mph and up).
+export function typicalArm(disc) {
+  for (let mph = 30; mph <= 90; mph += 2) if (armAt(mph).cap >= disc.speed) return mph;
+  return 90;
+}
+// What the aim line shows before the meters: a typical throw (not perfect, not terrible) as a line, and the ground a
+// mistimed release can reach as a shaded band either side of it. Trees and water are not considered: it is a guide.
+export function previewThrow(hole, disc, settings, aimDeg, from, n = 40) {
+  const mph = typicalArm(disc);
+  const base = { hand: settings.hand, style: settings.style, mph, spin: null, angle: 0 };
+  const path = (o) => samplePath(planThrow(hole, disc, base, aimDeg, { o, pure: false, sloppy: Math.abs(o), grade: 'Preview' }), from, n);
+  const line = path(0.1);
+  const early = path(-0.4);
+  const late = path(0.4);
+  return { mph, line, band: [...late, ...early.reverse()], end: line.at(-1) };
+}
 
 /* ---------- the flight ---------- */
 

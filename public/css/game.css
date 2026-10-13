@@ -101,7 +101,9 @@
 }
 .gm-zone { position: absolute; top: 0; bottom: 0; background: rgba(163, 230, 53, 0.28); border-inline: 2px solid var(--lime); }
 .gm-tick { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--lime); opacity: 0.8; }
-.gm-read { display: block; text-align: center; font: 400 1.7rem/1 var(--display); letter-spacing: 0.04em; text-transform: uppercase; color: var(--lime); min-height: 1.7rem; }
+.gm-read { display: flex; justify-content: center; align-items: baseline; gap: 10px; height: 1.9rem; white-space: nowrap; overflow: hidden; color: var(--lime); }
+.gm-read b { flex: none; font: 400 1.7rem/1 var(--display); letter-spacing: 0.04em; text-transform: uppercase; }
+.gm-read small { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 0.62rem var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--bone-dim); }
 .gm-mark { position: absolute; top: 0; bottom: 0; width: 8px; margin-left: -4px; border-radius: 4px; background: var(--bone); box-shadow: 0 0 12px rgba(238, 241, 232, 0.8); }
 .gm-ends { display: flex; justify-content: space-between; margin-top: -6px; font: 0.6rem var(--mono); letter-spacing: 0.18em; text-transform: uppercase; color: var(--bone-faint); }
 .gm-tap {
