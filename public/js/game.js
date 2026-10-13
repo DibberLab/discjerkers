@@ -5,7 +5,7 @@
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, SPIN, spinOf, typicalSpin, tierName, ANGLE_MAX, angleName, angleDeg } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=2';
-import * as G from './gamecore.js?v=3';
+import * as G from './gamecore.js?v=5';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -106,6 +106,8 @@ const bestKey = () => (S.course && S.course.length > 1 ? `dj_game_best_${S.cours
 const parTotal = (holes) => holes.reduce((n, h) => n + h.par, 0);
 const vsPar = (n) => (n === 0 ? 'E' : n > 0 ? `+${n}` : String(n));
 
+const METER = ['power', 'spin', 'angle', 'release', 'putt']; // the phases that wait for a tap
+const isMeter = () => METER.includes(S.phase);
 const lieOf = () => S.round.lie;
 const toBasket = () => G.distance(lieOf(), S.hole.basket);
 const inPutt = () => toBasket() <= G.PUTT_RANGE;
@@ -199,7 +201,7 @@ function pickInfo(d, plan, putting) {
   const brand = DATA.brands[d.b].n;
   const nums = `${d.speed} / ${d.glide} / ${d.turn > 0 ? `+${d.turn}` : d.turn} / ${d.fade}`;
   const out = putting
-    ? `${Math.round(G.puttZone(toBasket(), d) * 100)}%<small>sweet zone</small>`
+    ? `${Math.round(G.puttRadius(toBasket(), d) * 100)}%<small>target size</small>`
     : `${ft(plan.feet)}<small>${plan.wind.mph ? `${plan.wind.head > 1 ? 'headwind' : plan.wind.head < -1 ? 'tailwind' : 'crosswind'} ${Math.round(plan.wind.mph)} mph` : 'calm'}</small>`;
   return `<div class="gm-pick"><b>${esc(d.name)}</b><output>${out}</output><small>${esc(brand)} · ${nums}</small></div>`;
 }
@@ -227,11 +229,12 @@ function settingsBlock() {
   const dir = (t.hand === 'right') === (t.style === 'backhand') ? 1 : -1;
   const tilt = (-dir * Math.sign(a) * Math.min(Math.abs(a) * 1.5, 80)).toFixed(1);
   return `<div class="gm-block gm-settings">
-      <p class="gm-h">Your throw</p>
+      <p class="gm-h">Your throw <span>· hand and aim, then your plan for the sliders</span></p>
       <div class="fg-throw" role="group" aria-label="How you throw">
         <div class="fg-seg">${chip('hand', 'right', 'Right')}${chip('hand', 'left', 'Left')}</div>
         <div class="fg-seg">${chip('style', 'backhand', 'Backhand')}${chip('style', 'forehand', 'Forehand')}</div>
       </div>
+      ${rangeRow({ key: 'aim', label: 'Aim', text: aimText(S.aimOff), value: S.aimOff, min: -60, max: 60, step: 1, aria: 'aim', dec: '‹', inc: '›' })}
       ${rangeRow({ key: 'mph', label: 'Arm speed', text: mphText(t.mph), value: t.mph, min: MPH.min, max: MPH.max, step: MPH.step, aria: 'arm speed' })}
       ${rangeRow({ key: 'spin', label: 'Spin', text: spinText(t), value: spinOf(t), min: SPIN.min, max: SPIN.max, step: SPIN.step, auto: t.spin != null, aria: 'spin' })}
       <div class="fg-arm fg-angle" role="group" aria-label="Release angle">
@@ -242,7 +245,6 @@ function settingsBlock() {
           <button type="button" data-angle-step="1" aria-label="More hyzer"${t.angle === ANGLE_MAX ? ' disabled' : ''}>›</button>
         </div>
       </div>
-      ${rangeRow({ key: 'aim', label: 'Aim', text: aimText(S.aimOff), value: S.aimOff, min: -60, max: 60, step: 1, aria: 'aim', dec: '‹', inc: '›' })}
     </div>`;
 }
 
@@ -263,7 +265,7 @@ function panelPick() {
       ${pickInfo(d, plan, putting)}
     </div>
     ${putting
-      ? `<p class="gm-sub"><b>${ft(dist)}</b> from the basket. One tap: stop the needle in the green. Short putts get a wide zone; a faster disc narrows it.</p>`
+      ? `<p class="gm-sub"><b>${ft(dist)}</b> from the basket. One tap: catch the dot inside the green circle as it swirls past. Short putts get a big target and a slow dot; a faster disc shrinks it.</p>`
       : settingsBlock()}
     <div class="gm-go">
       <button class="btn" type="button" data-go>${putting ? 'Putt' : 'Throw'}</button>
@@ -304,6 +306,12 @@ function panelNoDiscs() {
   return `<div class="gm-card"><h2 class="is-bad">No discs left</h2><p>Marebear ate your whole bag. Round over.</p><button class="btn" type="button" data-again>Play again</button></div>`;
 }
 
+// a slider with a green zone in the middle, for the stages that read "how far off the middle were you"
+function centeredBar(w, left, right) {
+  return `<div class="gm-bar" id="gm-bar"><i class="gm-zone" style="left:${(0.5 - w / 2) * 100}%;width:${w * 100}%"></i><b class="gm-mark" id="gm-mark" style="left:0%"></b></div>
+    <div class="gm-ends"><span>${left}</span><span>${right}</span></div>`;
+}
+
 function barMarkup(kind) {
   const m = S.meter;
   if (kind === 'power') {
@@ -311,22 +319,33 @@ function barMarkup(kind) {
     return `<div class="gm-bar" id="gm-bar"><i class="gm-zone" style="left:${(z.c - z.w) * 100}%;width:${z.w * 200}%"></i><i class="gm-over" style="width:${(1 - (z.c + z.w)) * 100}%"></i><b class="gm-mark" id="gm-mark" style="left:0%"></b></div>
       <div class="gm-ends"><span>Weak</span><span>Overswing</span></div>`;
   }
-  const w = kind === 'putt' ? m.zone : m.setup.release.w;
-  return `<div class="gm-bar" id="gm-bar"><i class="gm-zone" style="left:${(0.5 - w / 2) * 100}%;width:${w * 100}%"></i><b class="gm-mark" id="gm-mark" style="left:0%"></b></div>
-    <div class="gm-ends"><span>${kind === 'putt' ? 'Short' : 'Early'}</span><span>${kind === 'putt' ? 'Long' : 'Late'}</span></div>`;
+  if (kind === 'putt') return '<canvas class="gm-putt" id="gm-putt" aria-label="The green: tap when the dot is inside the green circle"></canvas>';
+  if (kind === 'spin') return centeredBar(m.setup.spin.w, 'Lazy snap', 'Overcooked');
+  if (kind === 'angle') return centeredBar(m.setup.angle.w, 'Flatter', 'More hyzer');
+  return centeredBar(m.setup.release.w, 'Early', 'Late');
 }
+
+// the sliders a throw goes through: a drive gets four, everything else two
+const stagesOf = (m) => (m.drive ? ['power', 'spin', 'angle', 'release'] : ['power', 'release']);
 
 function panelMeter() {
   const kind = S.phase;
   const d = curDisc();
-  const title = kind === 'power' ? '<span>1 ·</span> Power' : kind === 'release' ? '<span>2 ·</span> Release' : 'Putt';
-  const hint = kind === 'power' ? 'Tap when the marker is in the green. Too early is weak; past the green you overswing.'
-    : kind === 'release' ? 'Tap when the needle crosses the middle. Early goes toward the turn side, late toward the fade side.'
-      : `Tap when the needle is in the green. ${d ? esc(d.name) : ''}, ${ft(toBasket())}.`;
+  const stages = S.meter.kind === 'putt' ? [] : stagesOf(S.meter);
+  const n = stages.indexOf(kind) + 1;
+  const names = { power: 'Power', spin: 'Spin', angle: 'Angle', release: 'Release', putt: 'Putt' };
+  const title = kind === 'putt' ? 'Putt' : `<span>${n} ·</span> ${names[kind]}`;
+  const hints = {
+    power: 'Tap when the marker is in the green. Too early is weak; past the green you overswing.',
+    spin: 'Tap in the green for the spin you chose. A lazy snap or an overcooked one both lose spin, and the disc wobbles.',
+    angle: 'Tap in the green to hold the release angle you chose. Left tips it flatter, right onto more hyzer.',
+    release: 'Tap when the needle crosses the middle. Early goes toward the turn side, late toward the fade side.',
+    putt: `Tap when the dot is inside the green circle. It never takes the same path twice, and a miss goes the way the dot was. ${d ? esc(d.name) : ''}, ${ft(toBasket())}.`,
+  };
   return `<div class="gm-meter">
-      <div class="gm-steps" aria-hidden="true"><i class="is-on"></i><i class="${kind === 'release' ? 'is-on' : ''}"></i></div>
+      ${stages.length ? `<div class="gm-steps" aria-hidden="true">${stages.map((_, i) => `<i class="${i < n ? 'is-on' : ''}"></i>`).join('')}</div>` : ''}
       <p class="gm-meter__t">${title}</p>
-      <p class="gm-meter__h">${hint}</p>
+      <p class="gm-meter__h">${hints[kind]}</p>
       ${barMarkup(kind)}
       <button class="gm-tap" type="button" data-tap>Tap</button>
     </div>`;
@@ -336,7 +355,12 @@ const panelFlight = () => `<div class="gm-card"><h2>${esc(S.last?.ex?.grade ?? '
 
 function describeExecution(ex) {
   const timing = ex.o < -0.08 ? 'released early' : ex.o > 0.08 ? 'released late' : 'released on time';
-  return `${Math.round(ex.pf * 100)}% power${ex.over > 0.05 ? ' (overswung)' : ''}, ${timing}.`;
+  const bits = [`${Math.round(ex.pf * 100)}% power${ex.over > 0.05 ? ' (overswung)' : ''}`];
+  if (ex.spinF !== undefined) {
+    bits.push(ex.spinF >= 1 ? 'full spin' : `${Math.round(ex.spinF * 100)}% spin`);
+    bits.push(Math.abs(ex.angleD) < 1.2 ? 'on angle' : `${Math.abs(Math.round(ex.angleD))}° ${ex.angleD < 0 ? 'flatter' : 'more hyzer'}`);
+  }
+  return `${bits.join(', ')}, ${timing}.`;
 }
 
 function surfaceName(s) {
@@ -419,12 +443,12 @@ function renderPanel(focusSel) {
   const p = panel();
   if (!p) return;
   const keepScroll = p.dataset.phase === S.phase ? p.scrollTop : 0;
-  const views = { menu: panelMenu, pick: panelPick, power: panelMeter, release: panelMeter, putt: panelMeter, flight: panelFlight, result: panelResult, bear: panelBear, done: panelDone, summary: panelSummary };
+  const views = { menu: panelMenu, pick: panelPick, power: panelMeter, spin: panelMeter, angle: panelMeter, release: panelMeter, putt: panelMeter, flight: panelFlight, result: panelResult, bear: panelBear, done: panelDone, summary: panelSummary };
   p.innerHTML = (views[S.phase] || (() => ''))();
   p.dataset.phase = S.phase;
   p.scrollTop = keepScroll;
   if (focusSel) $(focusSel, p)?.focus({ preventScroll: true });
-  else if (S.phase === 'power' || S.phase === 'release' || S.phase === 'putt') $('[data-tap]', p)?.focus({ preventScroll: true });
+  else if (isMeter()) $('[data-tap]', p)?.focus({ preventScroll: true });
 }
 
 /* ---------- the HUD ---------- */
@@ -462,10 +486,11 @@ function startMeter() {
   const d = curDisc();
   if (!d) return;
   if (inPutt()) {
-    S.meter = { kind: 'putt', start: now(), zone: G.puttZone(toBasket(), d), period: G.puttMeter(toBasket()).period };
+    S.meter = { kind: 'putt', start: now(), radius: G.puttRadius(toBasket(), d), speed: G.puttSpeed(toBasket()), params: G.makePuttSeed(Math.random) };
     setPhase('putt');
   } else {
-    S.meter = { kind: 'power', start: now(), setup: G.meterSetup(S.settings.mph), power: null };
+    // a drive (a fast disc) has four sliders to get through: power, spin, angle, release; anything slower has two
+    S.meter = { kind: 'power', start: now(), setup: G.meterSetup(S.settings.mph), power: null, spin: null, angle: null, drive: d.speed >= 7 };
     setPhase('power');
   }
 }
@@ -474,17 +499,24 @@ function tap() {
   const m = S.meter;
   if (!m) return;
   const t = (now() - m.start) / 1000;
+  const next = (phase) => { m.start = now(); setPhase(phase); };
   if (S.phase === 'power') {
     m.power = G.readPower(G.powerAt(t, m.setup), m.setup.power);
-    m.start = now();
-    setPhase('release');
+    next(m.drive ? 'spin' : 'release');
     toast(m.power.inZone ? 'Full power' : m.power.over > 0 ? 'Overswing' : `${Math.round(m.power.pf * 100)}% power`, m.power.inZone ? 'good' : 'bad', 900);
+  } else if (S.phase === 'spin') {
+    m.spin = G.readSpin(G.needleAt(t, m.setup.spin.period), m.setup.spin.w);
+    next('angle');
+    toast(m.spin.inZone ? 'Full spin' : `${Math.round(m.spin.spinF * 100)}% spin`, m.spin.inZone ? 'good' : 'bad', 900);
+  } else if (S.phase === 'angle') {
+    m.angle = G.readAngle(G.needleAt(t, m.setup.angle.period), m.setup.angle.w);
+    next('release');
+    toast(m.angle.inZone ? 'On angle' : `${Math.abs(Math.round(m.angle.angleD))}° ${m.angle.angleD < 0 ? 'flatter' : 'more hyzer'}`, m.angle.inZone ? 'good' : 'bad', 900);
   } else if (S.phase === 'release') {
-    const x = G.releaseAt(t, m.setup);
-    const ex = G.combine(m.power, G.readRelease(x, m.setup.release.w));
-    throwDisc(ex);
+    const rel = G.readRelease(G.releaseAt(t, m.setup), m.setup.release.w);
+    throwDisc(m.drive ? G.combineDrive(m.power, m.spin, m.angle, rel) : G.combine(m.power, rel));
   } else if (S.phase === 'putt') {
-    puttDisc(G.releaseAt(t, { release: { period: m.period } }));
+    puttDisc(G.puttCursorAt(m.params, t, m.speed));
   }
 }
 
@@ -501,10 +533,10 @@ function throwDisc(ex) {
   retarget(false, result.pts);
 }
 
-function puttDisc(x) {
+function puttDisc(shot) {
   const disc = curDisc();
   const from = { ...lieOf() };
-  const result = G.resolvePutt(S.hole, from, disc, x);
+  const result = G.resolvePutt(S.hole, from, disc, shot);
   S.last = { result, ex: null, disc, from };
   const to = result.made ? S.hole.basket : result.lie;
   const pts = Array.from({ length: 21 }, (_, i) => {
@@ -871,7 +903,7 @@ function discLook(id) {
 }
 
 function drawLie(t) {
-  if (!['pick', 'power', 'release', 'putt', 'result'].includes(S.phase) || !curDisc() || S.phase === 'result') return;
+  if (!['pick', ...METER].includes(S.phase) || !curDisc()) return;
   const lie = lieOf();
   const [x, y] = P(lie.x, lie.y);
   ctx.beginPath();
@@ -1065,6 +1097,82 @@ function draw(t) {
 
 /* ---------- the loop ---------- */
 
+// the swirling green for a putt: a rotating grid, a green target at the middle, and a dot that wanders
+function drawPuttMeter(t) {
+  const c = $('#gm-putt');
+  const m = S.meter;
+  if (!c || !m || m.kind !== 'putt') return;
+  const size = c.clientWidth || 240;
+  const d = Math.min(2, window.devicePixelRatio || 1);
+  if (c.width !== Math.round(size * d)) { c.width = Math.round(size * d); c.height = Math.round(size * d); }
+  const g = c.getContext('2d');
+  g.setTransform(d, 0, 0, d, 0, 0);
+  g.clearRect(0, 0, size, size);
+  const cx = size / 2;
+  const R = size / 2 - 8;
+  const sec = (t - m.start) / 1000;
+  const here = G.puttCursorAt(m.params, sec, m.speed);
+  const inside = Math.hypot(here.x, here.y) <= m.radius;
+
+  g.beginPath();
+  g.arc(cx, cx, R + 4, 0, Math.PI * 2);
+  g.fillStyle = '#060b07';
+  g.fill();
+  g.strokeStyle = 'rgba(238,241,232,0.5)';
+  g.lineWidth = 2;
+  g.stroke();
+  // the grid swirls: rings that breathe, spokes that turn, two arcs that chase each other the other way
+  g.strokeStyle = 'rgba(238,241,232,0.12)';
+  g.lineWidth = 1;
+  for (const k of [0.25, 0.5, 0.75]) { g.beginPath(); g.arc(cx, cx, R * k * (1 + Math.sin(sec * 1.3 + k * 6) * 0.015), 0, Math.PI * 2); g.stroke(); }
+  for (let i = 0; i < 12; i++) {
+    const a = sec * 0.22 + (i * Math.PI) / 6;
+    g.beginPath();
+    g.moveTo(cx + Math.cos(a) * R * 0.12, cx + Math.sin(a) * R * 0.12);
+    g.lineTo(cx + Math.cos(a) * R, cx + Math.sin(a) * R);
+    g.stroke();
+  }
+  g.strokeStyle = 'rgba(163,230,53,0.16)';
+  g.lineWidth = 2;
+  for (const [rr, off, span] of [[0.62, 1, 1.1], [0.38, -1.7, 0.8]]) {
+    g.beginPath();
+    g.arc(cx, cx, R * rr, -sec * 0.5 * Math.sign(off) + off, -sec * 0.5 * Math.sign(off) + off + span);
+    g.stroke();
+  }
+  // which way is which
+  g.fillStyle = 'rgba(238,241,232,0.4)';
+  g.font = '700 9px "Space Mono", monospace';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText('LONG', cx, 12);
+  g.fillText('SHORT', cx, size - 12);
+  g.fillText('L', 11, cx);
+  g.fillText('R', size - 11, cx);
+  // the target
+  g.beginPath();
+  g.arc(cx, cx, R * m.radius, 0, Math.PI * 2);
+  g.fillStyle = inside ? 'rgba(163,230,53,0.38)' : 'rgba(163,230,53,0.18)';
+  g.fill();
+  g.strokeStyle = '#a3e635';
+  g.lineWidth = 2.5;
+  g.stroke();
+  // the dot, and where it has just been
+  for (let k = 8; k >= 1; k--) {
+    const q = G.puttCursorAt(m.params, sec - k * 0.028, m.speed);
+    g.beginPath();
+    g.arc(cx + q.x * R, cx - q.y * R, 7 * (1 - k / 10), 0, Math.PI * 2);
+    g.fillStyle = `rgba(238,241,232,${0.3 * (1 - k / 9)})`;
+    g.fill();
+  }
+  g.beginPath();
+  g.arc(cx + here.x * R, cx - here.y * R, 8, 0, Math.PI * 2);
+  g.fillStyle = inside ? '#a3e635' : '#eef1e8';
+  g.shadowColor = inside ? '#a3e635' : '#ffffff';
+  g.shadowBlur = inside ? 16 : 8;
+  g.fill();
+  g.shadowBlur = 0;
+}
+
 function update(t) {
   cam.x += (cam.tx - cam.x) * 0.14;
   cam.y += (cam.ty - cam.y) * 0.14;
@@ -1072,9 +1180,10 @@ function update(t) {
   if (S.toast.until && t > S.toast.until) { $('#gm-toast').classList.remove('is-on'); S.toast.until = 0; }
   const m = S.meter;
   const mark = $('#gm-mark');
-  if (mark && m && (S.phase === 'power' || S.phase === 'release' || S.phase === 'putt')) {
+  if (S.phase === 'putt') drawPuttMeter(t);
+  if (mark && m && ['power', 'spin', 'angle', 'release'].includes(S.phase)) {
     const sec = (t - m.start) / 1000;
-    const v = S.phase === 'power' ? G.powerAt(sec, m.setup) : (G.releaseAt(sec, S.phase === 'putt' ? { release: { period: m.period } } : m.setup) + 1) / 2;
+    const v = S.phase === 'power' ? G.powerAt(sec, m.setup) : (G.needleAt(sec, m.setup[S.phase].period) + 1) / 2;
     mark.style.left = `${v * 100}%`;
   }
 }
@@ -1202,7 +1311,7 @@ function onPanelInput(e) {
 
 function onKey(e) {
   if (e.target.closest?.('input, select, textarea') && e.key !== 'Enter') return;
-  if (['power', 'release', 'putt'].includes(S.phase) && (e.key === ' ' || e.key === 'Enter')) {
+  if (isMeter() && (e.key === ' ' || e.key === 'Enter')) {
     e.preventDefault();
     tap();
   } else if (S.phase === 'pick' && !inPutt() && !e.target.closest?.('input, select, textarea, button')) {
@@ -1228,7 +1337,7 @@ async function boot() {
   p.addEventListener('change', onPanelChange);
   p.addEventListener('input', onPanelInput);
   // the meter answers the moment a finger lands, not when it lifts
-  p.addEventListener('pointerdown', (e) => { if (e.target.closest('[data-tap], .gm-bar') && ['power', 'release', 'putt'].includes(S.phase)) { e.preventDefault(); tap(); } });
+  p.addEventListener('pointerdown', (e) => { if (e.target.closest('[data-tap], .gm-bar, #gm-putt') && isMeter()) { e.preventDefault(); tap(); } });
   p.addEventListener('keydown', (e) => { if (e.target.matches('[data-tap]') && (e.key === ' ' || e.key === 'Enter')) e.preventDefault(); });
   document.addEventListener('keydown', onKey);
   cv.addEventListener('pointerdown', (e) => { cv.setPointerCapture?.(e.pointerId); setAimFromPointer(e); });

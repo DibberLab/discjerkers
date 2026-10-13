@@ -154,24 +154,62 @@ test('a disc that lands on the basket holes out', async () => {
   assert.strictEqual(r.strokes, 1);
 });
 
-test('putting: given inside three feet, and the zone narrows with distance and with a faster disc', async () => {
+test('putting: given inside three feet, and the target narrows with distance and with a faster disc', async () => {
   const G = await load();
   const hole = await field({ basket: { x: 0, y: 40 } });
   assert.ok(G.puttZone(10, PUTTER) > G.puttZone(30, PUTTER));
   assert.ok(G.puttZone(20, PUTTER) > G.puttZone(20, DRIVER));
   assert.ok(G.puttZone(500, DRIVER) >= 0.04, 'never impossible');
+  assert.ok(G.puttRadius(10, PUTTER) > G.puttRadius(40, PUTTER));
+  assert.ok(G.puttRadius(40, DRIVER) >= 0.07, 'a target you can still see');
+  assert.ok(G.puttSpeed(45) > G.puttSpeed(5), 'the dot moves faster on a long putt');
 
-  const near = G.resolvePutt(hole, { x: 0, y: 38 }, PUTTER, 0.95);
-  assert.ok(near.made && near.gimme, 'a tap-in is a tap-in even with a bad needle');
+  const near = G.resolvePutt(hole, { x: 0, y: 38 }, PUTTER, { x: 0.9, y: 0.4 });
+  assert.ok(near.made && near.gimme, 'a tap-in is a tap-in even with a bad tap');
 
   const lie = { x: 0, y: 20 };
-  const zone = G.puttZone(20, PUTTER);
-  assert.ok(G.resolvePutt(hole, lie, PUTTER, zone * 0.9).made);
-  const miss = G.resolvePutt(hole, lie, PUTTER, Math.min(1, zone + 0.2));
-  assert.ok(!miss.made && miss.kind === 'landed');
-  const d = G.distance(miss.lie, hole.basket);
-  assert.ok(d >= 3 && d <= 14.5, `a miss leaves a short comebacker: ${d}`);
-  assert.ok(G.resolvePutt(hole, lie, PUTTER, -(zone + 0.2)).lie.x !== miss.lie.x, 'the other side of the needle misses the other way');
+  const radius = G.puttRadius(20, PUTTER);
+  assert.ok(G.resolvePutt(hole, lie, PUTTER, { x: radius * 0.6, y: -radius * 0.6 }).made, 'inside the target holes it, from any direction');
+  assert.ok(G.resolvePutt(hole, lie, PUTTER, { x: 0, y: radius * 0.95 }).made);
+  const right = G.resolvePutt(hole, lie, PUTTER, { x: 0.7, y: 0 });
+  const left = G.resolvePutt(hole, lie, PUTTER, { x: -0.7, y: 0 });
+  const long = G.resolvePutt(hole, lie, PUTTER, { x: 0, y: 0.7 });
+  const short = G.resolvePutt(hole, lie, PUTTER, { x: 0, y: -0.7 });
+  for (const m of [right, left, long, short]) {
+    assert.ok(!m.made && m.kind === 'landed');
+    const d = G.distance(m.lie, hole.basket);
+    assert.ok(d >= 3 && d <= 14.5, `a miss leaves a short comebacker: ${d}`);
+  }
+  assert.ok(right.lie.x > hole.basket.x + 2 && left.lie.x < hole.basket.x - 2, 'across the green: right of the basket or left of it');
+  assert.ok(long.lie.y > hole.basket.y + 2, 'the dot above the target is a long putt');
+  assert.ok(short.lie.y < hole.basket.y - 2, 'and below it a short one');
+});
+
+test('the putting dot wanders: it stays on the green, never repeats, and keeps coming back through the target', async () => {
+  const G = await load();
+  let seed = 7;
+  const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const paths = [];
+  for (let k = 0; k < 40; k++) {
+    const s = G.makePuttSeed(rand);
+    let closest = Infinity;
+    const trace = [];
+    for (let sec = 0; sec < 20; sec += 0.02) {
+      const p = G.puttCursorAt(s, sec, 1.4);
+      assert.ok(Math.hypot(p.x, p.y) <= 1.000001, 'never off the grid');
+      closest = Math.min(closest, Math.hypot(p.x, p.y));
+      if (Math.abs(sec - Math.round(sec)) < 0.01) trace.push([+p.x.toFixed(2), +p.y.toFixed(2)]);
+    }
+    assert.ok(closest < 0.07, `it comes through the middle (seed ${k}: ${closest})`);
+    paths.push(trace);
+    // the same seed is the same path; and a later stretch is not a copy of an earlier one
+    assert.deepStrictEqual(G.puttCursorAt(s, 3.3, 1), G.puttCursorAt(s, 3.3, 1));
+    const a = G.puttCursorAt(s, 2, 1);
+    const b = G.puttCursorAt(s, 2 + 1.7, 1);
+    const c = G.puttCursorAt(s, 2 + 9.3, 1);
+    assert.ok(Math.hypot(a.x - b.x, a.y - b.y) > 0.01 || Math.hypot(a.x - c.x, a.y - c.y) > 0.01, 'no short repeat');
+  }
+  assert.notDeepStrictEqual(paths[0], paths[1], 'every putt is its own path');
 });
 
 test('scoring, and Marebear: she comes once, at a triple bogey, for the disc you just threw', async () => {
@@ -356,4 +394,72 @@ test('every hole can be played: a careful player with a clean meter makes par or
     }
     assert.ok(strokes <= hole.par, `hole ${hole.id} (${hole.name}) can be played in par: ${strokes} vs ${hole.par}`);
   }
+});
+
+
+test('what a server accepts: settings in range, and a meter reading that is a real reading', async () => {
+  const G = await load();
+  const good = { hand: 'right', style: 'backhand', mph: 62, spin: null, angle: 0 };
+  assert.deepStrictEqual(G.sanitizeSettings(good), good);
+  assert.deepStrictEqual(G.sanitizeSettings({ ...good, spin: 1100, mph: 10, angle: -6 }), { ...good, spin: 1100, mph: 10, angle: -6 });
+  for (const bad of [null, 'x', { ...good, hand: 'both' }, { ...good, style: 'sidearm' }, { ...good, mph: 63 }, { ...good, mph: 94 }, { ...good, mph: 8 }, { ...good, mph: 'fast' }, { ...good, angle: 7 }, { ...good, angle: 1.5 }, { ...good, spin: 100 }, { ...good, spin: 5000 }, { ...good, spin: 'lots' }]) {
+    assert.strictEqual(G.sanitizeSettings(bad), null, JSON.stringify(bad));
+  }
+  assert.strictEqual(G.sanitizeExecution({ pf: 5, over: -3, o: 9 }).pf, 1, 'clamped');
+  assert.strictEqual(G.sanitizeExecution({ pf: 0, o: -9 }).o, -1);
+  assert.strictEqual(G.sanitizeExecution({ pf: 'abc' }).pf, 1);
+  assert.ok(G.sanitizeExecution({ pf: 1, over: 0, o: 0, pure: true }).pure);
+  assert.ok(!G.sanitizeExecution({ pf: 1, over: 0, o: 0.3, pure: true }).pure, 'a sloppy release cannot claim to be pure');
+  assert.ok(!G.sanitizeExecution({ pf: 0.9, over: 0, o: 0, pure: true }).pure);
+  assert.strictEqual(G.sanitizeExecution({ pf: 1, over: 0, o: 0.9 }).grade, 'Shank');
+});
+
+
+test('a drive has four sliders: power, spin, angle and release, and each one changes the flight', async () => {
+  const G = await load();
+  const setup = G.meterSetup(62);
+  assert.ok(setup.spin.w > 0.05 && setup.angle.w > 0.05);
+  assert.ok(G.meterSetup(88).spin.w < G.meterSetup(40).spin.w, 'a harder arm has narrower zones on every slider');
+  assert.notStrictEqual(setup.spin.period, setup.angle.period);
+  assert.strictEqual(G.needleAt(0, setup.spin.period), -1);
+
+  // spin: the green keeps it all; a lazy snap or an overcooked one loses some
+  assert.strictEqual(G.readSpin(0.05, setup.spin.w).spinF, 1);
+  assert.ok(G.readSpin(-0.9, setup.spin.w).spinF < 0.7);
+  assert.ok(G.readSpin(0.9, setup.spin.w).spinF < 0.7);
+  assert.ok(G.readSpin(-0.9, setup.spin.w).spinF >= 0.55, 'never worse than a floor');
+  // angle: left is flatter, right is more hyzer
+  assert.ok(Math.abs(G.readAngle(0.05, setup.angle.w).angleD) < 1);
+  assert.ok(G.readAngle(0.8, setup.angle.w).angleD > 8 && G.readAngle(-0.8, setup.angle.w).angleD < -8);
+
+  const power = G.readPower(setup.power.c, setup.power);
+  const power2 = G.readPower(setup.power.c, setup.power.zone || setup.power);
+  assert.ok(power.inZone && power2);
+  const perfect = G.combineDrive(G.readPower(0.9, setup.power), G.readSpin(0, setup.spin.w), G.readAngle(0, setup.angle.w), G.readRelease(0, setup.release.w));
+  assert.strictEqual(perfect.grade, 'Pure');
+  assert.strictEqual(perfect.spinF, 1);
+  const bad = G.combineDrive(G.readPower(0.9, setup.power), G.readSpin(0.95, setup.spin.w), G.readAngle(-0.9, setup.angle.w), G.readRelease(0, setup.release.w));
+  assert.ok(!bad.pure && bad.sloppy > 0.4);
+
+  // what each slider does to a real throw
+  const hole = await field();
+  const flat = G.resolveThrow(hole, DRIVER, RIGHT, 0, perfect, { x: 0, y: 0 });
+  const hyzer = G.resolveThrow(hole, DRIVER, RIGHT, 0, { ...perfect, pure: false, angleD: 12 }, { x: 0, y: 0 });
+  const anhyzer = G.resolveThrow(hole, DRIVER, RIGHT, 0, { ...perfect, pure: false, angleD: -12 }, { x: 0, y: 0 });
+  assert.ok(hyzer.end.x < flat.end.x - 5, 'the angle slider tips it onto hyzer: left for a right-hand backhand');
+  assert.ok(anhyzer.end.x > hyzer.end.x + 10, 'and flatter goes the other way');
+  assert.ok(hyzer.plan.feet < flat.plan.feet);
+  const lazy = G.resolveThrow(hole, DRIVER, RIGHT, 0, { ...perfect, pure: false, spinF: 0.55 }, { x: 0, y: 0 });
+  assert.ok(lazy.plan.feet < flat.plan.feet, 'a lazy snap is a shorter throw');
+  const weak = G.resolveThrow(hole, DRIVER, RIGHT, 0, { ...perfect, pure: false, pf: 0.6 }, { x: 0, y: 0 });
+  assert.ok(weak.plan.feet < flat.plan.feet * 0.8, 'the power slider is the speed');
+
+  // the server takes the extra readings, clamps them, and will not take a claim of a pure throw it can see is not
+  const ok = G.sanitizeExecution({ pf: 1, over: 0, o: 0, spinF: 1, angleD: 0.4, pure: true });
+  assert.ok(ok.pure && ok.spinF === 1);
+  assert.ok(!G.sanitizeExecution({ pf: 1, over: 0, o: 0, spinF: 0.9, angleD: 0, pure: true }).pure);
+  assert.ok(!G.sanitizeExecution({ pf: 1, over: 0, o: 0, spinF: 1, angleD: 5, pure: true }).pure);
+  assert.strictEqual(G.sanitizeExecution({ spinF: 0.1, angleD: 99 }).spinF, 0.55);
+  assert.strictEqual(G.sanitizeExecution({ spinF: 0.1, angleD: 99 }).angleD, 14);
+  assert.strictEqual(G.sanitizeExecution({ pf: 1 }).spinF, undefined, 'a throw without the drive sliders is the classic two');
 });

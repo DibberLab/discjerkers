@@ -9,6 +9,8 @@ const { createChangeStore } = require('./lib/changes');
 const { createChangesRouter } = require('./routes/changes');
 const { createAccountStore } = require('./lib/accounts');
 const { createAccountRouter } = require('./routes/account');
+const { createMatchStore, loadGameplay } = require('./lib/matches');
+const { createGameRouter } = require('./routes/game');
 
 const changes = createChangesRouter({ store: createChangeStore(path.join(__dirname, '..', 'data', 'changes.json')) });
 
@@ -20,7 +22,13 @@ try {
 } catch (err) {
   console.error('[accounts] could not read the disc list:', err.message);
 }
-const accounts = createAccountRouter({ store: createAccountStore(path.join(__dirname, '..', 'data', 'accounts.json')), knownDiscs });
+const accountStore = createAccountStore(path.join(__dirname, '..', 'data', 'accounts.json'));
+const accounts = createAccountRouter({ store: accountStore, knownDiscs });
+
+// head-to-head matches: the rules and course are the browser's own modules, loaded once
+const gameplay = loadGameplay();
+gameplay.catch((err) => console.error('[game] could not load the game rules:', err.message));
+const game = createGameRouter({ accounts: accountStore, matches: createMatchStore(path.join(__dirname, '..', 'data', 'matches.json')), gameplay });
 
 const app = express();
 app.disable('x-powered-by');
@@ -32,6 +40,7 @@ app.use('/webhook', require('./routes/webhook'));
 app.use(express.json({ limit: '128kb' }));
 app.use('/api/changes', changes);
 app.use('/api/account', accounts);
+app.use('/api/game', game);
 app.use('/api', require('./routes/api'));
 
 app.get('/healthz', (req, res) => res.json({ ok: true, demoMode: config.demoMode }));
@@ -63,6 +72,7 @@ const server = app.listen(config.port, () => {
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {
     changes.closeStreams();
+    game.closeStreams();
     server.close(() => process.exit(0));
   });
 }

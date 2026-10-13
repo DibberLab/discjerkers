@@ -32,6 +32,9 @@ export function meterSetup(mph) {
   return {
     power: { c: 0.9, w: 0.085 - 0.04 * hard, period: 2.3 - 0.8 * hard },
     release: { w: 0.14 - 0.07 * hard, period: 1.9 - 0.6 * hard },
+    // a drive also gets a spin slider and an angle slider, each its own speed so there is no rhythm to carry over
+    spin: { w: 0.15 - 0.07 * hard, period: 1.75 - 0.55 * hard },
+    angle: { w: 0.15 - 0.07 * hard, period: 2.05 - 0.7 * hard },
   };
 }
 const triangle = (sec, period) => {
@@ -39,7 +42,8 @@ const triangle = (sec, period) => {
   return u < 0.5 ? u * 2 : 2 - u * 2;
 };
 export const powerAt = (sec, setup) => triangle(sec, setup.power.period); // 0..1
-export const releaseAt = (sec, setup) => triangle(sec, setup.release.period) * 2 - 1; // -1 (early) .. 1 (late)
+export const needleAt = (sec, period) => triangle(sec, period) * 2 - 1; // -1 .. 1
+export const releaseAt = (sec, setup) => needleAt(sec, setup.release.period); // -1 (early) .. 1 (late)
 
 export function readPower(m, zone) {
   const lo = zone.c - zone.w;
@@ -52,6 +56,24 @@ export function readRelease(x, zoneW) {
   const inZone = Math.abs(x) <= zoneW;
   return { x, o: inZone ? x * 0.3 : x, inZone };
 }
+// Spin: the green holds your full spin; a lazy snap or an overcooked one both lose some.
+export function readSpin(x, zoneW) {
+  const inZone = Math.abs(x) <= zoneW;
+  return { x, inZone, spinF: inZone ? 1 : clamp(1 - 0.45 * Math.abs(x), 0.55, 1) };
+}
+// Angle: the green holds the angle you chose; left of it is flatter, right of it tips onto hyzer, by up to 14 degrees.
+export function readAngle(x, zoneW) {
+  const inZone = Math.abs(x) <= zoneW;
+  return { x, inZone, angleD: inZone ? x * 0.3 * 14 : x * 14 };
+}
+// a drive's four readings in one: power, spin, angle, release
+export function combineDrive(power, spin, angle, release) {
+  const sloppy = clamp(Math.abs(release.o) + 0.6 * power.over + 0.8 * (1 - spin.spinF) + Math.abs(angle.angleD) / 20, 0, 1.4);
+  const pure = power.inZone && spin.inZone && angle.inZone && release.inZone;
+  const grade = pure ? 'Pure' : sloppy < 0.25 ? 'Good' : sloppy < 0.55 ? 'Loose' : 'Shank';
+  return { pf: power.pf, over: power.over, o: release.o, spinF: spin.spinF, angleD: angle.angleD, pure, sloppy, grade };
+}
+
 export function combine(power, release) {
   const sloppy = clamp(Math.abs(release.o) + 0.6 * power.over, 0, 1.4);
   const pure = power.inZone && release.inZone;
@@ -63,8 +85,9 @@ export function combine(power, release) {
 // a late one goes toward the fade side and tips onto hyzer, and a sloppy release loses spin.
 export function applyExecution(settings, aimDeg, ex) {
   const dir = spinsClockwise(settings) ? 1 : -1;
+  const drive = ex.spinF !== undefined; // a drive's own spin and angle readings
   const speedF = ex.pf * (1 - 0.06 * ex.sloppy);
-  const spinF = ex.pf * (1 - 0.38 * clamp(ex.sloppy - 0.08, 0, 1.2));
+  const spinF = drive ? ex.pf * ex.spinF : ex.pf * (1 - 0.38 * clamp(ex.sloppy - 0.08, 0, 1.2));
   return {
     t2: {
       hand: settings.hand,
@@ -72,11 +95,37 @@ export function applyExecution(settings, aimDeg, ex) {
       mph: settings.mph * speedF,
       spin: Math.round(spinOf(settings) * spinF),
       angle: settings.angle,
-      angleExtra: ex.o * 8,
+      angleExtra: drive ? ex.angleD + ex.o * 3 : ex.o * 8,
     },
     headingDeg: aimDeg - dir * ex.o * 14,
     bonus: ex.pure ? 1.04 : 1,
   };
+}
+
+// What a server will accept from a player: settings in range, and a meter reading that is a real reading.
+const num = (v, d) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Number(v) : d);
+export function sanitizeSettings(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const mph = num(raw.mph, NaN);
+  const angle = num(raw.angle, NaN);
+  const spin = raw.spin === null || raw.spin === undefined ? null : num(raw.spin, NaN);
+  if (!['right', 'left'].includes(raw.hand) || !['backhand', 'forehand'].includes(raw.style)) return null;
+  if (!Number.isInteger(mph) || mph < 10 || mph > 90 || mph % 2) return null;
+  if (!Number.isInteger(angle) || angle < -6 || angle > 6) return null;
+  if (spin !== null && (!Number.isInteger(spin) || spin < 400 || spin > 1600)) return null;
+  return { hand: raw.hand, style: raw.style, mph, spin, angle };
+}
+export function sanitizeExecution(raw = {}) {
+  const pf = clamp(num(raw.pf, 1), 0.3, 1);
+  const over = clamp(num(raw.over, 0), 0, 1);
+  const o = clamp(num(raw.o, 0), -1, 1);
+  const drive = raw.spinF !== undefined || raw.angleD !== undefined;
+  const spinF = drive ? clamp(num(raw.spinF, 1), 0.55, 1) : undefined;
+  const angleD = drive ? clamp(num(raw.angleD, 0), -14, 14) : undefined;
+  const sloppy = clamp(Math.abs(o) + 0.6 * over + (drive ? 0.8 * (1 - spinF) + Math.abs(angleD) / 20 : 0), 0, 1.4);
+  const pure = !!raw.pure && pf === 1 && over === 0 && Math.abs(o) <= 0.05 && (!drive || (spinF === 1 && Math.abs(angleD) <= 1.1));
+  const grade = pure ? 'Pure' : sloppy < 0.25 ? 'Good' : sloppy < 0.55 ? 'Loose' : 'Shank';
+  return drive ? { pf, over, o, spinF, angleD, pure, sloppy, grade } : { pf, over, o, pure, sloppy, grade };
 }
 
 const PERFECT = { pf: 1, over: 0, o: 0, pure: false, sloppy: 0, grade: 'Preview' };
@@ -235,29 +284,61 @@ function penalty(plan, pts, kind, at, from, extra = null, roll = []) {
 
 /* ---------- putting ---------- */
 
-// Inside PUTT_RANGE, one tap: the needle has to be in the zone. It narrows with distance, and with a faster disc.
+// Inside PUTT_RANGE it is one tap on a swirling green. A dot wanders over a round grid on a path that never repeats; you
+// tap when it is inside the target at the center. The target shrinks with distance and with a faster disc, and the dot
+// speeds up the farther out you are.
 export function puttZone(dist, disc) {
   return clamp(0.36 - 0.0068 * dist - 0.012 * Math.max(0, disc.speed - 4), 0.04, 0.36);
 }
-export const puttMeter = (dist) => ({ period: 1.5 - 0.4 * clamp(dist / PUTT_RANGE, 0, 1) });
+export const puttRadius = (dist, disc) => clamp(puttZone(dist, disc) * 1.2, 0.07, 0.42); // of the grid's radius
+export const puttSpeed = (dist) => 1 + 0.9 * clamp(dist / PUTT_RANGE, 0, 1);
 
-export function resolvePutt(hole, lie, disc, x) {
+// The wandering dot: it spirals out from the middle and back through it, its distance from the center the size of two slow
+// waves added together, and the direction it faces speeding up, slowing and even reversing. Every pass through the middle
+// comes at an irregular time and from a new direction, so there is no rhythm to learn, but the green is always reached.
+// `rand` supplies the randomness (the browser gives it Math.random); the same seed always traces the same path, which is
+// what lets it be tested.
+export function makePuttSeed(rand) {
+  const between = (lo, hi) => lo + (hi - lo) * rand();
+  return {
+    f: [between(0.7, 1.0), between(1.5, 2.1)],
+    p: [between(0, 6.2832), between(0, 6.2832)],
+    w: between(1.3, 2.1) * (rand() < 0.5 ? -1 : 1),
+    g: between(0.5, 0.9),
+    gp: between(0, 6.2832),
+    th0: between(0, 6.2832),
+  };
+}
+export function puttCursorAt(seed, sec, speed = 1) {
+  const t = sec * speed;
+  const wave = 0.7 * Math.sin(seed.f[0] * t + seed.p[0]) + 0.3 * Math.sin(seed.f[1] * t + seed.p[1]);
+  const r = Math.min(1, Math.abs(wave) * 1.05);
+  const th = seed.th0 + seed.w * t + 1.1 * Math.sin(seed.g * t + seed.gp);
+  return { x: r * Math.cos(th), y: r * Math.sin(th) }; // x across the green (left/right), y along the putt (short/long)
+}
+
+// `shot` is where the dot was when you tapped: { x, y } in the grid's units (a bare number is just x).
+export function resolvePutt(hole, lie, disc, shot) {
   const dist = distance(lie, hole.basket);
+  const v = typeof shot === 'number' ? { x: shot, y: 0 } : { x: Number(shot?.x) || 0, y: Number(shot?.y) || 0 };
+  const off = Math.hypot(v.x, v.y);
+  const radius = puttRadius(dist, disc);
   const zone = puttZone(dist, disc);
-  if (dist <= GIMME || Math.abs(x) <= zone) {
-    return { kind: 'basket', made: true, gimme: dist <= GIMME && Math.abs(x) > zone, strokes: 1, lie: hole.basket, dist, zone };
+  if (dist <= GIMME || off <= radius) {
+    return { kind: 'basket', made: true, gimme: dist <= GIMME && off > radius, strokes: 1, lie: hole.basket, dist, zone, radius };
   }
-  // a miss: it ends up a few feet from the basket, on the side the needle was
-  const miss = clamp(2.5 + Math.abs(x) * 10, 3, 14);
-  const phi = Math.sign(x) * (35 + 40 * Math.abs(x)) * DEG;
+  // a miss: a few feet from the basket, on the side the dot was: across is left or right, up is long, down is short
+  const miss = clamp(2.5 + off * 10, 3, 14);
   const hv = headingVec(headingTo(lie, hole.basket));
+  const along = (v.y / off) * miss;
+  const across = (v.x / off) * miss;
   const spot = {
-    x: hole.basket.x + hv.ux * miss * Math.cos(phi) + hv.rx * miss * Math.sin(phi),
-    y: hole.basket.y + hv.uy * miss * Math.cos(phi) + hv.ry * miss * Math.sin(phi),
+    x: hole.basket.x + hv.ux * along + hv.rx * across,
+    y: hole.basket.y + hv.uy * along + hv.ry * across,
   };
   const s = surfaceAt(hole, spot.x, spot.y);
   const lieAfter = s === 'water' || s === 'oob' ? { x: hole.basket.x - hv.ux * 3, y: hole.basket.y - hv.uy * 3 } : spot;
-  return { kind: 'landed', made: false, strokes: 1, lie: lieAfter, dist, zone, miss };
+  return { kind: 'landed', made: false, strokes: 1, lie: lieAfter, dist, zone, radius, miss };
 }
 
 /* ---------- the round ---------- */

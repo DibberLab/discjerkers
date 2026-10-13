@@ -108,6 +108,11 @@ that way; don't introduce React/Vite/Tailwind here.
   (length, bend, woods, ponds, creek, guards). A round is a practice hole, the front nine, or all eighteen, with a
   scorecard; discs Marebear eats stay eaten for the round. `test/gamecore.test.js` checks every hole (trees not in
   ponds, tee and basket clear) and has a bot play each one: **a new or changed hole must stay solvable in par.**
+- The throw meter is a set of sliders: **a drive (disc speed 7+) gets four, in order: power, spin, angle, release**;
+  slower discs get power and release; a putt is one tap on a swirling circular green (the dot's path is seeded and
+  never repeats, and a miss goes the way the dot was). The player's own sliders plan the throw (arm speed, spin,
+  angle, plus hand, style and aim); the meter is how well they pull it off. `sanitizeExecution` is what a server
+  accepts back from the browser.
 - Marebear eats the disc you just threw, once per hole, the first time you are at a triple bogey or worse and have
   not holed out. That rule lives in `applyResult` and is tested; the bear is drawn in `drawBear`.
 - Modules import each other with `?v=N`: bump it when a module changes, or cached copies mix with new ones.
