@@ -58,7 +58,7 @@ const BEAR = { mine: ['Do not look at me. You earned it.'], theirs: ['{name} is 
 // so when they are about somebody else's throw they are aimed at that player by name.
 let CSV = {};
 export function useHeckles(data) { CSV = data && typeof data === 'object' ? data : {}; }
-const THROW_KEY = { tree: 'Hitting a Tree', water: 'Going in the Water' };
+const THROW_KEY = { tree: 'Hitting a Tree', water: 'Going in the Water', shank: 'Shanks', grip: 'Grip Locks', early: 'Early Releases', oob: 'Out of Bounds', rim: 'Rimmed Putts' };
 const HOLE_KEY = { ace: 'Eagle', eagle: 'Eagle', birdie: 'Birdie', par: 'Par', bogey: 'Bogey', double: 'Double Bogey', triple: 'Double Bogey' };
 
 const fill = (line, vars = {}) => line.replace(/\{(\w+)\}/g, (_, k) => (vars[k] ?? ''));
@@ -119,6 +119,7 @@ export function holeRemark(strokes, par, holed, rnd = Math.random, avoid = '') {
 
 // the others in a match: who took the hole, who won the day
 export function matchRemark(kind, { name = '' } = {}, rnd = Math.random, avoid = '') {
+  if (kind === 'lose' && CSV['Match Results']?.length) return pick(CSV['Match Results'], {}, rnd, avoid); // her words for the loser
   return pick(MATCH[kind], { name }, rnd, avoid);
 }
 export const bearRemark = (mine, name, rnd = Math.random) => pick(mine ? BEAR.mine : BEAR.theirs, { name }, rnd);

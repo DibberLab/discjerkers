@@ -74,7 +74,7 @@ test('she does not repeat herself, and a hole and a match each have something to
 test('the owner\'s own heckles (the CSV) are what she says about trees, water and the score of a hole', async () => {
   const T = await load();
   const data = heckles();
-  assert.deepStrictEqual(Object.keys(data).sort(), ['Birdie', 'Bogey', 'Double Bogey', 'Eagle', 'Going in the Water', 'Hitting a Tree', 'Par']);
+  assert.deepStrictEqual(Object.keys(data).sort(), ['Birdie', 'Bogey', 'Double Bogey', 'Eagle', 'Early Releases', 'Going in the Water', 'Grip Locks', 'Hitting a Tree', 'Match Results', 'Out of Bounds', 'Par', 'Rimmed Putts', 'Shanks']);
   for (const [cat, lines] of Object.entries(data)) {
     assert.ok(lines.length >= 25, `${cat}: ${lines.length} lines`);
     assert.strictEqual(new Set(lines).size, lines.length, `${cat}: no repeats`);
@@ -93,6 +93,12 @@ test('the owner\'s own heckles (the CSV) are what she says about trees, water an
     assert.ok(data.Bogey.includes(hole(5, 4)));
     assert.ok(data['Double Bogey'].includes(hole(6, 4)) && data['Double Bogey'].includes(hole(9, 4)), 'a double or worse');
     assert.ok(data.Eagle.includes(hole(2, 4)) && data.Eagle.includes(hole(1, 3)), 'an eagle or an ace');
-    assert.strictEqual(T.remark('oob', { who: 'me' }, () => 0).text.length > 0, true, 'and the events the CSV does not cover still get her own lines');
+    for (const [event, cat] of [['shank', 'Shanks'], ['grip', 'Grip Locks'], ['early', 'Early Releases'], ['oob', 'Out of Bounds'], ['rim', 'Rimmed Putts']]) {
+      assert.ok(data[cat].includes(T.remark(event, { who: 'me' }, () => 0).text), `${event}: from the CSV`);
+      assert.strictEqual(T.remark(event, { who: 'them', name: 'Dee' }, () => 0).to, 'Dee', `${event}: aimed at whoever threw`);
+    }
+    assert.ok(data['Match Results'].includes(T.matchRemark('lose', { name: 'Dee' }, () => 0)), 'losing a match: from the CSV');
+    assert.ok(!data['Match Results'].includes(T.matchRemark('win', { name: 'Dee' }, () => 0)), 'but winning is not an insult');
+    assert.strictEqual(T.remark('longMiss', { who: 'me' }, () => 0).text.length > 0, true, 'and the events the CSV does not cover still get her own lines');
   } finally { T.useHeckles({}); }
 });

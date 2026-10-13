@@ -6,7 +6,7 @@ import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl,
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=6';
 import * as G from './gamecore.js?v=16';
-import * as T from './trash.js?v=2';
+import * as T from './trash.js?v=3';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -2127,7 +2127,7 @@ async function boot() {
   document.documentElement.style.setProperty('--gm-top', `${top}px`);
   const res = await fetch('/data/flightguide.json?v=1');
   DATA = await res.json();
-  try { T.useHeckles(await (await fetch('/data/heckles.json?v=1')).json()); } catch { /* her own lines are enough */ }
+  try { T.useHeckles(await (await fetch('/data/heckles.json?v=2')).json()); } catch { /* her own lines are enough */ }
   for (const r of DATA.discs) DISCS.set(r[0], { id: r[0], name: r[1], b: r[2], cat: r[3], speed: r[4], glide: r[5], turn: r[6], fade: r[7], col: r[8] });
 
   new ResizeObserver(resize).observe($('#gm-stage'));
