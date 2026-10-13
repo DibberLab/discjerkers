@@ -168,12 +168,19 @@ that way; don't introduce React/Vite/Tailwind here.
   overlay; `S.dock` is its height and `midY()` centers the camera in what is left). A throw is set up in steps (Disc, Grip,
   Aim, then the four meters); caddy notes and Marebear's remarks float over the hole (`#gm-bubble`) instead of sitting in
   the panel. Desktop keeps the one side panel.
-- **3D flight camera (preview)** (`public/js/cam3d.js`): a thrown disc can be watched from behind it, in perspective, on the same
-  canvas: ground shapes (fairway stripes, water, out of bounds) are projected polygons clipped at the near plane, trees and the
-  basket (with a tall flag) are billboards sorted by depth, and a chase camera (`follow`) eases after the disc and banks into
-  turns. It is a **preview**: off for everyone unless they open `/game?cam=3d` (remembered in localStorage `dj_cam`; a "3D on/off"
-  chip then shows over the hole; `?cam=off` forgets it). Putts stay on the map. Tapping the hole skips the ride. When the
-  preview is judged good, flip the default in `loadCam()` in game.js.
+- **3D camera** (`public/js/cam3d.js`): a thrown disc is watched from behind it, in perspective, on the same canvas: ground shapes
+  (fairway stripes, water, out of bounds) are projected polygons clipped at the near plane, trees (drawn per species), bushes and
+  the basket (with a tall flag, and chains up close) are billboards sorted by depth, and a chase camera (`follow`) eases after
+  the disc and banks into turns. **On for everyone**, with a "3D on/off" chip over the hole (remembered in localStorage `dj_cam`;
+  `/game?cam=off` and `?cam=3d` set it). In a match of two everyone's throws are watched in 3D; in a bigger group the others'
+  stay on the map so it keeps moving. Tapping the hole skips a ride. A drawing mistake falls back to the map (`draw()` catches it)
+  and `frame()` can never stop the loop.
+- **Putting** (`public/js/puttfx.js`): within putting range the 3D view stays up (camera behind the disc, looking at the basket)
+  from setup to the end of the hole. `resolvePutt` decides: `finish` is `swish` (dead center), `rattle` (near the edge), `tapin`,
+  `rim` (just outside: it laps the rim and spits out), `miss`, or `nasty` (a miss that runs 14-46 ft away; the dice are passed in,
+  the server rolls them in a match; into water it costs a stroke). `puttScript` turns that into a film (where the disc is every
+  millisecond, with marks for the drop, the rim lap, the spit and the roll) and `drawPuttFx` draws the reaction: CHAINS! with
+  rings and confetti, a cold-washed RIMMED OUT, NASTY ROLL with the camera following the disc.
 - Modules import each other with `?v=N`: bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 

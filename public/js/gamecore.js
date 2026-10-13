@@ -421,18 +421,28 @@ export function puttCursorAt(seed, sec, speed = 1) {
   return { x: r * Math.cos(th), y: r * Math.sin(th) }; // x across the green (left/right), y along the putt (short/long)
 }
 
-// `shot` is where the dot was when you tapped: { x, y } in the grid's units (a bare number is just x).
-export function resolvePutt(hole, lie, disc, shot) {
+// How likely a missed putt is to take a nasty roll and run away from the basket: more from far out, more for a fast disc, and more
+// when it has just lipped out (it is already on its way).
+export const nastyChance = (dist, disc, rim) => clamp((0.06 + 0.1 * clamp(dist / PUTT_RANGE, 0, 1) + 0.01 * Math.max(0, disc.speed - 3)) * (rim ? 1.5 : 1), 0, 0.3);
+
+// `shot` is where the dot was when you tapped: { x, y } in the grid's units (a bare number is just x). `roll` is the dice
+// (0..1) for a nasty roll: the caller supplies it (the server, in a match), and the default never rolls one.
+export function resolvePutt(hole, lie, disc, shot, roll = 1) {
   const dist = distance(lie, hole.basket);
   const v = typeof shot === 'number' ? { x: shot, y: 0 } : { x: Number(shot?.x) || 0, y: Number(shot?.y) || 0 };
   const off = Math.hypot(v.x, v.y);
   const radius = puttRadius(dist, disc);
   const zone = puttZone(dist, disc);
   if (dist <= GIMME || off <= radius) {
-    return { kind: 'basket', made: true, gimme: dist <= GIMME && off > radius, strokes: 1, lie: hole.basket, dist, zone, radius };
+    // dead center is a clean swish; nearer the edge it rattles the chains before it drops
+    const gimme = dist <= GIMME && off > radius;
+    return { kind: 'basket', made: true, gimme, finish: gimme ? 'tapin' : off <= radius * 0.55 ? 'swish' : 'rattle', strokes: 1, lie: hole.basket, dist, zone, radius };
   }
   // a miss: a few feet from the basket, on the side the dot was: across is left or right, up is long, down is short
-  const miss = clamp(2.5 + off * 10, 3, 14);
+  const rim = off <= radius * 1.45; // just outside the target: it hits the cage and spits out
+  const nasty = roll < nastyChance(dist, disc, rim);
+  let miss = clamp(2.5 + off * 10, 3, 14);
+  if (nasty) miss = clamp(miss * 2.4 + 6, 14, 46); // and then it runs
   const hv = headingVec(headingTo(lie, hole.basket));
   const along = (v.y / off) * miss;
   const across = (v.x / off) * miss;
@@ -441,8 +451,10 @@ export function resolvePutt(hole, lie, disc, shot) {
     y: hole.basket.y + hv.uy * along + hv.ry * across,
   };
   const s = surfaceAt(hole, spot.x, spot.y);
-  const lieAfter = s === 'water' || s === 'oob' ? { x: hole.basket.x - hv.ux * 3, y: hole.basket.y - hv.uy * 3 } : spot;
-  return { kind: 'landed', made: false, strokes: 1, lie: lieAfter, dist, zone, radius, miss };
+  const wet = s === 'water' || s === 'oob';
+  const lieAfter = wet ? { x: hole.basket.x - hv.ux * 3, y: hole.basket.y - hv.uy * 3 } : spot;
+  // a nasty roll into the water costs a stroke on top of the putt
+  return { kind: 'landed', made: false, finish: nasty ? 'nasty' : rim ? 'rim' : 'miss', rim, nasty, strokes: nasty && wet ? 2 : 1, lie: lieAfter, dist, zone, radius, miss };
 }
 
 /* ---------- the round ---------- */

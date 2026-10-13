@@ -530,3 +530,20 @@ test('you can aim any way at all, including straight back', async () => {
   const off = Math.abs(((went - toBasket + 540) % 360) - 180);
   assert.ok(off > 120 || out.last.kind === 'tree', `it went away from the basket, not within 60 degrees of it (${Math.round(off)} degrees off)`);
 });
+
+test('a putt in a match comes back with how it finished, so everyone watching sees the same thing', async () => {
+  const { gp, store, id } = await seated();
+  begin(store, gp, id);
+  const m = store.get(id);
+  const who = m.round.turn;
+  const user = who === ANA.id ? ANA : BEN;
+  const hole = gp.hole(m.round.holeId);
+  m.round.rounds[who].lie = { x: hole.basket.x - 18, y: hole.basket.y - 10 }; // ~20 ft out
+  const disc = m.players.find((p) => p.uid === who).discs[0].id;
+  const out = store.move(user, id, 'putt', { discId: disc, x: 0.9, y: 0.4 }, gp); // well off center: a miss
+  assert.strictEqual(out.last.putt, true);
+  assert.ok(['rim', 'miss', 'nasty'].includes(out.last.finish), `a finish: ${out.last.finish}`);
+  assert.ok(out.last.dist > 10 && out.last.dist < 25);
+  assert.strictEqual(typeof out.last.rim, 'boolean');
+  if (out.last.finish === 'nasty') assert.ok(out.last.rolled > 10);
+});

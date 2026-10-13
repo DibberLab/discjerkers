@@ -161,6 +161,11 @@ function record(gp, m, uid, disc, result, extra) {
     made: result.made,
     gimme: result.gimme,
     zone: result.zone,
+    finish: result.finish,
+    rim: result.rim,
+    nasty: result.nasty,
+    rolled: result.nasty ? Math.round(result.miss) : undefined,
+    dist: result.dist !== undefined ? r1(result.dist) : undefined,
     hitAt: result.hit?.at ? { x: r1(result.hit.at.x), y: r1(result.hit.at.y) } : undefined,
     bear: out.bear ? { discId: out.bear.discId, at: { x: r1(out.bear.at.x), y: r1(out.bear.at.y) } } : undefined,
   };
@@ -245,7 +250,7 @@ function puttMove(gp, m, uid, body) {
   const y = body.y === undefined ? 0 : Number(body.y);
   if (!Number.isFinite(x) || !Number.isFinite(y) || Math.hypot(x, y) > 1.02) throw new MatchError('That is not a putt.');
   const disc = gp.discs.get(discId);
-  const result = G.resolvePutt(hole, r.lie, disc, { x, y });
+  const result = G.resolvePutt(hole, r.lie, disc, { x, y }, Math.random()); // the server rolls the dice for a nasty roll
   return record(gp, m, uid, disc, result, { putt: true });
 }
 

@@ -7,7 +7,8 @@ import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=8';
 import * as G from './gamecore.js?v=18';
 import * as T from './trash.js?v=3';
-import * as C3 from './cam3d.js?v=5';
+import * as C3 from './cam3d.js?v=6';
+import * as PF from './puttfx.js?v=1';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -663,24 +664,41 @@ function puttDisc(shot) {
   if (S.mode === 'match') { mpPutt(shot); return; }
   const disc = curDisc();
   const from = { ...lieOf() };
-  const result = G.resolvePutt(S.hole, from, disc, shot);
+  const result = G.resolvePutt(S.hole, from, disc, shot, Math.random());
   S.last = { result, ex: null, disc, from };
-  const to = result.made ? S.hole.basket : result.lie;
+  S.anim = puttAnim(from, result, result.lie, 'me');
+  puttReaction(result, 'me');
+  setPhase('flight');
+  retarget(false, S.anim.pts);
+}
+
+// The film of a putt: where the disc goes and what happens around it (puttfx.js), for the 3D view; the map gets a short version of
+// the same flight. `result` is what the rules said: { made, finish, rim, nasty, dist, ... }.
+function puttAnim(from, result, lie, who) {
+  const script = PF.puttScript({ from, basket: S.hole.basket, lie, result });
+  const to = result.made ? S.hole.basket : lie;
   const pts = Array.from({ length: 21 }, (_, i) => {
     const s = i / 20;
     return { x: from.x + (to.x - from.x) * s, y: from.y + (to.y - from.y) * s, h: 3 + 5 * 4 * s * (1 - s), s };
   });
-  S.anim = { type: 'flight', t0: now(), dur: 750, pts, roll: [], result, putt: true };
-  toast(result.made ? (result.gimme ? 'Tap-in' : 'Chains!') : 'Rimmed out', result.made ? 'good' : 'bad', 1100);
-  setPhase('flight');
-  retarget(false, pts);
+  const film = watching3D(who);
+  return { type: 'flight', t0: now(), dur: film ? script.total : 750, pts, roll: [], result, putt: true, script, tail: film ? script.tail : 350 };
+}
+
+// what the player feels when a putt lands: a toast on the map (the 3D view has its own big words), and a buzz
+const PUTT_WORDS = { swish: ['CHAINS!', 'good'], rattle: ['RATTLED IN!', 'good'], tapin: ['Tap-in', 'good'], rim: ['RIMMED OUT', 'bad'], nasty: ['NASTY ROLL', 'bad'], miss: ['Missed', 'bad'] };
+function puttReaction(result, who, name = '') {
+  const [word, tone] = PUTT_WORDS[result.finish] || (result.made ? ['Chains!', 'good'] : ['Missed', 'bad']);
+  if (!(CAM.on && watching3D(who))) toast(`${name}${word}`, tone, 1500);
+  else if (name) toast(`${name}${word}`, tone, 1200);
+  if (who === 'me' && navigator.vibrate) navigator.vibrate(result.made ? [30, 40, 30, 60, 90] : result.nasty ? [90, 50, 90] : [140, 90, 300]);
 }
 
 function finishThrow() {
   if (S.mode === 'match') { finishMove(); return; }
   const { result, disc, from } = S.last;
   const out = G.applyResult(S.round, disc, result);
-  say(T.remark(T.eventFor({ kind: result.kind, putt: !result.plan, made: result.made, gimme: result.gimme, ex: S.last.ex, strokes: S.round.strokes, dist: result.dist, surface: result.surface }), { who: 'me' }, Math.random, S.lastQuip));
+  say(T.remark(T.eventFor({ kind: result.kind, putt: !result.plan, made: result.made, gimme: result.gimme, ex: S.last.ex, strokes: S.round.strokes, dist: result.dist, surface: result.surface, rim: result.rim, nasty: result.nasty }), { who: 'me' }, Math.random, S.lastQuip));
   S.trail.push({ pts: [...result.pts ?? [], ...(result.roll ?? [])], kind: result.kind, n: S.round.throws.length, from });
   const at = result.end ?? result.lie;
   if (result.kind === 'water' || result.kind === 'oob') S.fx.push({ type: 'splash', x: at.x, y: at.y, t0: now() });
@@ -775,19 +793,18 @@ let dpr = 1;
 const cam = { x: 0, y: 200, s: 0.6, tx: 0, ty: 200, ts: 0.6 };
 const ZOOM = { min: 1, max: 3.4, step: 1.45 };
 
-// The 3D flight camera is a preview: it is off unless someone opens /game?cam=3d (which remembers itself, and shows a 3D switch
-// over the hole). /game?cam=off forgets it again.
-const CAM = { on: false, preview: false };
+// The 3D camera is on for everyone, with a 3D switch over the hole to turn it off (remembered). /game?cam=off or ?cam=3d set it too.
+const CAM = { on: true };
 function loadCam() {
   try {
     const q = new URLSearchParams(location.search).get('cam');
     if (q === '3d') localStorage.setItem('dj_cam', 'on');
-    else if (q === 'off') localStorage.removeItem('dj_cam');
-    const v = localStorage.getItem('dj_cam');
-    CAM.preview = v === 'on' || v === 'off';
-    CAM.on = v === 'on';
-  } catch { /* off */ }
+    else if (q === 'off') localStorage.setItem('dj_cam', 'off');
+    CAM.on = localStorage.getItem('dj_cam') !== 'off';
+  } catch { /* on */ }
 }
+// whose throws are watched in 3D: yours, and in a match of two everybody's; in a bigger group the others' stay on the map so the game keeps moving
+const watching3D = (who) => CAM.on && (!who || who === 'me' || !S.mp || S.mp.view.players.filter((p) => !p.left).length <= 2);
 const camDur = (ms) => (CAM.on ? Math.round(ms * 1.45) : ms); // a flight you ride is worth a little longer
 
 function resize() {
@@ -1339,18 +1356,18 @@ function drawFlight(t) {
     ctx.stroke();
   }
   drawDisc(shown.x, shown.y, p >= 1 ? 0 : pos.h, S.last.disc.id, 1, S.last.who);
-  const doneAt = a.dur + (a.roll.length ? 500 : 0) + 250;
+  const doneAt = a.dur + (a.roll.length ? 500 : 0) + 250 + (a.putt ? a.tail || 0 : 0);
   if (t - a.t0 >= doneAt) finishThrow();
 }
 
 // A throw seen from behind the disc (the preview). The same animation as the map's, from a camera that follows it.
-const riding = () => CAM.on && S.anim?.type === 'flight' && !S.anim.putt && S.anim.pts.length >= 3 && S.last && !S.anim.fail3d;
+const riding = () => CAM.on && S.anim?.type === 'flight' && !S.anim.putt && S.anim.pts.length >= 3 && S.last && !S.anim.fail3d && watching3D(S.last.who);
 
 // Putting stays in the 3D view from the moment you are in range until you are done: the camera stands behind your disc, looking at
 // the basket, and glides to the next spot after a miss.
 const puttingIn3D = () => {
   if (!CAM.on || !S.round || S.anim?.fail3d) return false;
-  if (S.phase === 'flight') return !!S.anim?.putt;
+  if (S.phase === 'flight') return !!S.anim?.putt && watching3D(S.last?.who);
   return ['pick', 'putt', 'result'].includes(S.phase) && !S.round.done && inPutt();
 };
 function drawPutt3D(t) {
@@ -1372,16 +1389,33 @@ function drawPutt3D(t) {
   c.roll += (0 - c.roll) * k;
   let disc = { x: lie.x, y: lie.y, h: 0.3 };
   let trail = [];
-  let el = 0;
-  if (a) {
+  const sc = a?.script;
+  const ms = a ? Math.max(0, t - a.t0) : 0;
+  let chain = 0;
+  if (sc) {
+    const at = sc.at(ms);
+    disc = { x: at.x, y: at.y, h: at.h };
+    for (let k = 0; k < ms; k += Math.max(30, ms / 36)) trail.push(sc.at(k));
+    trail.push(disc);
+    const m = sc.marks;
+    if (a.result.made && m.dropAt !== undefined) chain = Math.max(0, 1 - (ms - m.dropAt) / 1000) * (ms >= m.dropAt ? (a.result.finish === 'rattle' ? 1 : 0.7) : 0);
+    else if (a.result.rim && m.rimAt !== undefined && ms >= m.rimAt && ms < (m.spitAt ?? m.landAt)) chain = 0.45;
+    if (at.phase === 'roll') { // follow a disc that is running away
+      want.yaw = Math.atan2(at.x - c.x, at.y - c.y);
+      want.pitch = Math.atan2(0.6 - c.z, Math.hypot(at.x - c.x, at.y - c.y));
+    }
+  } else if (a) {
     const p = clamp((t - a.t0) / a.dur, 0, 1);
     const at = C3.discAt(a.pts, p);
     disc = { x: at.pos.x, y: at.pos.y, h: at.pos.h };
     trail = a.pts.slice(0, at.i + 1).concat([disc]);
-    el = t - a.t0;
   }
-  C3.drawScene(ctx, { hole: S.hole, cam: c, view: C3.viewOf(W, H, c, S.dock), disc, trail, color: (a ? discLook(S.last.disc.id, S.last.who) : discLook(curDisc()?.id ?? S.last?.disc.id, 'me')).color, t });
-  if (a && el >= a.dur + 250) finishThrow();
+  const view = C3.viewOf(W, H, c, S.dock);
+  const baseFov = 64 * (Math.PI / 180);
+  c.fov += ((baseFov + (S.pfov || 0)) - c.fov) * (1 - Math.exp(-dt * 6));
+  C3.drawScene(ctx, { hole: S.hole, cam: c, view, disc, trail, dz: 1, chain, color: (a ? discLook(S.last.disc.id, S.last.who) : discLook(curDisc()?.id ?? S.last?.disc.id, 'me')).color, t });
+  S.pfov = sc ? PF.drawPuttFx(ctx, { cam: c, view, hole: S.hole, W, H }, sc, ms, a.result).fov : 0;
+  if (sc) { if (ms >= sc.total + sc.tail) finishThrow(); } else if (a && t - a.t0 >= a.dur + 250) finishThrow();
 }
 function draw3D(t) {
   const a = S.anim;
@@ -1990,11 +2024,16 @@ function startMoveAnim(view, last, who) {
     ? Array.from({ length: 21 }, (_, i) => { const t = i / 20; return { x: last.from.x + (to.x - last.from.x) * t, y: last.from.y + (to.y - last.from.y) * t, h: 3 + 5 * 4 * t * (1 - t), s: t }; })
     : last.pts.map(([x, y, h]) => ({ x, y, h }));
   const roll = last.roll.map(([x, y]) => ({ x, y }));
-  const result = { kind: last.kind, pts, roll, end: last.end, lie: last.lie, strokes: last.strokes, made: last.made, gimme: last.gimme, plan: last.putt ? undefined : { feet: last.feet } };
+  const result = { kind: last.kind, pts, roll, end: last.end, lie: last.lie, strokes: last.strokes, made: last.made, gimme: last.gimme, finish: last.finish, rim: last.rim, nasty: last.nasty, dist: last.dist, plan: last.putt ? undefined : { feet: last.feet } };
   S.last = { result, ex: last.ex, disc, from: last.from, who };
-  S.anim = { type: 'flight', t0: now(), dur: last.putt ? 750 : camDur(clamp(900 + last.feet * 4.2, 1200, 3300)), pts, roll, result, putt: !!last.putt };
   const name = who === 'me' ? '' : `${playerOf(who, view).name}: `;
-  toast(`${name}${last.putt ? (last.made ? (last.gimme ? 'Tap-in' : 'Chains!') : 'Rimmed out') : last.ex?.grade || ''}`, last.putt ? (last.made ? 'good' : 'bad') : last.ex?.pure ? 'good' : last.ex?.slip || last.ex?.grade === 'Shank' ? 'bad' : '', 1400);
+  if (last.putt) {
+    S.anim = puttAnim(last.from, result, last.lie, who);
+    puttReaction(result, who, name);
+  } else {
+    S.anim = { type: 'flight', t0: now(), dur: camDur(clamp(900 + last.feet * 4.2, 1200, 3300)), pts, roll, result, putt: false };
+    toast(`${name}${last.ex?.grade || ''}`, last.ex?.pure ? 'good' : last.ex?.slip || last.ex?.grade === 'Shank' ? 'bad' : '', 1400);
+  }
   setPhase('flight');
   retarget(false, pts);
 }
@@ -2016,7 +2055,7 @@ function finishMove() {
   trail.push({ pts: [...result.pts, ...result.roll].map((p) => ({ x: p.x, y: p.y })), kind: result.kind, n: trail.length + 1 });
   const mover = playerOf(L.who === 'me' ? mp.me : L.who, mp.view);
   const total = mp.view.round?.rounds[mover.uid]?.strokes ?? 0;
-  say(T.remark(T.eventFor({ kind: last.kind, putt: last.putt, made: last.made, gimme: last.gimme, ex: last.ex, strokes: total, dist: G.distance(last.from, S.hole.basket), surface: S.last.result.surface }), { who: L.who === 'me' ? 'me' : 'them', name: mover.name }, Math.random, S.lastQuip));
+  say(T.remark(T.eventFor({ kind: last.kind, putt: last.putt, made: last.made, gimme: last.gimme, ex: last.ex, strokes: total, dist: G.distance(last.from, S.hole.basket), surface: S.last.result.surface, rim: last.rim, nasty: last.nasty }), { who: L.who === 'me' ? 'me' : 'them', name: mover.name }, Math.random, S.lastQuip));
   if (last.bear) { startBear({ discId: last.bear.discId, at: last.bear.at, owner: L.who }); return; }
   afterMove();
 }
@@ -2266,7 +2305,7 @@ async function boot() {
 
   loadCam();
   const camBtn = $('#gm-cam');
-  const showCam = () => { camBtn.hidden = !CAM.preview; camBtn.setAttribute('aria-pressed', String(CAM.on)); camBtn.textContent = CAM.on ? '3D on' : '3D off'; };
+  const showCam = () => { camBtn.hidden = false; camBtn.setAttribute('aria-pressed', String(CAM.on)); camBtn.textContent = CAM.on ? '3D on' : '3D off'; };
   showCam();
   camBtn.addEventListener('click', () => { CAM.on = !CAM.on; try { localStorage.setItem('dj_cam', CAM.on ? 'on' : 'off'); } catch { /* not saved */ } showCam(); });
   new ResizeObserver(resize).observe($('#gm-stage'));
@@ -2322,7 +2361,7 @@ async function boot() {
       openSignIn({ onDone: () => mpJoin(code) });
     }
   }
-  window.__gm = { S, G, clock, tap, throwDisc, startMeter, next, retarget, cam, DISCS, showMenu, startSolo, startHole, startBear, finishThrow, finishHole, finishCourse, openLobby, enterMatch, applyView, onMatchState, finishMove, mpCreate, mpJoin, step: () => { const t = now(); update(t); draw(t); } };
+  window.__gm = { puttDisc, S, G, clock, tap, throwDisc, startMeter, next, retarget, cam, DISCS, showMenu, startSolo, startHole, startBear, finishThrow, finishHole, finishCourse, openLobby, enterMatch, applyView, onMatchState, finishMove, mpCreate, mpJoin, step: () => { const t = now(); update(t); draw(t); } };
   requestAnimationFrame(frame);
 }
 

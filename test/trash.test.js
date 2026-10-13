@@ -44,6 +44,9 @@ test('a throw is classified, and only the notable ones get a remark', async () =
   assert.strictEqual(T.eventFor({ kind: 'basket', putt: true, made: true, dist: 42 }), 'sunk');
   assert.strictEqual(T.eventFor({ kind: 'basket', putt: true, made: true, dist: 12 }), null);
   assert.strictEqual(T.eventFor({ kind: 'basket', putt: true, made: true, gimme: true, dist: 2 }), null);
+  assert.strictEqual(T.eventFor({ kind: 'landed', putt: true, made: false, dist: 12, nasty: true }), 'nasty', 'a nasty roll gets its own remark');
+  assert.strictEqual(T.eventFor({ kind: 'landed', putt: true, made: false, dist: 12, rim: true }), 'rim');
+  assert.ok(T.remark('nasty', { who: 'me' }, () => 0).text.length > 10 && /Dee/.test(T.remark('nasty', { who: 'them', name: 'Dee' }, () => 0).text));
 
   assert.strictEqual(T.remark(null).text, '');
   assert.ok(T.remark('water', { who: 'me' }, () => 0).text.length > 0, 'a splash always gets one');

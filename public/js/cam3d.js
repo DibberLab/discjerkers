@@ -223,7 +223,7 @@ function drawTree(ctx, cam, b, view, t) {
 }
 
 // the basket: a pole, a ring with its chains, and a tall flag so you can find it from a long way off
-function drawBasket(ctx, cam, b, view, hole) {
+function drawBasket(ctx, cam, b, view, hole, jiggle = 0, t = 0) {
   const { x, y } = hole.basket;
   const g = project(cam, view, x, y, 0);
   if (!g || g.d > 2500) return;
@@ -255,7 +255,8 @@ function drawBasket(ctx, cam, b, view, hole) {
     for (let i = 0; i < 9; i++) {
       const a = (i / 9) * Math.PI * 2;
       const up = project(cam, view, x + Math.cos(a) * 1.45, y + Math.sin(a) * 1.45, 4.4);
-      const dn = project(cam, view, x + Math.cos(a) * 0.9, y + Math.sin(a) * 0.9, 2.3);
+      const sway = jiggle * 0.5 * Math.sin(t / 38 + i * 1.9); // the chains rattle when something has gone through
+      const dn = project(cam, view, x + Math.cos(a) * 0.9 + sway, y + Math.sin(a) * 0.9 - sway * 0.6, 2.3);
       if (!up || !dn) continue;
       ctx.beginPath();
       ctx.moveTo(up.x, up.y);
@@ -270,9 +271,9 @@ function drawBasket(ctx, cam, b, view, hole) {
   ctx.stroke();
 }
 
-function drawDisc(ctx, cam, view, p, color, t) {
+function drawDisc(ctx, cam, view, p, color, t, dz = ZS) {
   const g = project(cam, view, p.x, p.y, 0);
-  const a = project(cam, view, p.x, p.y, Math.max(0.4, p.h * ZS));
+  const a = project(cam, view, p.x, p.y, Math.max(0.4, p.h * dz));
   if (g) { // the shadow on the grass
     ctx.fillStyle = `rgba(0,0,0,${Math.max(0.12, 0.4 - p.h * 0.004)})`;
     ctx.beginPath();
@@ -296,11 +297,11 @@ function drawDisc(ctx, cam, view, p, color, t) {
 }
 
 // the flight so far, as a ribbon that fades behind the disc
-function drawTrail(ctx, cam, view, pts) {
+function drawTrail(ctx, cam, view, pts, dz = ZS) {
   const n = pts.length;
   let prev = null;
   for (let i = 0; i < n; i++) {
-    const q = project(cam, view, pts[i].x, pts[i].y, pts[i].h * ZS);
+    const q = project(cam, view, pts[i].x, pts[i].y, pts[i].h * dz);
     if (q && prev) {
       ctx.strokeStyle = `rgba(238,241,232,${0.15 + 0.6 * (i / n)})`;
       ctx.lineWidth = Math.max(1.5, 0.28 * q.s);
@@ -343,7 +344,8 @@ export function drawScene(ctx, scene) {
   const hy = sky(ctx, cam, b, view);
   drawGround(ctx, cam, b, view, hole);
   haze(ctx, view, hy);
-  drawTrail(ctx, cam, view, trail);
+  const dz = scene.dz ?? ZS; // a putt is drawn at its true height, so it meets the cage where the cage is
+  drawTrail(ctx, cam, view, trail, dz);
   if (scene.splash) drawSplash(ctx, cam, view, scene.splash.at, scene.splash.age);
   // everything that stands up, farthest first
   const things = [];
@@ -351,8 +353,8 @@ export function drawScene(ctx, scene) {
     const c = toCam(cam, b, tr.x, tr.y, 0);
     if (c[2] >= NEAR && c[2] <= FAR) things.push({ d: c[2], draw: () => drawTree(ctx, cam, b, view, tr) });
   }
-  things.push({ d: toCam(cam, b, hole.basket.x, hole.basket.y, 0)[2], draw: () => drawBasket(ctx, cam, b, view, hole) });
-  things.push({ d: toCam(cam, b, disc.x, disc.y, 0)[2] - 0.5, draw: () => drawDisc(ctx, cam, view, disc, color, t) });
+  things.push({ d: toCam(cam, b, hole.basket.x, hole.basket.y, 0)[2], draw: () => drawBasket(ctx, cam, b, view, hole, scene.chain || 0, t) });
+  things.push({ d: toCam(cam, b, disc.x, disc.y, 0)[2] - 0.5, draw: () => drawDisc(ctx, cam, view, disc, color, t, dz) });
   things.sort((p, q) => q.d - p.d);
   for (const th of things) th.draw();
   ctx.restore();
