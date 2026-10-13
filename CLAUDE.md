@@ -175,6 +175,13 @@ that way; don't introduce React/Vite/Tailwind here.
   `/game?cam=off` and `?cam=3d` set it). In a match of two everyone's throws are watched in 3D; in a bigger group the others'
   stay on the map so it keeps moving. Tapping the hole skips a ride. A drawing mistake falls back to the map (`draw()` catches it)
   and `frame()` can never stop the loop.
+- **The putt has two steps**: the swirling radar (where the putt wants to go), then a **swipe** (phase `swipe`) toward the basket. A
+  swipe has an aim (degrees off straight up the screen, + right) and a power (its length against what this distance needs,
+  `swipeNeed()`; 1 is just enough). `swipeTolerance(dist)` is how far either may be off (about 10 deg and 22% close in, 3 deg and
+  10% from 50 ft); outside it the putt **cannot go in**: `resolvePutt(..., swipe)` adds the swipe's error to the radar's, so it
+  misses short (`why: 'weak'`), long (`'strong'`, and more likely a nasty roll), left or right, or lips out if only just off. A
+  swipe near the limit still counts as true, and tap-ins need none. With no swipe (an older page, a test) it counts as true.
+  The server takes `body.swipe` (`sanitizeSwipe`) and, like the meters, trusts the player about the gesture.
 - **Putting** (`public/js/puttfx.js`): within putting range the 3D view stays up (camera behind the disc, looking at the basket)
   from setup to the end of the hole. `resolvePutt` decides: `finish` is `swish` (dead center), `rattle` (near the edge), `tapin`,
   `rim` (just outside: it laps the rim and spits out), `miss`, or `nasty` (a miss that runs 14-46 ft away; the dice are passed in,

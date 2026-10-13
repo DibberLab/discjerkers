@@ -425,14 +425,45 @@ export function puttCursorAt(seed, sec, speed = 1) {
 // when it has just lipped out (it is already on its way).
 export const nastyChance = (dist, disc, rim) => clamp((0.06 + 0.1 * clamp(dist / PUTT_RANGE, 0, 1) + 0.01 * Math.max(0, disc.speed - 3)) * (rim ? 1.5 : 1), 0, 0.3);
 
+/* The swipe that follows the radar: a flick toward the basket. How true it was (aim: degrees off the line, + is right) and how hard
+   (power: 1 is just enough). Outside these tolerances it cannot go in; the tolerance tightens the farther out you are. */
+export const swipeTolerance = (dist) => ({ aim: clamp(10 - dist * 0.14, 3.2, 10), power: clamp(0.22 - dist * 0.0025, 0.1, 0.22) });
+export function swipeQuality(dist, swipe) {
+  const tol = swipeTolerance(dist);
+  const aimErr = swipe.aim;
+  const powErr = swipe.power - 1;
+  const aimN = Math.abs(aimErr) / tol.aim;
+  const powN = Math.abs(powErr) / tol.power;
+  return { tol, aimErr, powErr, aimN, powN, q: Math.max(aimN, powN) }; // q of 1 or less is a true swipe
+}
+// what a server accepts for a swipe: two real numbers in a believable range, or nothing (an older page: counted as a true swipe)
+export function sanitizeSwipe(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const aim = Number(raw.aim);
+  const power = Number(raw.power);
+  if (!Number.isFinite(aim) || !Number.isFinite(power)) return null;
+  return { aim: clamp(aim, -60, 60), power: clamp(power, 0, 2.5) };
+}
+
 // `shot` is where the dot was when you tapped: { x, y } in the grid's units (a bare number is just x). `roll` is the dice
-// (0..1) for a nasty roll: the caller supplies it (the server, in a match), and the default never rolls one.
-export function resolvePutt(hole, lie, disc, shot, roll = 1) {
+// (0..1) for a nasty roll: the caller supplies it (the server, in a match), and the default never rolls one. `swipe` is the flick
+// after the radar ({ aim, power }, see above); without one the swipe counts as true.
+export function resolvePutt(hole, lie, disc, shot, roll = 1, swipe = null) {
   const dist = distance(lie, hole.basket);
-  const v = typeof shot === 'number' ? { x: shot, y: 0 } : { x: Number(shot?.x) || 0, y: Number(shot?.y) || 0 };
-  const off = Math.hypot(v.x, v.y);
+  let v = typeof shot === 'number' ? { x: shot, y: 0 } : { x: Number(shot?.x) || 0, y: Number(shot?.y) || 0 };
   const radius = puttRadius(dist, disc);
   const zone = puttZone(dist, disc);
+  let why = null;
+  if (swipe && dist > GIMME) {
+    const sq = swipeQuality(dist, swipe);
+    if (sq.q > 1) { // the swipe was off: it cannot go in, and the radar's miss is joined by the swipe's own
+      v = { x: v.x + (sq.aimErr / sq.tol.aim) * radius, y: v.y + (sq.powErr / sq.tol.power) * radius };
+      const m = Math.hypot(v.x, v.y);
+      if (m < radius * 1.08) v = m ? { x: (v.x / m) * radius * 1.08, y: (v.y / m) * radius * 1.08 } : { x: radius * 1.08, y: 0 };
+      why = sq.powN >= sq.aimN ? (sq.powErr < 0 ? 'weak' : 'strong') : (sq.aimErr > 0 ? 'right' : 'left');
+    }
+  }
+  const off = Math.hypot(v.x, v.y);
   if (dist <= GIMME || off <= radius) {
     // dead center is a clean swish; nearer the edge it rattles the chains before it drops
     const gimme = dist <= GIMME && off > radius;
@@ -440,7 +471,7 @@ export function resolvePutt(hole, lie, disc, shot, roll = 1) {
   }
   // a miss: a few feet from the basket, on the side the dot was: across is left or right, up is long, down is short
   const rim = off <= radius * 1.45; // just outside the target: it hits the cage and spits out
-  const nasty = roll < nastyChance(dist, disc, rim);
+  const nasty = roll < nastyChance(dist, disc, rim) + (why === 'strong' ? 0.22 : 0); // a putt hit too hard runs away more
   let miss = clamp(2.5 + off * 10, 3, 14);
   if (nasty) miss = clamp(miss * 2.4 + 6, 14, 46); // and then it runs
   const hv = headingVec(headingTo(lie, hole.basket));
@@ -454,7 +485,7 @@ export function resolvePutt(hole, lie, disc, shot, roll = 1) {
   const wet = s === 'water' || s === 'oob';
   const lieAfter = wet ? { x: hole.basket.x - hv.ux * 3, y: hole.basket.y - hv.uy * 3 } : spot;
   // a nasty roll into the water costs a stroke on top of the putt
-  return { kind: 'landed', made: false, finish: nasty ? 'nasty' : rim ? 'rim' : 'miss', rim, nasty, strokes: nasty && wet ? 2 : 1, lie: lieAfter, dist, zone, radius, miss };
+  return { kind: 'landed', made: false, finish: nasty ? 'nasty' : rim ? 'rim' : 'miss', rim, nasty, why, strokes: nasty && wet ? 2 : 1, lie: lieAfter, dist, zone, radius, miss };
 }
 
 /* ---------- the round ---------- */

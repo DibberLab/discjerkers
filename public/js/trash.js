@@ -12,6 +12,9 @@ const MINE = {
   oob: ['Out of bounds. The boundary was right there. It was dashed. It was orange.', 'You found the part of the course where discs go to be forgotten.', 'Nobody told you there was an edge? There is an edge.'],
   rough: ['Rough. Like your day.', 'That is what the fairway looked like from far away.', 'The rough thanks you for visiting.'],
   rim: ['Rimmed out! So close, so useless.', 'The basket spat you out. It has standards.', 'Almost counts in horseshoes. This is not horseshoes.', 'That putt had its chance and said no thank you.'],
+  soft: ['You babied that one. It never had a chance of getting there.', 'That swipe had all the conviction of a handshake from a ghost.', 'Short. You swiped like you were wiping a window.'],
+  hard: ['You swiped that like it owed you money.', 'Way too hard. It is not a hockey puck.', 'You hammered it. The basket does not need to be impressed.'],
+  wide: ['Your swipe pointed at a different basket entirely.', 'Off line. The basket was right there. It is orange.', 'That swipe had a mind of its own, and it was wrong.'],
   nasty: ['That putt took a nasty roll and kept going. I felt that one.', 'It rolled off like it had somewhere better to be.', 'A nasty roll. Gravity has opinions about you.', 'It ran and ran. You can walk it down, I guess.'],
   longMiss: ['Past thirty feet the target is a pinprick. What did you expect?', 'A putt that long? Optimism is lovely, but it is not a skill.', 'You missed a thirty-footer. Join the club. It is large.'],
   pure: ['Fine. That was good. Do not let it go to your head.', 'A pure throw. Savor it, there will not be many.', 'Okay, okay, show-off.'],
@@ -27,6 +30,9 @@ const THEIRS = {
   water: ['{name} threw a disc into the water. A moment of silence.', 'Splash. {name} is feeding the fish.', '{name} went for a swim. The disc, not {name}.'],
   oob: ['{name} went out of bounds. The boundary is orange, {name}.', '{name} found out where the course ends.'],
   rim: ['{name} rimmed out. The basket said no.', '{name} was one inch from glory and could not be bothered.'],
+  soft: ['{name} babied that putt and it died short.'],
+  hard: ['{name} swiped that one way too hard.'],
+  wide: ['{name} putted it somewhere near the basket, and not near enough.'],
   nasty: ['{name} putted it and it rolled off into the next county.', '{name} took a nasty roll. Somebody fetch it.'],
   longMiss: ['{name} missed a long putt. Tough, but honestly, expected.'],
   pure: ['{name} threw a pure one. I suppose that is allowed.', 'Nice throw from {name}. Do not tell them I said so.'],
@@ -77,10 +83,11 @@ export function pick(list, vars = {}, rnd = Math.random, avoid = '') {
  * What was that throw? One of the keys above, or null when it was nothing to talk about.
  *   { kind, putt, made, gimme, ex, strokes (so far on the hole), dist (feet, for a putt), surface }
  */
-export function eventFor({ kind, putt, made, gimme, ex, strokes, dist, surface, rim, nasty }) {
+export function eventFor({ kind, putt, made, gimme, ex, strokes, dist, surface, rim, nasty, why }) {
   if (putt) {
     if (made) return gimme ? null : dist > 30 ? 'sunk' : null;
     if (nasty) return 'nasty';
+    if (why) return rim ? 'rim' : why === 'weak' ? 'soft' : why === 'strong' ? 'hard' : 'wide'; // a bad swipe: how it was bad
     if (rim) return 'rim';
     return dist > 30 ? 'longMiss' : 'rim';
   }
@@ -100,7 +107,7 @@ export function eventFor({ kind, putt, made, gimme, ex, strokes, dist, surface, 
 // so she stays funny instead of constant.
 export function remark(event, { who = 'me', name = '' } = {}, rnd = Math.random, avoid = '') {
   if (!event) return { text: '', to: '' };
-  const chance = { grip: 1, early: 1, shank: 1, tree: 0.85, water: 1, oob: 1, nasty: 1, rim: 0.7, longMiss: 0.8, pure: 0.5, ace: 1, chains: 0.8, sunk: 1, rough: 0.2 }[event] ?? 0.5;
+  const chance = { grip: 1, early: 1, shank: 1, tree: 0.85, water: 1, oob: 1, nasty: 1, soft: 1, hard: 1, wide: 1, rim: 0.7, longMiss: 0.8, pure: 0.5, ace: 1, chains: 0.8, sunk: 1, rough: 0.2 }[event] ?? 0.5;
   const own = CSV[THROW_KEY[event]];
   if (own && own.length) {
     if (rnd() > chance) return { text: '', to: '' };

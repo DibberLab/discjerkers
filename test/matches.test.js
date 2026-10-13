@@ -547,3 +547,26 @@ test('a putt in a match comes back with how it finished, so everyone watching se
   assert.strictEqual(typeof out.last.rim, 'boolean');
   if (out.last.finish === 'nasty') assert.ok(out.last.rolled > 10);
 });
+
+test('a putt in a match takes the swipe: a true one lets the radar decide, a bad one is always a miss', async () => {
+  const { gp, store, id } = await seated();
+  begin(store, gp, id);
+  const hole = gp.hole(store.get(id).round.holeId);
+  const putt = (swipe) => {
+    const m = store.get(id);
+    const who = m.round.turn;
+    const user = who === ANA.id ? ANA : BEN;
+    m.round.rounds[who].lie = { x: hole.basket.x - 15, y: hole.basket.y - 12 }; // ~19 ft
+    const disc = m.players.find((p) => p.uid === who).discs[0].id;
+    return store.move(user, id, 'putt', { discId: disc, x: 0, y: 0, swipe }, gp).last; // a dead-center radar
+  };
+  assert.strictEqual(putt({ aim: 0, power: 1 }).made, true, 'true swipe, true radar: in');
+  const m = store.get(id);
+  if (m.status === 'active' && !m.round.rounds[m.round.turn].done) {
+    const bad = putt({ aim: 0, power: 0.5 });
+    assert.strictEqual(bad.made, false, 'a swipe far too soft misses even with a perfect radar');
+    assert.strictEqual(bad.why, 'weak');
+  }
+  const m2 = store.get(id);
+  if (m2.status === 'active' && !m2.round.rounds[m2.round.turn].done) assert.strictEqual(putt(undefined).made, true, 'no swipe (an older page) counts as true');
+});

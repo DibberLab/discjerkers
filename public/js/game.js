@@ -8,7 +8,7 @@ import { HOLES, holeById, holesFor } from './course.js?v=8';
 import * as G from './gamecore.js?v=18';
 import * as T from './trash.js?v=3';
 import * as C3 from './cam3d.js?v=6';
-import * as PF from './puttfx.js?v=1';
+import * as PF from './puttfx.js?v=2';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -87,7 +87,7 @@ const S = {
   boardOpen: null, // the scoreboard in a match: open or folded (null: open for a small group)
   lobby: { matches: [], msg: '', holes: 18, invite: '', code: '', busy: false },
   course: null, // the round being played: { length, holes, idx, card, eaten }
-  phase: 'loading', // menu | lobby | pick | power | nose | angle | release | putt | flight | result | bear | done | summary | mwait | mturn | mhole | mdone
+  phase: 'loading', // menu | lobby | pick | power | nose | angle | release | putt | swipe | flight | result | bear | done | summary | mwait | mturn | mhole | mdone
   bag: { starter: true, discs: [] },
   discId: null,
   settings: loadSettings(),
@@ -544,7 +544,7 @@ function renderPanel(focusSel) {
   const p = panel();
   if (!p) return;
   const keepScroll = p.dataset.phase === S.phase ? p.scrollTop : 0;
-  const views = { menu: panelMenu, pick: panelPick, power: panelMeter, nose: panelMeter, angle: panelMeter, release: panelMeter, putt: panelMeter, flight: panelFlight, result: panelResult, bear: panelBear, done: panelDone, summary: panelSummary, lobby: panelLobby, mwait: panelMwait, mturn: panelMturn, mhole: panelMhole, mdone: panelMdone };
+  const views = { menu: panelMenu, pick: panelPick, power: panelMeter, nose: panelMeter, angle: panelMeter, release: panelMeter, putt: panelMeter, swipe: panelSwipe, flight: panelFlight, result: panelResult, bear: panelBear, done: panelDone, summary: panelSummary, lobby: panelLobby, mwait: panelMwait, mturn: panelMturn, mhole: panelMhole, mdone: panelMdone };
   p.innerHTML = (views[S.phase] || (() => ''))();
   p.dataset.phase = S.phase;
   p.scrollTop = keepScroll;
@@ -642,7 +642,9 @@ function tap() {
     // solo rolls the slip here; in a match the server does, and the throw comes back with it
     throwDisc(S.mode === 'match' ? ex : G.applySlip(ex, G.rollSlip(curDisc(), S.settings, Math.random())));
   } else if (S.phase === 'putt') {
-    puttDisc(G.puttCursorAt(m.params, t, m.speed));
+    const shot = G.puttCursorAt(m.params, t, m.speed);
+    if (toBasket() <= G.GIMME) puttDisc(shot, null); // a tap-in needs no swipe
+    else startSwipe(shot); // the radar says where the putt wants to go; the swipe has to deliver it
   }
 }
 
@@ -660,11 +662,11 @@ function throwDisc(ex) {
   retarget(false, result.pts);
 }
 
-function puttDisc(shot) {
-  if (S.mode === 'match') { mpPutt(shot); return; }
+function puttDisc(shot, swipe = null) {
+  if (S.mode === 'match') { mpPutt(shot, swipe); return; }
   const disc = curDisc();
   const from = { ...lieOf() };
-  const result = G.resolvePutt(S.hole, from, disc, shot, Math.random());
+  const result = G.resolvePutt(S.hole, from, disc, shot, Math.random(), swipe);
   S.last = { result, ex: null, disc, from };
   S.anim = puttAnim(from, result, result.lie, 'me');
   puttReaction(result, 'me');
@@ -685,10 +687,140 @@ function puttAnim(from, result, lie, who) {
   return { type: 'flight', t0: now(), dur: film ? script.total : 750, pts, roll: [], result, putt: true, script, tail: film ? script.tail : 350 };
 }
 
+/* ----- the swipe: after the radar, a flick toward the basket. True in aim and in power, or it misses. ----- */
+
+// how far a swipe must run, in pixels, to be exactly enough: longer for a longer putt
+const swipeNeed = () => (H - S.dock) * (0.22 + 0.0065 * toBasket());
+
+function startSwipe(shot) {
+  S.meter = { kind: 'swipe', shot, drag: null };
+  setPhase('swipe');
+}
+function panelSwipe() {
+  return `<div class="gm-meter gm-meter--putt">
+      <p class="gm-meter__t"><span>2 ·</span> Swipe</p>
+      <div class="gm-meter__h"><p>Flick from the disc toward the basket. Keep it straight inside the lime lines, and stop inside the lime band: too soft dies short, too hard runs long, and off line misses.</p></div>
+    </div>`;
+}
+function swipePoint(e) {
+  const r = cv.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+function beginSwipe(e) {
+  const p = swipePoint(e);
+  S.meter.drag = { x0: p.x, y0: p.y, x: p.x, y: p.y };
+  cv.setPointerCapture?.(e.pointerId);
+}
+function moveSwipe(e) {
+  const d = S.meter?.drag;
+  if (!d) return;
+  const p = swipePoint(e);
+  d.x = p.x;
+  d.y = p.y;
+}
+function endSwipe() {
+  const m = S.meter;
+  const d = m?.drag;
+  if (S.phase !== 'swipe' || !d) return;
+  m.drag = null;
+  const dx = d.x - d.x0;
+  const dy = d.y - d.y0;
+  const len = Math.hypot(dx, dy);
+  if (len < 28) return; // a tap, not a swipe: try again
+  puttDisc(m.shot, { aim: Math.round(((Math.atan2(dx, -dy) * 180) / Math.PI) * 10) / 10, power: Math.round((len / swipeNeed()) * 1000) / 1000 });
+}
+
+// the guide you swipe by: the cone to stay inside, the band to stop in, and your own line as you draw it
+function drawSwipeGuide() {
+  const m = S.meter;
+  if (!m || m.kind !== 'swipe') return;
+  const dist = toBasket();
+  const need = swipeNeed();
+  const tol = G.swipeTolerance(dist);
+  const d = m.drag;
+  const ax = d ? d.x0 : W / 2;
+  const ay = d ? d.y0 : (H - S.dock) * 0.88;
+  const rad = (deg) => (deg * Math.PI) / 180;
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.lineCap = 'round';
+  // the band to stop in, between the two rays
+  ctx.beginPath();
+  ctx.arc(ax, ay, need * (1 + tol.power), -Math.PI / 2 - rad(tol.aim), -Math.PI / 2 + rad(tol.aim));
+  ctx.arc(ax, ay, need * (1 - tol.power), -Math.PI / 2 + rad(tol.aim), -Math.PI / 2 - rad(tol.aim), true);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(163,230,53,0.22)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(163,230,53,0.9)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  // the rays you must stay between
+  ctx.setLineDash([8, 7]);
+  for (const sgn of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(ax + Math.sin(rad(tol.aim * sgn)) * need * 1.15, ay - Math.cos(rad(tol.aim * sgn)) * need * 1.15);
+    ctx.strokeStyle = 'rgba(163,230,53,0.55)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  if (!d) { // waiting: chevrons pulsing up the way to swipe
+    const pulse = (performance.now() / 700) % 1;
+    for (let i = 0; i < 3; i++) {
+      const y = ay - 14 - ((i + pulse) % 3) * 22;
+      ctx.beginPath();
+      ctx.moveTo(ax - 12, y + 7);
+      ctx.lineTo(ax, y - 5);
+      ctx.lineTo(ax + 12, y + 7);
+      ctx.strokeStyle = `rgba(238,241,232,${0.9 - ((i + pulse) % 3) * 0.28})`;
+      ctx.lineWidth = 4;
+      ctx.stroke();
+    }
+    ctx.font = '400 26px "Anton", Impact, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#eef1e8';
+    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+    ctx.lineWidth = 5;
+    ctx.strokeText('SWIPE UP TO PUTT', ax, ay + 34);
+    ctx.fillText('SWIPE UP TO PUTT', ax, ay + 34);
+  } else { // your line, coloured by how true it is right now
+    const dx = d.x - d.x0;
+    const dy = d.y - d.y0;
+    const len = Math.hypot(dx, dy);
+    const aim = (Math.atan2(dx, -dy) * 180) / Math.PI;
+    const sq = G.swipeQuality(dist, { aim, power: len / need });
+    const color = sq.q <= 1 ? '#a3e635' : sq.q <= 1.5 ? '#f2c14e' : '#ff6a3a';
+    ctx.beginPath();
+    ctx.moveTo(d.x0, d.y0);
+    ctx.lineTo(d.x, d.y);
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 11;
+    ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 6;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, 11, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.font = '700 14px "Space Mono", monospace';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#fff';
+    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+    ctx.lineWidth = 4;
+    ctx.strokeText(`${Math.round((len / need) * 100)}%`, d.x + 18, d.y + 5);
+    ctx.fillText(`${Math.round((len / need) * 100)}%`, d.x + 18, d.y + 5);
+  }
+  ctx.restore();
+}
+
 // what the player feels when a putt lands: a toast on the map (the 3D view has its own big words), and a buzz
 const PUTT_WORDS = { swish: ['CHAINS!', 'good'], rattle: ['RATTLED IN!', 'good'], tapin: ['Tap-in', 'good'], rim: ['RIMMED OUT', 'bad'], nasty: ['NASTY ROLL', 'bad'], miss: ['Missed', 'bad'] };
+const WHY_WORDS = { weak: 'TOO SOFT', strong: 'TOO HARD', left: 'PULLED LEFT', right: 'PUSHED RIGHT' };
 function puttReaction(result, who, name = '') {
-  const [word, tone] = PUTT_WORDS[result.finish] || (result.made ? ['Chains!', 'good'] : ['Missed', 'bad']);
+  const [word0, tone] = PUTT_WORDS[result.finish] || (result.made ? ['Chains!', 'good'] : ['Missed', 'bad']);
+  const word = result.finish === 'miss' && WHY_WORDS[result.why] ? WHY_WORDS[result.why] : word0;
   if (!(CAM.on && watching3D(who))) toast(`${name}${word}`, tone, 1500);
   else if (name) toast(`${name}${word}`, tone, 1200);
   if (who === 'me' && navigator.vibrate) navigator.vibrate(result.made ? [30, 40, 30, 60, 90] : result.nasty ? [90, 50, 90] : [140, 90, 300]);
@@ -698,7 +830,7 @@ function finishThrow() {
   if (S.mode === 'match') { finishMove(); return; }
   const { result, disc, from } = S.last;
   const out = G.applyResult(S.round, disc, result);
-  say(T.remark(T.eventFor({ kind: result.kind, putt: !result.plan, made: result.made, gimme: result.gimme, ex: S.last.ex, strokes: S.round.strokes, dist: result.dist, surface: result.surface, rim: result.rim, nasty: result.nasty }), { who: 'me' }, Math.random, S.lastQuip));
+  say(T.remark(T.eventFor({ kind: result.kind, putt: !result.plan, made: result.made, gimme: result.gimme, ex: S.last.ex, strokes: S.round.strokes, dist: result.dist, surface: result.surface, rim: result.rim, nasty: result.nasty, why: result.why }), { who: 'me' }, Math.random, S.lastQuip));
   S.trail.push({ pts: [...result.pts ?? [], ...(result.roll ?? [])], kind: result.kind, n: S.round.throws.length, from });
   const at = result.end ?? result.lie;
   if (result.kind === 'water' || result.kind === 'oob') S.fx.push({ type: 'splash', x: at.x, y: at.y, t0: now() });
@@ -1368,7 +1500,7 @@ const riding = () => CAM.on && S.anim?.type === 'flight' && !S.anim.putt && S.an
 const puttingIn3D = () => {
   if (!CAM.on || !S.round || S.anim?.fail3d) return false;
   if (S.phase === 'flight') return !!S.anim?.putt && watching3D(S.last?.who);
-  return ['pick', 'putt', 'result'].includes(S.phase) && !S.round.done && inPutt();
+  return ['pick', 'putt', 'swipe', 'result'].includes(S.phase) && !S.round.done && inPutt();
 };
 function drawPutt3D(t) {
   const a = S.anim;
@@ -1410,7 +1542,8 @@ function drawPutt3D(t) {
     disc = { x: at.pos.x, y: at.pos.y, h: at.pos.h };
     trail = a.pts.slice(0, at.i + 1).concat([disc]);
   }
-  const view = C3.viewOf(W, H, c, S.dock);
+  S.dockV = S.dockV === undefined ? S.dock : S.dockV + (S.dock - S.dockV) * (1 - Math.exp(-dt * 7)); // the controls grow and shrink; the picture eases with them
+  const view = C3.viewOf(W, H, c, S.dockV);
   const baseFov = 64 * (Math.PI / 180);
   c.fov += ((baseFov + (S.pfov || 0)) - c.fov) * (1 - Math.exp(-dt * 6));
   C3.drawScene(ctx, { hole: S.hole, cam: c, view, disc, trail, dz: 1, chain, color: (a ? discLook(S.last.disc.id, S.last.who) : discLook(curDisc()?.id ?? S.last?.disc.id, 'me')).color, t });
@@ -1457,6 +1590,10 @@ function draw3D(t) {
 }
 
 function draw(t) {
+  drawWorld(t);
+  if (S.phase === 'swipe') drawSwipeGuide();
+}
+function drawWorld(t) {
   if (!S.round) return;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const in3d = !!riding();
@@ -2024,7 +2161,7 @@ function startMoveAnim(view, last, who) {
     ? Array.from({ length: 21 }, (_, i) => { const t = i / 20; return { x: last.from.x + (to.x - last.from.x) * t, y: last.from.y + (to.y - last.from.y) * t, h: 3 + 5 * 4 * t * (1 - t), s: t }; })
     : last.pts.map(([x, y, h]) => ({ x, y, h }));
   const roll = last.roll.map(([x, y]) => ({ x, y }));
-  const result = { kind: last.kind, pts, roll, end: last.end, lie: last.lie, strokes: last.strokes, made: last.made, gimme: last.gimme, finish: last.finish, rim: last.rim, nasty: last.nasty, dist: last.dist, plan: last.putt ? undefined : { feet: last.feet } };
+  const result = { kind: last.kind, pts, roll, end: last.end, lie: last.lie, strokes: last.strokes, made: last.made, gimme: last.gimme, finish: last.finish, rim: last.rim, nasty: last.nasty, why: last.why, dist: last.dist, plan: last.putt ? undefined : { feet: last.feet } };
   S.last = { result, ex: last.ex, disc, from: last.from, who };
   const name = who === 'me' ? '' : `${playerOf(who, view).name}: `;
   if (last.putt) {
@@ -2055,7 +2192,7 @@ function finishMove() {
   trail.push({ pts: [...result.pts, ...result.roll].map((p) => ({ x: p.x, y: p.y })), kind: result.kind, n: trail.length + 1 });
   const mover = playerOf(L.who === 'me' ? mp.me : L.who, mp.view);
   const total = mp.view.round?.rounds[mover.uid]?.strokes ?? 0;
-  say(T.remark(T.eventFor({ kind: last.kind, putt: last.putt, made: last.made, gimme: last.gimme, ex: last.ex, strokes: total, dist: G.distance(last.from, S.hole.basket), surface: S.last.result.surface, rim: last.rim, nasty: last.nasty }), { who: L.who === 'me' ? 'me' : 'them', name: mover.name }, Math.random, S.lastQuip));
+  say(T.remark(T.eventFor({ kind: last.kind, putt: last.putt, made: last.made, gimme: last.gimme, ex: last.ex, strokes: total, dist: G.distance(last.from, S.hole.basket), surface: S.last.result.surface, rim: last.rim, nasty: last.nasty, why: last.why }), { who: L.who === 'me' ? 'me' : 'them', name: mover.name }, Math.random, S.lastQuip));
   if (last.bear) { startBear({ discId: last.bear.discId, at: last.bear.at, owner: L.who }); return; }
   afterMove();
 }
@@ -2095,11 +2232,11 @@ function mpThrow(ex) {
   mpMove('throw', { discId: disc.id, settings: { ...S.settings }, aimOff: S.aimOff, ex: { o: ex.o, pure: ex.pure } });
 }
 
-function mpPutt(shot) {
+function mpPutt(shot, swipe = null) {
   const disc = curDisc();
   S.last = { result: null, ex: null, disc, from: { ...lieOf() }, who: 'me' };
   setPhase('flight');
-  mpMove('putt', { discId: disc.id, x: shot.x, y: shot.y });
+  mpMove('putt', { discId: disc.id, x: shot.x, y: shot.y, swipe });
 }
 
 /* ----- the match screens ----- */
@@ -2333,10 +2470,13 @@ async function boot() {
   document.addEventListener('keydown', onKey);
   cv.addEventListener('pointerdown', (e) => {
     if (riding()) { S.anim.t0 -= 1e7; return; } // tap to skip the ride
+    if (S.phase === 'swipe') { beginSwipe(e); return; }
     cv.setPointerCapture?.(e.pointerId);
     setAimFromPointer(e);
   });
-  cv.addEventListener('pointermove', (e) => { if (e.buttons || e.pointerType === 'touch') setAimFromPointer(e); });
+  cv.addEventListener('pointermove', (e) => { if (S.phase === 'swipe') { moveSwipe(e); return; } if (e.buttons || e.pointerType === 'touch') setAimFromPointer(e); });
+  cv.addEventListener('pointerup', endSwipe);
+  cv.addEventListener('pointercancel', () => { if (S.meter) S.meter.drag = null; });
 
   onAccountChange(() => {
     if (!S.round) return;

@@ -223,7 +223,8 @@ export function drawPuttFx(ctx, scene, script, ms, result) {
         bigText(ctx, W, H, 'RIMMED OUT', 'so close', { color: '#a9bccb', glow: 'transparent', alpha, dy: easeIn(clamp(e / 1700, 0, 1)) * H * 0.08, scale: 0.95 });
       } else {
         const alpha = clamp(e / 150, 0, 1) * clamp(1 - (e - 550) / 350, 0, 1);
-        bigText(ctx, W, H, 'MISSED', '', { color: '#d8ddd2', glow: 'transparent', alpha, scale: 0.7 });
+        const words = { weak: ['TOO SOFT', 'it died short'], strong: ['TOO HARD', 'it blew right past'], left: ['PULLED LEFT', 'off line'], right: ['PUSHED RIGHT', 'off line'] }[result.why];
+        bigText(ctx, W, H, words ? words[0] : 'MISSED', words ? words[1] : '', { color: '#d8ddd2', glow: 'transparent', alpha: words ? clamp(e / 150, 0, 1) * clamp(1 - (e - 900) / 500, 0, 1) : alpha, scale: words ? 0.85 : 0.7 });
       }
     }
   }

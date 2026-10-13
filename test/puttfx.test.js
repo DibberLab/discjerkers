@@ -119,3 +119,50 @@ test('the celebration, the heartbreak and the roll all draw, at every moment of 
   }
   assert.ok(calls > 500, `something was drawn: ${calls}`);
 });
+
+test('the swipe: a true one leaves it to the radar, and one off in aim or power is always a miss, in the direction it was off', async () => {
+  const { G } = await load();
+  const hole = await field();
+  const lie = { x: 0, y: 15 }; // 25 ft out
+  const dist = 25;
+  const tol = G.swipeTolerance(dist);
+  assert.ok(G.swipeTolerance(10).aim > G.swipeTolerance(50).aim && G.swipeTolerance(10).power > G.swipeTolerance(50).power, 'the farther out, the tighter');
+  assert.ok(tol.aim >= 3 && tol.aim <= 10 && tol.power >= 0.1 && tol.power <= 0.22);
+  const dead = { x: 0, y: 0 }; // a perfect radar
+  const go = (swipe, shot = dead, roll = 1) => G.resolvePutt(hole, lie, PUTTER, shot, roll, swipe);
+
+  // true swipes: made, same as no swipe at all
+  for (const swipe of [{ aim: 0, power: 1 }, { aim: tol.aim * 0.9, power: 1 }, { aim: -tol.aim * 0.9, power: 1 - tol.power * 0.9 }, { aim: 0, power: 1 + tol.power * 0.95 }]) {
+    assert.ok(go(swipe).made, `a true swipe goes in: ${JSON.stringify(swipe)}`);
+  }
+  assert.ok(go(null).made && G.resolvePutt(hole, lie, PUTTER, dead).made, 'no swipe counts as true (older pages)');
+  // a bad radar still misses with a perfect swipe
+  assert.ok(!go({ aim: 0, power: 1 }, { x: 0.9, y: 0 }).made);
+
+  // off in power: a miss, short or long
+  const soft = go({ aim: 0, power: 0.7 });
+  assert.ok(!soft.made && soft.why === 'weak', 'too soft');
+  assert.ok(soft.lie.y < hole.basket.y && G.distance(soft.lie, hole.basket) > 2, 'and it comes up short of the basket');
+  const hard = go({ aim: 0, power: 1.45 });
+  assert.ok(!hard.made && hard.why === 'strong', 'too hard');
+  assert.ok(hard.lie.y > hole.basket.y, 'and it goes long');
+  // off in aim: a miss, left or right
+  const right = go({ aim: 9, power: 1 });
+  const left = go({ aim: -9, power: 1 });
+  assert.ok(!right.made && right.why === 'right' && right.lie.x > hole.basket.x, 'pushed right');
+  assert.ok(!left.made && left.why === 'left' && left.lie.x < hole.basket.x, 'pulled left');
+  // a swipe just off is a near miss (it lips out); one way off is a clean miss
+  assert.ok(go({ aim: tol.aim * 1.15, power: 1 }).rim, 'just off: it lips out');
+  const wild = go({ aim: tol.aim * 4, power: 1 });
+  assert.ok(!wild.rim && wild.finish === 'miss', 'way off: a plain miss');
+  // hit too hard it runs away more often
+  assert.ok(go({ aim: 0, power: 1.5 }, dead, 0.2).nasty, 'a hard putt takes the nasty roll on a roll that a soft one would not');
+  assert.ok(!go({ aim: 0, power: 0.6 }, dead, 0.2).nasty);
+  // a tap-in needs no swipe
+  assert.ok(G.resolvePutt(hole, { x: 0, y: 39 }, PUTTER, dead, 1, { aim: 40, power: 0.1 }).made);
+
+  // what a server accepts
+  assert.deepStrictEqual(G.sanitizeSwipe({ aim: 3.5, power: 0.98 }), { aim: 3.5, power: 0.98 });
+  assert.deepStrictEqual(G.sanitizeSwipe({ aim: 500, power: 99 }), { aim: 60, power: 2.5 });
+  for (const bad of [null, 'x', {}, { aim: 'a', power: 1 }, { aim: 1 }, { aim: NaN, power: 1 }]) assert.strictEqual(G.sanitizeSwipe(bad), null, JSON.stringify(bad));
+});
