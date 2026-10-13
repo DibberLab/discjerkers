@@ -24,6 +24,8 @@ const LIMITS = {
   bagsPerUser: 25,
   discsPerBag: 80,
   plastic: 30,
+  weightMin: 20,
+  weightMax: 250,
   photoBytes: 400 * 1024,
   photosPerUser: 150,
   maxUsers: 5000,
@@ -327,8 +329,8 @@ function createAccountStore(file, { now = () => Date.now(), photoDir = path.join
       return bagsView(user);
     },
 
-    // What the owner says about a disc in one bag: its color and plastic. Photos are separate.
-    setItem(userId, bagId, discId, { color, plastic } = {}) {
+    // What the owner says about a disc in one bag: its color, plastic and weight in grams. Photos are separate.
+    setItem(userId, bagId, discId, { color, plastic, weight } = {}) {
       const user = changeUser(userId, (u) => {
         const bag = findBag(u, bagId);
         if (!bag.discs.includes(discId)) throw new AccountError('That disc is not in this bag.', 404);
@@ -343,6 +345,17 @@ function createAccountStore(file, { now = () => Date.now(), photoDir = path.join
           const p = tidy(plastic);
           if (p.length > LIMITS.plastic) throw new AccountError(`Plastic is too long (max ${LIMITS.plastic} characters).`);
           if (p) item.plastic = p; else delete item.plastic;
+        }
+        if (weight !== undefined) {
+          if (weight === null || weight === '') {
+            delete item.weight;
+          } else {
+            const w = Math.round(Number(weight) * 10) / 10;
+            if (!Number.isFinite(w) || w < LIMITS.weightMin || w > LIMITS.weightMax) {
+              throw new AccountError(`Weight should be between ${LIMITS.weightMin} and ${LIMITS.weightMax} grams.`);
+            }
+            item.weight = w;
+          }
         }
         if (Object.keys(item).length) bag.items[discId] = item; else delete bag.items[discId];
       });

@@ -629,3 +629,12 @@
   .fg-colorby { flex: 1 1 100%; min-width: 0; }
   .fg-colorby .fg-seg { min-width: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 }
+
+.fg-own__pw { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.fg-own__pw .fg-own__plastic { flex: 1 1 200px; }
+.fg-own__weight { display: flex; align-items: center; gap: 8px; }
+.fg-own__weight input {
+  width: 84px; height: 36px; padding: 0 8px; background: var(--panel-2); color: var(--bone);
+  border: 1px solid var(--hair); border-radius: var(--radius); font: 0.8rem var(--mono); outline: none;
+}
+.fg-own__weight input:focus { border-color: var(--lime); }

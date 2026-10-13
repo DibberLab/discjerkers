@@ -186,6 +186,11 @@ test('a disc in a bag can have a color and a plastic; both can be cleared; junk 
   assert.throws(() => store.setItem(id, bag, 7, { plastic: 'x'.repeat(LIMITS.plastic + 1) }), /too long/);
   b = store.setItem(id, bag, 7, { color: null })[0];
   assert.deepStrictEqual(b.items['7'], { plastic: 'Star Champion' });
+  b = store.setItem(id, bag, 7, { weight: '172.46' })[0];
+  assert.deepStrictEqual(b.items['7'], { plastic: 'Star Champion', weight: 172.5 });
+  for (const bad of [0, 19, 251, 'heavy', NaN, Infinity]) assert.throws(() => store.setItem(id, bag, 7, { weight: bad }), /grams/, String(bad));
+  b = store.setItem(id, bag, 7, { weight: null })[0];
+  assert.deepStrictEqual(b.items['7'], { plastic: 'Star Champion' });
   b = store.setItem(id, bag, 7, { plastic: '' })[0];
   assert.deepStrictEqual(b.items, {}); // nothing left to remember
 });

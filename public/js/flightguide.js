@@ -152,19 +152,8 @@ function buildFilters() {
 let bagFilterIds = null; // the discs of the bag the chart is narrowed to, set at the start of each render
 let wasBagFiltered = false;
 const ALL_BAGS = '*';
-let colorBeforeBag = null; // the color mode to go back to when the bag filter comes off
-
-function setColorMode(mode) {
-  state.color = mode;
-  document.querySelectorAll('#fg-colorby [data-color]').forEach((el) => el.setAttribute('aria-pressed', String(el.dataset.color === mode)));
-}
-
-// Narrowing the chart to a bag switches it to the bag's own colors; taking the filter off puts the old colors back.
 function setBagFilter(value) {
-  const was = state.bagFilter;
   state.bagFilter = value;
-  if (value && !was && state.color !== 'mine') { colorBeforeBag = state.color; setColorMode('mine'); }
-  if (!value && was && state.color === 'mine' && colorBeforeBag) { setColorMode(colorBeforeBag); colorBeforeBag = null; }
 }
 // the bag (or the combined bags) the chart is narrowed to, or null
 function filterBag() {
@@ -205,11 +194,11 @@ function renderLegend() {
     h = `<span class="fg-lg fg-lg--bar"><span>Fights the wind</span><b style="background:linear-gradient(90deg,${GRADE.map((g) => g.c).join(',')})"></b><span>Flips over</span></span>`;
   } else if (state.color === 'type') {
     h = DATA.cats.map((c, i) => dot(TYPE[i].c, c)).join('');
-  } else if (state.color === 'mine') {
-    h = '<span class="fg-lg">Your colors and photos on the discs in your bags. Everything else is in stability colors.</span>';
   } else {
     h = '<span class="fg-lg">Each manufacturer\'s own color</span>';
   }
+  const styled = account.user && account.bags.some((b) => Object.values(b.items || {}).some((it) => it.color || it.photo));
+  if (styled) h += '<span class="fg-lg">· Discs in your bags wear your own color or photo</span>';
   $('#fg-legend').innerHTML = `<span class="fg-label">Legend</span>${h}`;
   $('#fg-brand-list').dataset.mode = state.color;
 }
@@ -221,30 +210,38 @@ function paint(d) {
   return state.color === 'type' ? TYPE[d.cat] : GRADE[d.col];
 }
 
-// What the signed-in user has said about a disc, for the chart's "My discs" colors: from the bag the chart is
-// narrowed to, else the active bag, else any bag that has something to show for it.
+// How the signed-in user has dressed a disc (a color and/or a photo): from the bag the chart is narrowed to, else
+// the active bag, else any bag that has something to show for it. It is used everywhere the disc is drawn.
+const hasLook = (it) => (it && (it.color || it.photo) ? it : null);
 function bagItem(discId) {
   if (!account.user) return null;
   const f = filterBag();
-  if (f && !f.all) return f.items?.[discId] || null;
+  if (f && !f.all) return hasLook(f.items?.[discId]);
   for (const b of [activeBag(), ...account.bags]) {
-    const it = b?.items?.[discId];
-    if (it && (it.color || it.photo)) return it;
+    const it = hasLook(b?.items?.[discId]);
+    if (it) return it;
   }
   return null;
 }
-const ownItem = (discId) => (account.user ? activeBag()?.items?.[discId] || null : null);
 // a bag disc in the color its owner gave it; otherwise whatever color the chart is using
 const ownPaint = (d, item) => (item?.color ? swatch(item.color) : paint(d));
 
-function discHTML(d, label = d.name, item = state.color === 'mine' ? bagItem(d.id) : null) { // not safe to pass straight to .map(): the index would become the label
+// a path drawn in a dark disc color would vanish on the dark field: lighten it until it can be seen
+const blend = (hex, t) => `#${[1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) * (1 - t) + 255 * t).toString(16).padStart(2, '0')).join('')}`;
+function lineColor(hex) {
+  let c = hex;
+  for (let i = 0; i < 6 && contrast(c, '#0b0f0b') < 3; i++) c = blend(c, 0.25);
+  return c;
+}
+
+function discHTML(d, label = d.name, item = bagItem(d.id)) { // not safe to pass straight to .map(): the index would become the label
   const b = brands[d.b];
-  const pc = item?.color ? swatch(item.color) : (state.color === 'mine' ? GRADE[d.col] : paint(d)); // a disc given its owner's item wears it in any mode
+  const pc = item?.color ? swatch(item.color) : paint(d); // a disc its owner has dressed wears that, whatever the chart's color mode
   const n = label.length;
   const fs = n <= 5 ? 1 : n <= 7 ? 0.88 : n <= 9 ? 0.68 : n <= 11 ? 0.6 : 0.52;
   const nums = `${d.speed} / ${d.glide} / ${fmtTurn(d.turn)} / ${d.fade}`;
   const photo = item?.photo ? `;--fill:url('${photoUrl(item.photo)}') center/cover` : '';
-  const plastic = item?.plastic ? `, ${esc(item.plastic)}` : '';
+  const plastic = `${item?.plastic ? `, ${esc(item.plastic)}` : ''}${item?.weight ? `, ${item.weight} g` : ''}`;
   return `<button class="disc" type="button" data-id="${d.id}"${photo ? ' data-photo' : ''} style="--c:${pc.c};--t:${pc.t};--fs:${fs}${photo}" aria-pressed="${state.selected === d.id}" title="${esc(b.n)} ${esc(d.name)}${plastic} · ${nums}" aria-label="${esc(b.n)} ${esc(d.name)}${plastic}, flight numbers ${nums}"><span class="disc__n">${esc(label)}</span></button>`;
 }
 
@@ -609,32 +606,47 @@ function fieldMarkup(wind) {
 
 // One throw: its path, the disc at the end of it, and its distance. t is a throw: the page's own settings,
 // or a comparison entry. playFlight animates whatever it finds, matched up by data-run.
-function flightRun(d, t, wind, pathColor, discColor, { run = 0, badge = '', stroke = 5.5, r = 15, labelDy = 0, quiet = false } = {}) {
+function flightRun(d, t, wind, pathColor, discColor, { run = 0, badge = '', stroke = 5.5, r = 15, labelDy = 0, quiet = false, photo = '', ring = '', corner = false } = {}) {
   const { x0, y0 } = FP;
   const f = (n) => n.toFixed(1);
   const cw = spinsClockwise(t);
   const { p1, p2, p3 } = flightGeometry(d, cw, wind, t);
   const feet = carryFeet(d, wind, t);
   const side = p3[0] >= x0 ? -1 : 1; // keep the distance label on the roomy side of the disc
+  // the disc itself: its color, or its owner's photo cropped round; a comparison rings it in its slot color
+  const edge = ring ? `stroke="${ring}" stroke-width="3"` : 'stroke="rgba(255,255,255,.4)" stroke-width="1.8"';
+  const face = photo
+    ? `<clipPath id="fp-ph-${run}"><circle r="${r}"/></clipPath>
+        <circle r="${r}" fill="${discColor}"/>
+        <image href="${esc(photo)}" x="${-r}" y="${-r}" width="${2 * r}" height="${2 * r}" preserveAspectRatio="xMidYMid slice" clip-path="url(#fp-ph-${run})"/>
+        <circle r="${r}" fill="none" ${ring ? edge : 'stroke="rgba(255,255,255,.6)" stroke-width="1.8"'}/>
+        <circle cy="${f(-r * 0.77)}" r="2.3" fill="rgba(0,0,0,.55)" stroke="rgba(255,255,255,.75)" stroke-width="1"/>`
+    : `<circle r="${r}" fill="${discColor}" ${edge}/>
+        <circle r="${f(r * 0.53)}" fill="none" stroke="rgba(0,0,0,.35)" stroke-width="1.8"/>
+        <circle cy="${f(-r * 0.77)}" r="2.3" fill="rgba(0,0,0,.5)"/>`;
+  // a comparison number sits on the disc, or on its corner when the disc shows its owner's look
+  const tag = !badge ? '' : corner
+    ? `<g transform="translate(${f(r * 0.78)} ${f(-r * 0.78)})"><circle r="6.5" fill="${ring}"/><text class="fg-fp-badge" y="3.4" text-anchor="middle" fill="${bestInk(ring)}" style="font-size:9px">${badge}</text></g>`
+    : `<text class="fg-fp-badge" y="4.5" text-anchor="middle" fill="${bestInk(discColor)}">${badge}</text>`;
   const body = `<path class="fg-fp" data-run="${run}" data-ms="${1500 + feet * 2}" data-spin="${cw ? 1 : -1}" d="M${x0} ${y0} C${f(p1[0])} ${f(p1[1])} ${f(p2[0])} ${f(p2[1])} ${f(p3[0])} ${f(p3[1])}" fill="none" stroke="${pathColor}" stroke-width="${stroke}" stroke-linecap="round"/>
     <g class="fg-fp-disc" data-run="${run}" transform="translate(${f(p3[0])} ${f(p3[1])})">
       <g class="fg-fp-spin">
-        <circle r="${r}" fill="${discColor}" stroke="rgba(255,255,255,.4)" stroke-width="1.8"/>
-        <circle r="${f(r * 0.53)}" fill="none" stroke="rgba(0,0,0,.35)" stroke-width="1.8"/>
-        <circle cy="${f(-r * 0.77)}" r="2.3" fill="rgba(0,0,0,.5)"/>
+        ${face}
       </g>
-      ${badge ? `<text class="fg-fp-badge" y="4.5" text-anchor="middle" fill="${bestInk(discColor)}">${badge}</text>` : ''}
+      ${tag}
     </g>`;
   // returned apart so a comparison can draw every label on top of every path
   const label = `<text class="fg-fp__dist${quiet ? ' fg-fp__dist--quiet' : ''}" data-run="${run}" x="${f(p3[0] + side * (r + 10))}" y="${f(p3[1] + 4 + labelDy)}" text-anchor="${side < 0 ? 'end' : 'start'}">≈${feet} ft</text>`;
   return { body, label };
 }
 
-function flightPath(d, color, wind) {
+function flightPath(d, wind) {
   const feet = carryFeet(d, wind);
+  const look = bagItem(d.id); // the owner's color or photo, if they gave this disc one
+  const color = look?.color || paint(d).c;
   return `<svg class="fg-fp-svg" viewBox="0 0 ${FP.w} ${FP.h}" role="img" aria-label="Flight path, about ${feet} feet">
     ${fieldMarkup(wind)}
-    ${(({ body, label }) => body + label)(flightRun(d, state, wind, '#d35400', color))}
+    ${(({ body, label }) => body + label)(flightRun(d, state, wind, '#d35400', color, { photo: look?.photo ? photoUrl(look.photo) : '' }))}
   </svg>`;
 }
 
@@ -650,7 +662,13 @@ function comparePath(wind) {
     r.dy = Math.max(0, 14 - (r.endY - last));
     last = r.endY + r.dy;
   });
-  const runs = [...rows].reverse().map((r) => flightRun(r.d, r.e, wind, SLOT[r.i], SLOT[r.i], { run: r.i, badge: r.i + 1, stroke: 4.5, r: 13, labelDy: r.dy }));
+  const runs = [...rows].reverse().map((r) => {
+    const look = bagItem(r.d.id); // a disc its owner has dressed keeps its look; the ring and number say which throw it is
+    return flightRun(r.d, r.e, wind, SLOT[r.i], look?.color || SLOT[r.i], {
+      run: r.i, badge: r.i + 1, stroke: 4.5, r: 13, labelDy: r.dy,
+      photo: look?.photo ? photoUrl(look.photo) : '', ring: look ? SLOT[r.i] : '', corner: !!look,
+    });
+  });
   const summary = rows.map((r) => `${r.i + 1}: ${r.d.name} about ${carryFeet(r.d, wind, r.e)} feet`).join('; ');
   return `<svg class="fg-fp-svg" viewBox="0 0 ${FP.w} ${FP.h}" role="img" aria-label="Flight paths compared. ${esc(summary)}">
     ${fieldMarkup(wind)}
@@ -744,7 +762,7 @@ function pathSection(d) {
   const wind = windVector();
   return `
     <div class="fg-path">
-      ${flightPath(d, paint(d).c, wind)}
+      ${flightPath(d, wind)}
       ${throwControls()}
       <p>${spinLine()}${windNote(wind)}${armNote(d)}${spinNote()}${angleNote(d)}</p>
     </div>`;
@@ -783,7 +801,7 @@ function openDrawer(id, trigger, { fromBag = false } = {}) {
   $('#fg-d-body').innerHTML = panelLayout(`
     ${fromBag ? '<button class="fg-back" type="button" data-back-bag>← Your bag</button>' : ''}
     <div class="fg-d-top">
-      ${discHTML(d, main, ownItem(d.id)).replace('class="disc"', 'class="disc" tabindex="-1"')}
+      ${discHTML(d, main).replace('class="disc"', 'class="disc" tabindex="-1"')}
       <div class="fg-d-id">
         <p class="fg-d-brand">${esc(b.n)}</p>
         <h2 class="fg-d-name" id="fg-d-name">${esc(main)}</h2>
@@ -864,7 +882,10 @@ function ownSection(d) {
       <label class="fg-sw fg-sw--custom${custom ? ' is-on' : ''}" title="Pick any color" style="${custom ? `--c:${it.color}` : ''}"><input type="color" data-own-color-input value="${it.color || '#fb8c00'}" aria-label="Pick any color"></label>
       ${it.color ? '<button class="fg-rng__auto" type="button" data-own-color="" title="Back to the chart color">No color</button>' : ''}
     </div>
-    <label class="fg-own__plastic"><span class="fg-wind__l">Plastic</span><input data-own-plastic list="fg-plastics" maxlength="30" value="${esc(it.plastic || '')}" placeholder="Champion, Star, Z…" autocomplete="off" spellcheck="false"></label>
+    <div class="fg-own__pw">
+      <label class="fg-own__plastic"><span class="fg-wind__l">Plastic</span><input data-own-plastic list="fg-plastics" maxlength="30" value="${esc(it.plastic || '')}" placeholder="Champion, Star, Z…" autocomplete="off" spellcheck="false"></label>
+      <label class="fg-own__weight"><span class="fg-wind__l">Weight</span><input data-own-weight type="number" inputmode="decimal" min="20" max="250" step="0.5" value="${it.weight ?? ''}" placeholder="172" aria-label="Weight in grams"><span class="fg-wind__l">g</span></label>
+    </div>
     <div class="fg-own__photo">
       ${it.photo ? `<img src="${photoUrl(it.photo)}" alt="Your photo of this disc" width="64" height="64">` : ''}
       <label class="chip fg-cmpbtn fg-filebtn">${it.photo ? 'Change photo' : 'Add photo'}<input class="sr-only" type="file" accept="image/*" data-own-photo></label>
@@ -886,9 +907,15 @@ function refreshBagRow() {
   const face = $('.fg-d-top .disc');
   if (face) {
     const fresh = document.createElement('div');
-    fresh.innerHTML = discHTML(d, splitName(d.name).main, ownItem(d.id)).replace('class="disc"', 'class="disc" tabindex="-1"');
+    fresh.innerHTML = discHTML(d, splitName(d.name).main).replace('class="disc"', 'class="disc" tabindex="-1"');
     face.replaceWith(fresh.firstElementChild);
     fitDrawerText();
+  }
+  // and the flying disc: redraw the chart so the marker wears the new color or photo, landed where it was
+  const svg = $('#fg-path-wrap .fg-fp-svg');
+  if (svg) {
+    svg.outerHTML = flightPath(d, windVector());
+    playFlight('#fg-path-wrap', { instant: true });
   }
 }
 
@@ -917,6 +944,7 @@ function handleOwnChange(e) {
   const t = e.target;
   if (t.matches('[data-own-color-input]')) { ownEdit((id, bag) => setItem(id, { color: t.value }, bag)); return true; }
   if (t.matches('[data-own-plastic]')) { ownEdit((id, bag) => setItem(id, { plastic: t.value }, bag)); return true; }
+  if (t.matches('[data-own-weight]')) { ownEdit((id, bag) => setItem(id, { weight: t.value === '' ? null : Number(t.value) }, bag)); return true; }
   if (t.matches('[data-own-photo]')) {
     const file = t.files?.[0];
     t.value = '';
@@ -958,8 +986,9 @@ function bagRows() {
 function bagPath(rows, wind) {
   const bag = activeBag();
   const runs = rows.filter((r) => r.on).map(({ d, i }) => {
-    const c = ownPaint(d, bag?.items?.[d.id]).c;
-    return flightRun(d, state, wind, c, c, { run: i, stroke: 3, r: 8, quiet: true });
+    const it = bag?.items?.[d.id];
+    const c = ownPaint(d, it).c;
+    return flightRun(d, state, wind, lineColor(c), c, { run: i, stroke: 3, r: 9, quiet: true, photo: it?.photo ? photoUrl(it.photo) : '' });
   });
   const total = rows.filter((r) => r.on).length;
   return `<svg class="fg-fp-svg" viewBox="0 0 ${FP.w} ${FP.h}" role="img" aria-label="Flight paths for ${total} discs">
@@ -977,7 +1006,7 @@ function bagRowHTML({ d, i, on, feet }) {
   return `<li class="fg-bagrow${on ? '' : ' is-off'}" data-bd="${d.id}" data-run="${i}">
       <button class="fg-switch" type="button" role="switch" aria-checked="${on}" data-bag-sw aria-label="Show ${esc(d.name)} in the flight path"></button>
       <span class="fg-bagrow__thumb" style="--c:${pc.c}${fill}" aria-hidden="true"></span>
-      <div class="fg-bagrow__id"><b>${esc(splitName(d.name).main)}</b><small>${esc(b.n)}${it?.plastic ? ` · ${esc(it.plastic)}` : ''} · ${d.speed} / ${d.glide} / ${fmtTurn(d.turn)} / ${d.fade}</small></div>
+      <div class="fg-bagrow__id"><b>${esc(splitName(d.name).main)}</b><small>${esc(b.n)}${it?.plastic ? ` · ${esc(it.plastic)}` : ''}${it?.weight ? ` · ${it.weight} g` : ''} · ${d.speed} / ${d.glide} / ${fmtTurn(d.turn)} / ${d.fade}</small></div>
       <span class="fg-bagrow__ft">${on ? `≈${feet} ft` : 'off'}</span>
       <button class="fg-bagrow__edit" type="button" data-bag-edit aria-label="Edit ${esc(d.name)}: color, plastic, photo">Edit</button>
       <button class="fg-bagrow__x" type="button" data-bag-remove aria-label="Remove ${esc(d.name)} from this bag">×</button>
@@ -1097,8 +1126,6 @@ function focusRun(run) {
 function renderBagFilter() {
   const row = $('#fg-bags-row');
   row.hidden = !account.user;
-  const mine = $('#fg-colorby [data-color="mine"]');
-  if (mine) mine.hidden = !account.user;
   if (!account.user) return;
   const chip = (id, label, count) => `<button class="chip" type="button" data-bagf="${esc(id)}" aria-pressed="${state.bagFilter === id}">${label} <small style="opacity:.55">${count}</small></button>`;
   const everything = new Set(account.bags.flatMap((b) => b.discs)).size;
@@ -1111,9 +1138,8 @@ function renderBagFilter() {
 // the account changed (sign in/out, a bag edited): keep everything that shows a bag in step
 function onAccount() {
   if (state.bagFilter && !filterBag()) setBagFilter(null); // that bag is gone, or we signed out
-  if (!account.user && state.color === 'mine') { colorBeforeBag = null; setColorMode('stability'); }
   renderBagFilter();
-  if (state.bagFilter || wasBagFiltered || state.color === 'mine') render(); // the chart follows the bag
+  render(); // the chart follows the bags: which discs show, and how they are dressed
   markBag();
   const open = $('#fg-drawer').classList.contains('is-open');
   if (state.panel === 'disc' && state.selected) refreshBagRow();

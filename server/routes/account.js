@@ -43,7 +43,7 @@ function sameOrigin(req) {
  *   DELETE /bags/:id
  *   PUT    /bags/:id/discs/:disc        add a disc
  *   DELETE /bags/:id/discs/:disc        take it out
- *   PATCH  /bags/:id/discs/:disc        that disc's color and plastic, in this bag
+ *   PATCH  /bags/:id/discs/:disc        that disc's color, plastic and weight, in this bag
  *   PUT    /bags/:id/discs/:disc/photo  a JPEG (the page makes it small); DELETE removes it
  *   GET    /photos/:name                a photo, to its owner only
  * Every response is no-store: it is about one person.
@@ -180,8 +180,8 @@ function createAccountRouter({
   }));
 
   router.patch('/bags/:id/discs/:disc', writing(async (req, res, user) => {
-    const { color, plastic } = req.body || {};
-    res.json({ bags: store.setItem(user.id, req.params.id, discId(req.params.disc), { color, plastic }) });
+    const { color, plastic, weight } = req.body || {};
+    res.json({ bags: store.setItem(user.id, req.params.id, discId(req.params.disc), { color, plastic, weight }) });
   }));
 
   router.put('/bags/:id/discs/:disc/photo', express.raw({ type: 'image/jpeg', limit: LIMITS.photoBytes }), writing(async (req, res, user) => {
