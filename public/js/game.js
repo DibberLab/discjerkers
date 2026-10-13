@@ -5,7 +5,7 @@
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=2';
-import * as G from './gamecore.js?v=10';
+import * as G from './gamecore.js?v=11';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

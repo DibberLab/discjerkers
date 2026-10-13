@@ -43,10 +43,11 @@ const triangle = (sec, period) => {
   return u < 0.5 ? u * 2 : 2 - u * 2;
 };
 // The power marker speeds up toward the end of the bar (POWER_EASE), and the top speeds are squeezed into the last stretch
-// of it (past POWER_KNEE), so a fast arm is a fast marker and a thin target: the harder you swing, the harder to land.
-export const POWER_KNEE = 0.76;
-export const POWER_KNEE_MPH = 62;
-const POWER_EASE = 1.7;
+// of it (past POWER_KNEE, and thinner toward the very end), so a fast arm is a fast marker and a thin target: the harder you swing, the harder to land.
+export const POWER_KNEE = 0.58; // the last 42% of the bar is the hard zone
+export const POWER_KNEE_MPH = 50;
+const POWER_EASE = 2.1;
+const POWER_CURVE = 2.4; // inside the hard zone each step of bar is worth more mph the nearer the end
 export const powerAt = (sec) => triangle(sec, METER.power.period) ** POWER_EASE; // 0..1: where the marker is on the bar
 export const needleAt = (sec, period) => triangle(sec, period) * 2 - 1; // -1 .. 1
 export const releaseAt = (sec, setup) => needleAt(sec, setup.period); // -1 (early) .. 1 (late)
@@ -57,7 +58,7 @@ const snap = (v, step) => Math.round(v / step) * step;
 export const mphAt = (m) => {
   const raw = m <= POWER_KNEE
     ? ARM.min + (POWER_KNEE_MPH - ARM.min) * (m / POWER_KNEE)
-    : POWER_KNEE_MPH + (ARM.max - POWER_KNEE_MPH) * ((m - POWER_KNEE) / (1 - POWER_KNEE));
+    : POWER_KNEE_MPH + (ARM.max - POWER_KNEE_MPH) * ((m - POWER_KNEE) / (1 - POWER_KNEE)) ** POWER_CURVE;
   return clamp(snap(raw, ARM.step), ARM.min, ARM.max);
 };
 // the spin (rpm) a position on the spin bar (0..1) stands for
