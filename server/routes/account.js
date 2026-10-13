@@ -4,35 +4,10 @@ const fs = require('node:fs');
 const express = require('express');
 const { AccountError, LIMITS } = require('../lib/accounts');
 const { createLimiter } = require('../lib/ratelimit');
+const { SESSION_COOKIE, who, cookieOf, sameOrigin } = require('../lib/http');
 
 const HOUR = 60 * 60 * 1000;
-const COOKIE = 'dj_session';
-
-// nginx sets X-Real-IP from the Cloudflare-restored client address; a visitor can't forge it.
-const who = (req) => req.get('x-real-ip') || req.ip || 'unknown';
-
-function cookieOf(req, name) {
-  const header = req.headers.cookie;
-  if (!header) return '';
-  for (const part of header.split(';')) {
-    const i = part.indexOf('=');
-    if (i > 0 && part.slice(0, i).trim() === name) {
-      try { return decodeURIComponent(part.slice(i + 1).trim()); } catch { return ''; }
-    }
-  }
-  return '';
-}
-
-// A browser sending a cross-site request names the site it came from. Ours must match the host it asked for.
-function sameOrigin(req) {
-  const origin = req.get('origin');
-  if (!origin) return true;
-  try {
-    return new URL(origin).host === (req.get('x-forwarded-host') || req.get('host'));
-  } catch {
-    return false;
-  }
-}
+const COOKIE = SESSION_COOKIE;
 
 /**
  * Accounts and bags. Mounted at /api/account.

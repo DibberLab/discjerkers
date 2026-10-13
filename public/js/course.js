@@ -122,4 +122,114 @@ function holeOne() {
   });
 }
 
-export const HOLES = [holeOne()];
+/* ---------- the other seventeen ---------- */
+
+// Smoothly between control points: [[fraction of the hole, sideways offset in feet], ...], right is positive
+function bendAt(points, f) {
+  if (f <= points[0][0]) return points[0][1];
+  for (let i = 1; i < points.length; i++) {
+    if (f <= points[i][0]) {
+      const [f0, x0] = points[i - 1];
+      const [f1, x1] = points[i];
+      const t = (f - f0) / (f1 - f0);
+      return x0 + (x1 - x0) * t * t * (3 - 2 * t);
+    }
+  }
+  return points.at(-1)[1];
+}
+
+/**
+ * A hole from a short description, so the course is a table and not seventeen pages of coordinates.
+ *   len: tee to basket, feet     bend: where the fairway goes     hw: half-width at the tee and at the basket
+ *   woods: 0..1 on each side (how thick)       gaps: [side, fromY, toY] windows through the woods
+ *   guards: lone trees [fraction, offset, radius, height]         ponds: [fraction, side, offset, rx, ry]
+ *   creek: [fraction, thickness]  water right across the fairway  front: shrubs and trees guarding the basket
+ */
+function build(spec) {
+  const { id, name, par, len, bend = [[0, 0], [1, 0]], hw = [32, 24], woods = [0.7, 0.7], gaps = [], guards = [], ponds = [], creek = null, wind, front = 2, seed = id * 97 } = spec;
+  const rnd = seeded(seed);
+  const line = [];
+  for (let y = 0; y < len; y += 10) line.push([bendAt(bend, y / len), y, hw[0] + (hw[1] - hw[0]) * (y / len)]);
+  line.push([bendAt(bend, 1), len, hw[1]]);
+  const basket = { x: line.at(-1)[0], y: len };
+  const trees = [];
+  const tree = (x, y, r = 3.6 + rnd() * 1.8, h = 48 + rnd() * 18) => trees.push({ x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10, r: Math.round(r * 10) / 10, h: Math.round(h) });
+
+  // the woods along each side
+  [-1, 1].forEach((side, k) => {
+    const thick = woods[k];
+    if (thick <= 0) return;
+    for (let y = 26; y < len - 16; y += 15 + (1 - thick) * 26 + rnd() * 7) {
+      if (gaps.some(([sd, a, b]) => sd === side && y >= a && y <= b)) continue;
+      const c = along(line, y);
+      tree(c.x + side * (c.hw + 7 + rnd() * 9), y + rnd() * 8);
+      if (thick > 0.75) tree(c.x + side * (c.hw + 19 + rnd() * 9), y + 6 + rnd() * 8); // a second row
+    }
+  });
+  for (const [f, off, r, h] of guards) {
+    const y = f * len;
+    tree(along(line, y).x + off, y, r, h);
+  }
+  // a backstop behind the basket, and a few trees and shrubs in front of it
+  for (let k = -3; k <= 3; k++) tree(basket.x + k * 14 + rnd() * 6, len + 18 + Math.abs(k) * 2 + rnd() * 8, 4.2 + rnd(), 58);
+  for (let k = 0; k < front; k++) {
+    const side = rnd() < 0.5 ? -1 : 1;
+    tree(basket.x + side * (13 + rnd() * 12), len - 22 - rnd() * 24, 2.7 + rnd() * 0.4, 8 + rnd() * 2);
+  }
+
+  // water
+  const water = [];
+  for (const [f, side, off, rx, ry] of ponds) {
+    const cy = f * len;
+    const cx = along(line, cy).x + side * off;
+    water.push(Array.from({ length: 11 }, (_, i) => {
+      const a = (i / 11) * Math.PI * 2;
+      const k = 0.85 + rnd() * 0.3;
+      return [Math.round((cx + Math.cos(a) * rx * k) * 10) / 10, Math.round((cy + Math.sin(a) * ry * k) * 10) / 10];
+    }));
+  }
+  const xs = line.map((p) => p[0]);
+  const bounds = { minX: Math.min(...xs) - 120, maxX: Math.max(...xs) + 120, minY: -50, maxY: len + 95 };
+  if (creek) {
+    const cy = creek[0] * len;
+    const t = creek[1];
+    const lo = bounds.minX + 4;
+    const hi = bounds.maxX - 4;
+    const top = [];
+    const bottom = [];
+    for (let x = lo; x <= hi; x += 20) {
+      top.push([x, cy + t / 2 + Math.sin(x * 0.05) * 5]);
+      bottom.push([x, cy - t / 2 + Math.sin(x * 0.05 + 1) * 5]);
+    }
+    water.push([...top, ...bottom.reverse()]);
+  }
+
+  // no trees growing in a pond
+  const dry = trees.filter((t) => !water.some((w) => pointInPoly(w, t.x, t.y)));
+  return makeHole({ id, name, par, fairway: line, basket, wind, water, trees: dry, bounds });
+}
+
+const HOLE_SPECS = [
+  { id: 2, name: 'Short and Sweet', par: 3, len: 235, bend: [[0, 0], [1, 6]], hw: [30, 26], woods: [0.5, 0.45], ponds: [[0.68, 1, 52, 26, 30]], wind: { mph: 5, from: 200 } },
+  { id: 3, name: 'The Gauntlet', par: 4, len: 390, bend: [[0, 0], [0.55, -4], [1, -26]], hw: [22, 20], woods: [0.95, 0.95], guards: [[0.62, 4, 3.6, 62]], wind: { mph: 6, from: 90 } },
+  { id: 4, name: 'Triple Crown', par: 5, len: 590, bend: [[0, 0], [0.3, 30], [0.65, -20], [1, 18]], hw: [38, 30], woods: [0.5, 0.5], creek: [0.56, 26], guards: [[0.25, 8, 4.4, 60]], wind: { mph: 8, from: 310 } },
+  { id: 5, name: 'Island Green', par: 3, len: 265, bend: [[0, 0], [1, 14]], hw: [28, 30], woods: [0.4, 0.4], ponds: [[0.97, 1, 52, 38, 52], [1.05, -1, 52, 30, 38]], wind: { mph: 9, from: 250 } },
+  { id: 6, name: 'The Cut', par: 4, len: 365, bend: [[0, 0], [0.42, 0], [1, -78]], hw: [30, 24], woods: [0.55, 0.9], gaps: [[1, 150, 230]], guards: [[0.62, -22, 4.6, 66], [0.7, -6, 4.2, 64]], wind: { mph: 7, from: 60 } },
+  { id: 7, name: 'Spring Chicken', par: 3, len: 205, bend: [[0, 0], [0.5, 8], [1, 0]], hw: [26, 20], woods: [0.85, 0.85], guards: [[0.55, 0, 3.8, 60]], front: 3, wind: { mph: 4, from: 180 } },
+  { id: 8, name: 'Long Haul', par: 5, len: 640, bend: [[0, 0], [0.5, 10], [1, 4]], hw: [42, 36], woods: [0.3, 0.3], guards: [[0.45, 20, 4.2, 58], [0.8, -16, 4.6, 64]], wind: { mph: 12, from: 0 } },
+  { id: 9, name: 'Homecoming', par: 4, len: 450, bend: [[0, 0], [0.4, 0], [1, 70]], hw: [34, 24], woods: [0.8, 0.5], ponds: [[0.62, 1, 62, 36, 46]], guards: [[0.3, -14, 4.4, 60]], wind: { mph: 8, from: 270 } },
+  { id: 10, name: 'Lone Pine', par: 3, len: 250, bend: [[0, 0], [1, -10]], hw: [32, 26], woods: [0.35, 0.35], ponds: [[0.6, -1, 56, 30, 40]], guards: [[0.52, -3, 5, 74]], wind: { mph: 6, from: 30 } },
+  { id: 11, name: 'Crosswind', par: 4, len: 410, bend: [[0, 0], [1, 0]], hw: [46, 38], woods: [0.25, 0.25], ponds: [[0.78, 1, 70, 34, 60]], wind: { mph: 15, from: 90 } },
+  { id: 12, name: 'The Chute', par: 4, len: 345, bend: [[0, 0], [0.4, 6], [0.8, -4], [1, 0]], hw: [17, 26], woods: [1, 1], gaps: [[-1, 215, 290], [1, 215, 290]], wind: { mph: 5, from: 150 } },
+  { id: 13, name: "Marebear's Den", par: 3, len: 225, bend: [[0, 0], [1, -12]], hw: [24, 22], woods: [0.95, 0.95], guards: [[0.45, -8, 4.4, 66], [0.6, 12, 4.4, 62], [0.78, -2, 4.6, 70]], front: 3, wind: { mph: 3, from: 270 } },
+  { id: 14, name: 'Fairway to Heaven', par: 5, len: 565, bend: [[0, 0], [0.3, -36], [0.62, 34], [1, 0]], hw: [36, 28], woods: [0.55, 0.5], ponds: [[0.5, 1, 76, 40, 50]], wind: { mph: 7, from: 120 } },
+  { id: 15, name: 'Creek Crossing', par: 4, len: 380, bend: [[0, 0], [1, 22]], hw: [34, 30], woods: [0.45, 0.45], creek: [0.6, 22], guards: [[0.3, 10, 4.2, 58]], wind: { mph: 8, from: 330 } },
+  { id: 16, name: 'The Elbow', par: 4, len: 420, bend: [[0, 0], [0.62, 0], [0.8, -42], [1, -86]], hw: [32, 24], woods: [0.7, 0.9], guards: [[0.66, 18, 4.6, 68], [0.76, 8, 4.4, 64]], wind: { mph: 9, from: 45 } },
+  { id: 17, name: 'Last Gasp', par: 3, len: 280, bend: [[0, 0], [1, 0]], hw: [34, 28], woods: [0.3, 0.3], ponds: [[0.42, -1, 18, 34, 56], [0.42, 1, 48, 24, 40]], wind: { mph: 10, from: 300 } },
+  { id: 18, name: 'Finishing Stretch', par: 4, len: 460, bend: [[0, 0], [0.5, 0], [1, 58]], hw: [36, 24], woods: [0.75, 0.6], ponds: [[0.9, 1, 52, 30, 44]], guards: [[0.7, 24, 4.8, 70]], wind: { mph: 11, from: 220 } },
+];
+
+// Holes 1-9 are the front nine, 10-18 the back; a nine-hole round is the front nine.
+export const HOLES = [holeOne(), ...HOLE_SPECS.map(build)];
+export const holeById = (id) => HOLES.find((h) => h.id === id);
+export const holesFor = (length) => HOLES.slice(0, length === 9 ? 9 : length === 18 ? 18 : 1);

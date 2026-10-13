@@ -104,6 +104,10 @@ that way; don't introduce React/Vite/Tailwind here.
 - `public/js/gamecore.js` is the rules and has no clock, randomness or drawing, so a throw always lands the same way
   and `test/gamecore.test.js` can play the hole headless (it includes a bot that has to be able to make par).
   `course.js` is hole data: add a hole by adding an entry to `HOLES`. `game.js` is only the view.
+- The course is 18 holes: hole 1 is hand-placed, 2-18 are built by `build()` in `course.js` from a short spec
+  (length, bend, woods, ponds, creek, guards). A round is a practice hole, the front nine, or all eighteen, with a
+  scorecard; discs Marebear eats stay eaten for the round. `test/gamecore.test.js` checks every hole (trees not in
+  ponds, tee and basket clear) and has a bot play each one: **a new or changed hole must stay solvable in par.**
 - Marebear eats the disc you just threw, once per hole, the first time you are at a triple bogey or worse and have
   not holed out. That rule lives in `applyResult` and is tested; the bear is drawn in `drawBear`.
 - Modules import each other with `?v=N`: bump it when a module changes, or cached copies mix with new ones.

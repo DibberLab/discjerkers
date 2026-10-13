@@ -183,6 +183,8 @@ function createAccountStore(file, { now = () => Date.now(), photoDir = path.join
   return {
     view,
 
+    hasUser: (username) => !!findByName(String(username ?? '').trim().toLowerCase()),
+
     async signup(username, password) {
       writable();
       const name = String(username ?? '').trim();

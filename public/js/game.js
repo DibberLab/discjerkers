@@ -4,8 +4,8 @@
 
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, SPIN, spinOf, typicalSpin, tierName, ANGLE_MAX, angleName, angleDeg } from './flightmodel.js?v=1';
-import { HOLES } from './course.js?v=1';
-import * as G from './gamecore.js?v=2';
+import { HOLES, holeById, holesFor } from './course.js?v=2';
+import * as G from './gamecore.js?v=3';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -70,7 +70,9 @@ function discChip(disc, item) {
 const S = {
   hole: HOLES[0],
   round: null,
-  phase: 'loading', // pick | power | release | putt | flight | result | bear | done
+  mode: 'menu', // menu | solo
+  course: null, // the round being played: { length, holes, idx, card, eaten }
+  phase: 'loading', // menu | pick | power | release | putt | flight | result | bear | done | summary
   bag: { starter: true, discs: [] },
   discId: null,
   settings: loadSettings(),
@@ -100,7 +102,9 @@ function loadSettings() {
 function saveSettings() {
   try { localStorage.setItem('dj_game_throw', JSON.stringify(S.settings)); } catch { /* not saved */ }
 }
-const bestKey = () => `dj_game_best_${S.hole.id}`;
+const bestKey = () => (S.course && S.course.length > 1 ? `dj_game_best_${S.course.length}` : `dj_game_best_h${S.hole.id}`);
+const parTotal = (holes) => holes.reduce((n, h) => n + h.par, 0);
+const vsPar = (n) => (n === 0 ? 'E' : n > 0 ? `+${n}` : String(n));
 
 const lieOf = () => S.round.lie;
 const toBasket = () => G.distance(lieOf(), S.hole.basket);
@@ -120,17 +124,49 @@ function suggest() {
   return list.reduce((best, x) => (Math.abs(x.disc.speed - want) < Math.abs(best.disc.speed - want) ? x : best)).disc.id;
 }
 
-function startRound() {
+// a new hole: a fresh round of it, with the discs Marebear has already eaten staying eaten
+function startHole() {
   S.round = G.newRound(S.hole);
+  S.round.eaten = [...(S.course?.eaten || [])];
   S.trail = [];
   S.fx = [];
   S.bear = null;
   S.last = null;
+  S.anim = null;
+  S.meter = null;
   S.aimOff = 0;
   S.bag = buildBag();
   S.discId = suggest();
   try { S.best = Number(localStorage.getItem(bestKey())) || null; } catch { S.best = null; }
+  if (!S.discId) { finishCourse(); return; }
   setPhase('pick');
+  retarget(true);
+  if (S.course.holes.length > 1) toast(`Hole ${S.hole.id}: ${S.hole.name}`, '', 1700);
+}
+
+// a round: one practice hole, the front nine, or all eighteen
+function startSolo(length, practiceId) {
+  const holes = length === 1 ? [holeById(practiceId) || HOLES[0]] : holesFor(length);
+  S.mode = 'solo';
+  S.course = { length, holes, idx: 0, card: [], eaten: [] };
+  S.hole = holes[0];
+  startHole();
+}
+
+function showMenu() {
+  S.mode = 'menu';
+  S.course = null;
+  S.hole = HOLES[0];
+  S.round = G.newRound(S.hole);
+  S.trail = [];
+  S.fx = [];
+  S.anim = null;
+  S.bear = null;
+  S.meter = null;
+  S.last = null;
+  S.bag = buildBag();
+  S.discId = null;
+  setPhase('menu');
   retarget(true);
 }
 
@@ -220,7 +256,7 @@ function panelPick() {
   const plan = G.planThrow(S.hole, d, S.settings, heading());
   const dist = toBasket();
   const strokes = S.round.strokes;
-  return `${tipHtml()}${bagBar()}
+  return `${roundBar()}${tipHtml()}${bagBar()}
     <div class="gm-block">
       <p class="gm-h">Your disc <span>· ${available().length} left in the bag</span></p>
       ${discRow()}
@@ -233,6 +269,35 @@ function panelPick() {
       <button class="btn" type="button" data-go>${putting ? 'Putt' : 'Throw'}</button>
       <p class="gm-go__line">Stroke <b>${strokes + 1}</b> · Par <b>${S.hole.par}</b> · ${putting ? `${ft(dist)} out` : `${ft(dist)} to the basket`}</p>
     </div>`;
+}
+
+function panelMenu() {
+  const options = HOLES.map((h) => `<option value="${h.id}">${h.id}. ${esc(h.name)} · par ${h.par}</option>`).join('');
+  return `${bagBar()}
+    <div class="gm-card">
+      <h2>Play the course</h2>
+      <p>Eighteen holes of woods, water and wind. Pick a round, bring your bag, and try not to triple bogey: Marebear is watching.</p>
+      <div class="gm-menu">
+        <button class="btn" type="button" data-solo="9">Front 9<small>par ${parTotal(HOLES.slice(0, 9))}</small></button>
+        <button class="btn" type="button" data-solo="18">Full 18<small>par ${parTotal(HOLES)}</small></button>
+      </div>
+      <div class="gm-row">
+        <label class="gm-practice"><span class="fg-wind__l">Practice a hole</span><select data-practice aria-label="Which hole">${options}</select></label>
+        <button class="chip" type="button" data-solo="1">Play it</button>
+      </div>
+    </div>`;
+}
+
+// where you are in the round, and a way out
+function roundBar() {
+  const c = S.course;
+  if (!c) return '';
+  const total = c.card.reduce((n, h) => n + h.score, 0);
+  const par = c.card.reduce((n, h) => n + h.par, 0);
+  const left = c.length > 1
+    ? `<span>Hole <b>${c.idx + 1}</b> of ${c.holes.length}${c.card.length ? ` · ${vsPar(total - par)} after ${c.card.length}` : ''}</span>`
+    : '<span>Practice hole</span>';
+  return `<div class="gm-roundbar">${left}<button class="chip" type="button" data-quit>Quit</button></div>`;
 }
 
 function panelNoDiscs() {
@@ -307,20 +372,46 @@ function panelBear() {
 
 function panelDone() {
   const r = S.round;
-  const name = r.holed ? G.scoreName(r.strokes, S.hole.par) : 'No discs left';
+  const c = S.course;
   const diff = r.strokes - S.hole.par;
-  const best = S.best;
+  const entry = c.card.at(-1);
+  const name = r.holed ? G.scoreName(r.strokes, S.hole.par) : 'No discs left';
+  const lastHole = c.idx >= c.holes.length - 1 || !available().length;
+  const next = c.holes[c.idx + 1];
   const log = r.throws.map((t, i) => {
     const d = DISCS.get(t.disc);
     return `<li><b>${i + 1}</b> · ${esc(splitName(d.name))} · ${t.kind === 'basket' ? 'in the basket' : t.kind === 'water' || t.kind === 'oob' ? 'out of bounds (+1)' : t.kind === 'tree' ? 'hit a tree' : `${ft(t.feet)}`}</li>`;
   }).join('');
+  const total = c.card.reduce((n, h) => n + h.score, 0);
+  const par = c.card.reduce((n, h) => n + h.par, 0);
   return `<div class="gm-card">
       <h2 class="${r.holed && diff <= 0 ? 'is-good' : 'is-bad'}">${name}</h2>
-      <div class="gm-score"><div><b>${r.strokes}</b><span>Strokes</span></div><div><b>${S.hole.par}</b><span>Par</span></div><div><b>${diff > 0 ? '+' : ''}${diff}</b><span>To par</span></div></div>
-      ${best ? `<p>Best on this hole: <b>${best}</b>${r.holed && r.strokes <= best ? ' (that is you, right now)' : ''}</p>` : ''}
+      <div class="gm-score"><div><b>${r.holed ? r.strokes : entry.score}</b><span>${r.holed ? 'Strokes' : 'Scored'}</span></div><div><b>${S.hole.par}</b><span>Par</span></div><div><b>${vsPar(entry.score - S.hole.par)}</b><span>To par</span></div></div>
+      ${c.length > 1 ? `<p>Round so far: <b>${total}</b> (${vsPar(total - par)}) after ${c.card.length} ${c.card.length === 1 ? 'hole' : 'holes'}.</p>` : (S.best ? `<p>Best on this hole: <b>${S.best}</b></p>` : '')}
       <ol class="gm-log">${log}</ol>
-      ${r.eaten.length ? `<p>Marebear ate ${r.eaten.map((id) => esc(splitName(DISCS.get(id).name))).join(', ')}. She does not give them back.</p>` : ''}
-      <button class="btn" type="button" data-again>Play the hole again</button>
+      ${r.eaten.length ? `<p>Marebear has eaten ${r.eaten.map((id) => esc(splitName(DISCS.get(id).name))).join(', ')}. She does not give them back.</p>` : ''}
+      ${lastHole
+        ? `<button class="btn" type="button" data-summary>${c.length > 1 ? 'See the scorecard' : 'Finish'}</button>`
+        : `<button class="btn" type="button" data-next-hole>Next: hole ${next.id}, ${esc(next.name)} <small>par ${next.par}</small></button>`}
+    </div>`;
+}
+
+// the whole round on one card
+function panelSummary() {
+  const c = S.course;
+  const total = c.card.reduce((n, h) => n + h.score, 0);
+  const par = c.card.reduce((n, h) => n + h.par, 0);
+  const rows = c.card.map((h) => `<li class="${h.score < h.par ? 'is-under' : h.score > h.par ? 'is-over' : ''}"><span>${h.id}. ${esc(HOLES[h.id - 1].name)}</span><span>par ${h.par}</span><b>${h.holed ? h.strokes : `${h.score}*`}</b></li>`).join('');
+  const unfinished = c.card.some((h) => !h.holed) || c.card.length < c.holes.length;
+  const best = S.best;
+  return `<div class="gm-card">
+      <h2 class="${total <= par ? 'is-good' : 'is-bad'}">${c.length === 1 ? 'Hole done' : c.length === 9 ? 'Front nine' : 'Round complete'}</h2>
+      <div class="gm-score"><div><b>${total}</b><span>Strokes</span></div><div><b>${par}</b><span>Par</span></div><div><b>${vsPar(total - par)}</b><span>To par</span></div></div>
+      ${best ? `<p>Best ${c.length === 1 ? 'on this hole' : `${c.length}-hole round`}: <b>${best}</b>${!unfinished && total <= best ? ' (that is you, right now)' : ''}</p>` : ''}
+      <ol class="gm-card-list">${rows}</ol>
+      ${unfinished ? '<p>* Marebear ate your bag, so the rest of the round does not count for much.</p>' : ''}
+      <button class="btn" type="button" data-again>Play it again</button>
+      <button class="btn btn--ghost" type="button" data-menu>Back to the menu</button>
     </div>`;
 }
 
@@ -328,7 +419,7 @@ function renderPanel(focusSel) {
   const p = panel();
   if (!p) return;
   const keepScroll = p.dataset.phase === S.phase ? p.scrollTop : 0;
-  const views = { pick: panelPick, power: panelMeter, release: panelMeter, putt: panelMeter, flight: panelFlight, result: panelResult, bear: panelBear, done: panelDone };
+  const views = { menu: panelMenu, pick: panelPick, power: panelMeter, release: panelMeter, putt: panelMeter, flight: panelFlight, result: panelResult, bear: panelBear, done: panelDone, summary: panelSummary };
   p.innerHTML = (views[S.phase] || (() => ''))();
   p.dataset.phase = S.phase;
   p.scrollTop = keepScroll;
@@ -343,7 +434,14 @@ function updateHud() {
   const h = S.hole;
   const r = S.round;
   if (!r) return;
-  $('#gm-hud').innerHTML = `<span>Hole ${h.id} · ${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}</small><span>Strokes <b>${r.strokes}</b></span><small>${ft(G.distance(r.lie, h.basket))} to the basket</small>`;
+  const c = S.course;
+  if (!c) {
+    $('#gm-hud').innerHTML = '<span>Disc Jerkers Golf Club</span><small>Eighteen holes · par 69</small>';
+  } else {
+    const total = c.card.reduce((n, x) => n + x.score, 0);
+    const par = c.card.reduce((n, x) => n + x.par, 0);
+    $('#gm-hud').innerHTML = `<span>${c.length > 1 ? `Hole ${c.idx + 1}/${c.holes.length} · ` : ''}${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}</small><span>Strokes <b>${r.strokes}</b>${c.length > 1 && c.card.length ? ` · Round ${vsPar(total - par)}` : ''}</span><small>${ft(G.distance(r.lie, h.basket))} to the basket</small>`;
+  }
   const from = COMPASS[Math.round(h.wind.from / 45) % 8];
   $('#gm-wind').innerHTML = h.wind.mph
     ? `<svg viewBox="-10 -10 20 20" style="transform:rotate(${h.wind.from + 180}deg)"><path d="M0 -8 L4.5 5 L0 2.5 L-4.5 5 Z"/></svg><span>${h.wind.mph} mph<br>from ${from}</span>`
@@ -432,7 +530,7 @@ function finishThrow() {
   S.aimOff = 0;
 
   if (result.kind === 'basket') {
-    finishRound();
+    finishHole();
   } else if (out.bear) {
     startBear(out.bear);
   } else {
@@ -441,22 +539,34 @@ function finishThrow() {
   }
 }
 
-function finishRound() {
+// the hole is over (holed out, or no discs left): put it on the card
+function finishHole() {
   const r = S.round;
+  const c = S.course;
   r.done = true;
-  if (r.holed) {
-    try {
-      if (!S.best || r.strokes < S.best) localStorage.setItem(bestKey(), String(r.strokes));
-      S.best = Math.min(S.best || Infinity, r.strokes);
-    } catch { /* not saved */ }
-    toast(G.scoreName(r.strokes, S.hole.par), r.strokes <= S.hole.par ? 'good' : 'bad', 2600);
-  }
+  c.card.push({ id: S.hole.id, par: S.hole.par, strokes: r.strokes, score: G.holeScore(r.strokes, S.hole.par, r.holed), holed: r.holed });
+  c.eaten = [...r.eaten];
+  if (r.holed) toast(G.scoreName(r.strokes, S.hole.par), r.strokes <= S.hole.par ? 'good' : 'bad', 2400);
   setPhase('done');
   retarget(false);
 }
 
+// the round is over: remember the best, and show the card
+function finishCourse() {
+  const c = S.course;
+  const total = c.card.reduce((n, h) => n + h.score, 0);
+  const complete = c.card.length === c.holes.length && c.card.every((h) => h.holed);
+  try {
+    const prev = Number(localStorage.getItem(bestKey())) || null;
+    if (complete && (!prev || total < prev)) localStorage.setItem(bestKey(), String(total));
+    S.best = complete ? Math.min(prev || Infinity, total) : prev;
+  } catch { S.best = null; }
+  setPhase('summary');
+  retarget(false);
+}
+
 function next() {
-  if (S.round.done) { finishRound(); return; }
+  if (S.round.done) { finishHole(); return; }
   S.discId = suggest(); // a driver from the tee, a putter on the green: you can change it
   S.aimOff = 0;
   setPhase('pick');
@@ -484,13 +594,12 @@ function endBear() {
   const eatenLast = !available().length;
   S.bear = null;
   if (eatenLast) {
-    S.round.done = true;
     S.round.holed = false;
-    setPhase('done');
+    finishHole(); // no discs left: the hole is over, and so is the round
   } else {
     setPhase('result');
+    retarget(false);
   }
-  retarget(false);
 }
 
 /* ---------- the camera ---------- */
@@ -1048,8 +1157,25 @@ function onPanelClick(e) {
     startMeter();
   } else if (t.closest('[data-next]')) {
     next();
+  } else if (t.closest('[data-solo]')) {
+    const length = Number(t.closest('[data-solo]').dataset.solo);
+    startSolo(length, length === 1 ? Number($('[data-practice]', panel())?.value) || 1 : undefined);
+  } else if (t.closest('[data-next-hole]')) {
+    S.course.idx += 1;
+    S.hole = S.course.holes[S.course.idx];
+    startHole();
+  } else if (t.closest('[data-summary]')) {
+    finishCourse();
+  } else if (t.closest('[data-menu]')) {
+    showMenu();
+  } else if (t.closest('[data-quit]')) {
+    const btn = t.closest('[data-quit]');
+    if (btn.dataset.armed) { showMenu(); return; }
+    btn.dataset.armed = '1'; // two taps: quitting throws the round away
+    btn.textContent = 'Really?';
+    setTimeout(() => { if (btn.isConnected) { delete btn.dataset.armed; btn.textContent = 'Quit'; } }, 3000);
   } else if (t.closest('[data-again]')) {
-    startRound();
+    startSolo(S.course?.length || 18, S.course?.holes[0].id);
   } else if (t.closest('[data-tip-close]')) {
     try { localStorage.setItem('dj_game_tip', '1'); } catch { /* shown again */ }
     renderPanel();
@@ -1112,11 +1238,11 @@ async function boot() {
     if (!S.round) return;
     S.bag = buildBag();
     if (!S.bag.discs.some((x) => x.disc.id === S.discId)) S.discId = suggest();
-    if (S.phase === 'pick') renderPanel();
+    if (S.phase === 'pick' || S.phase === 'menu') renderPanel();
   });
   await loadAccount();
-  startRound();
-  window.__gm = { S, G, clock, tap, throwDisc, startMeter, next, retarget, cam, DISCS, startRound, startBear, finishThrow };
+  showMenu();
+  window.__gm = { S, G, clock, tap, throwDisc, startMeter, next, retarget, cam, DISCS, showMenu, startSolo, startHole, startBear, finishThrow, finishHole, finishCourse };
   requestAnimationFrame(frame);
 }
 

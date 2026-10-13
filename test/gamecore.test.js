@@ -179,6 +179,7 @@ test('scoring, and Marebear: she comes once, at a triple bogey, for the disc you
   assert.deepStrictEqual([1, 2, 3, 4, 5, 6, 7, 8, 9].map((s) => G.scoreName(s, 4)), ['Ace!', 'Eagle', 'Birdie', 'Par', 'Bogey', 'Double bogey', 'Triple bogey', '+4', '+5']);
   assert.strictEqual(G.scoreName(2, 3), 'Birdie');
   assert.ok(!G.atTripleBogey(6, 4) && G.atTripleBogey(7, 4));
+  assert.deepStrictEqual([G.holeScore(4, 4, true), G.holeScore(3, 4, false), G.holeScore(9, 4, false)], [4, 8, 10], 'a hole you could not finish is a bad one');
 
   const hole = await field();
   const round = G.newRound(hole);
@@ -295,4 +296,64 @@ test('hole one: after hitting a tree, no throw from where it dropped hits that s
     }
   }
   assert.ok(checked > 100, `the sweep actually tested things: ${checked}`);
+});
+
+
+test('the course: eighteen holes, each laid out sensibly', async () => {
+  const G = await load();
+  assert.strictEqual(G.HOLES.length, 18);
+  assert.deepStrictEqual(G.HOLES.map((h) => h.id), Array.from({ length: 18 }, (_, i) => i + 1));
+  assert.strictEqual(G.holesFor(9).length, 9);
+  assert.strictEqual(G.holesFor(18).length, 18);
+  assert.strictEqual(G.holesFor(1).length, 1);
+  assert.ok(G.holeById(7).name);
+  assert.ok(new Set(G.HOLES.map((h) => h.name)).size === 18, 'every hole has its own name');
+  const par = G.HOLES.reduce((n, h) => n + h.par, 0);
+  assert.ok(par >= 60 && par <= 76, `a believable par: ${par}`);
+  for (const h of G.HOLES) {
+    assert.ok([3, 4, 5].includes(h.par), `${h.id} par`);
+    assert.strictEqual(G.surfaceAt(h, h.tee.x, h.tee.y), 'tee', `${h.id}: the tee is a tee`);
+    assert.strictEqual(G.surfaceAt(h, h.basket.x, h.basket.y), 'fairway', `${h.id}: the basket is on grass`);
+    assert.ok(G.distance(h.tee, h.basket) > 150 && G.distance(h.tee, h.basket) < 700, `${h.id}: length`);
+    for (const t of h.trees) {
+      assert.notStrictEqual(G.surfaceAt(h, t.x, t.y), 'water', `${h.id}: a tree in the water at ${t.x},${t.y}`);
+      assert.ok(Math.hypot(t.x - h.tee.x, t.y - h.tee.y) > t.r + 8, `${h.id}: a tree on the tee`);
+      assert.ok(Math.hypot(t.x - h.basket.x, t.y - h.basket.y) > t.r + 6, `${h.id}: a tree on the basket`);
+    }
+  }
+});
+
+test('every hole can be played: a careful player with a clean meter makes par or better', async () => {
+  const G = await load();
+  const FW = { id: 2, speed: 9, glide: 5, turn: -2, fade: 2 };
+  const MID = { id: 3, speed: 5, glide: 4, turn: 0, fade: 3 };
+  const PUT = { id: 4, speed: 3, glide: 3, turn: 0, fade: 1 };
+  for (const hole of G.HOLES) {
+    let lie = { ...hole.tee };
+    let strokes = 0;
+    for (let n = 0; n < 9 && strokes < 99; n++) {
+      const dist = G.distance(lie, hole.basket);
+      if (dist <= G.PUTT_RANGE) { strokes += 1; break; } // a clean putt goes in
+      const discs = dist > 280 ? [DRIVER, FW] : dist > 160 ? [FW, MID, DRIVER] : [MID, PUT, FW];
+      const base = G.headingTo(lie, hole.basket);
+      let best = null;
+      for (const disc of discs) {
+        for (let off = -45; off <= 45; off += 5) {
+          for (const angle of [-1, 0, 1]) {
+            for (let mph = 12; mph <= 86; mph += 8) {
+              const r = G.resolveThrow(hole, disc, { ...RIGHT, mph, angle }, base + off, CLEAN, lie);
+              if (r.kind !== 'landed' && r.kind !== 'basket') continue;
+              const d = G.distance(r.lie, hole.basket);
+              if (!best || d < best.d) best = { d, r };
+            }
+          }
+        }
+      }
+      assert.ok(best, `hole ${hole.id} (${hole.name}): there is always a way to play on`);
+      strokes += 1;
+      if (best.r.kind === 'basket') break;
+      lie = best.r.lie;
+    }
+    assert.ok(strokes <= hole.par, `hole ${hole.id} (${hole.name}) can be played in par: ${strokes} vs ${hole.par}`);
+  }
 });

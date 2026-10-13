@@ -4,7 +4,7 @@
    same model the flight guide uses. Feet; x is east, y is north; heading 0 is north, positive is clockwise. */
 
 import { clamp, carryRaw, flightCurve, spinOf, spinsClockwise, angleDeg } from './flightmodel.js?v=1';
-import { surfaceAt } from './course.js?v=1';
+import { surfaceAt } from './course.js?v=2';
 
 const DEG = Math.PI / 180;
 export const PUTT_RANGE = 50; // inside this you putt
@@ -268,6 +268,10 @@ export const scoreName = (strokes, par) => {
   return d <= -3 ? 'Albatross' : d === -2 ? 'Eagle' : d === -1 ? 'Birdie' : d === 0 ? 'Par' : d === 1 ? 'Bogey' : d === 2 ? 'Double bogey' : d === 3 ? 'Triple bogey' : `+${d}`;
 };
 export const atTripleBogey = (strokes, par) => strokes - par >= 3;
+
+// A hole you did not finish (Marebear ate your whole bag) counts as the worst a hole can: a stroke more than you took, but
+// never less than par plus four.
+export const holeScore = (strokes, par, holed) => (holed ? strokes : Math.max(strokes + 1, par + 4));
 
 export function newRound(hole) {
   return { hole, lie: { ...hole.tee }, strokes: 0, throws: [], eaten: [], bearCame: false, done: false, holed: false };
