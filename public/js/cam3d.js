@@ -223,19 +223,39 @@ function drawTree(ctx, cam, b, view, t) {
 }
 
 // the basket: a pole, a ring with its chains, and a tall flag so you can find it from a long way off
+export const RING_H = 4.4; // the top band the chains hang from
+export const TRAY_H = 3.0; // the lip of the catch tray, about three feet off the ground
+export const TRAY_R = 1.05;
+
+// a circle of the given size and height around a point, projected (or null if any of it is behind the camera)
+function ringAt(cam, view, x, y, r, z, n = 22) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const q = project(cam, view, x + Math.cos((i / n) * Math.PI * 2) * r, y + Math.sin((i / n) * Math.PI * 2) * r, z);
+    if (!q) return null;
+    out.push(q);
+  }
+  return out;
+}
+const fillRing = (ctx, pts, color) => { ctx.beginPath(); pts.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y))); ctx.closePath(); ctx.fillStyle = color; ctx.fill(); };
+
+// the basket: a pole, a catch tray three feet up, chains hanging from the top band down to the tray, and a tall flag so you can find it from a long way off
 function drawBasket(ctx, cam, b, view, hole, jiggle = 0, t = 0) {
   const { x, y } = hole.basket;
   const g = project(cam, view, x, y, 0);
   if (!g || g.d > 2500) return;
   const poleH = Math.max(9, Math.min(30, 8 + g.d * 0.1)) * ZS; // a tall flag far off, a short one when you are standing at it
   const top = project(cam, view, x, y, poleH);
-  const ring = project(cam, view, x, y, 4.4);
-  ctx.strokeStyle = 'rgba(238,241,232,0.85)';
-  ctx.lineWidth = Math.max(1, 0.18 * g.s);
-  ctx.beginPath();
-  ctx.moveTo(g.x, g.y);
-  ctx.lineTo((top || ring || g).x, (top || ring || g).y);
-  ctx.stroke();
+  const ring = project(cam, view, x, y, RING_H);
+  const pole = () => {
+    ctx.strokeStyle = 'rgba(238,241,232,0.85)';
+    ctx.lineWidth = Math.max(1, 0.18 * g.s);
+    ctx.beginPath();
+    ctx.moveTo(g.x, g.y);
+    ctx.lineTo((top || ring || g).x, (top || ring || g).y);
+    ctx.stroke();
+  };
+  pole();
   if (top) {
     ctx.fillStyle = '#d35400';
     const fl = Math.max(5, Math.min(9, 1.4 + g.d * 0.05) * g.s * ZS);
@@ -246,17 +266,41 @@ function drawBasket(ctx, cam, b, view, hole, jiggle = 0, t = 0) {
     ctx.closePath();
     ctx.fill();
   }
+  // the tray: a shallow dish with a bright lip, where a disc comes to rest
+  const lip = g.d < 700 ? ringAt(cam, view, x, y, TRAY_R, TRAY_H) : null;
+  const floor = lip ? ringAt(cam, view, x, y, TRAY_R * 0.82, TRAY_H - 0.35) : null;
+  if (lip && floor) {
+    // the underside first, so the dish has some body: the rim joined to the floor
+    ctx.fillStyle = '#23272e';
+    for (let i = 0; i < lip.length; i++) {
+      const j = (i + 1) % lip.length;
+      ctx.beginPath();
+      ctx.moveTo(lip[i].x, lip[i].y);
+      ctx.lineTo(lip[j].x, lip[j].y);
+      ctx.lineTo(floor[j].x, floor[j].y);
+      ctx.lineTo(floor[i].x, floor[i].y);
+      ctx.closePath();
+      ctx.fill();
+    }
+    fillRing(ctx, floor, '#14171c');
+    ctx.strokeStyle = '#c9ced6';
+    ctx.lineWidth = Math.max(1, 0.1 * g.s);
+    ctx.beginPath();
+    lip.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+    ctx.closePath();
+    ctx.stroke();
+    pole(); // the pole stands in the middle of it
+  }
   if (!ring) return;
-  // the chains hang from the ring to a lower ring
-  const low = project(cam, view, x, y, 2.3);
-  if (low && g.d < 180) {
-    ctx.strokeStyle = 'rgba(210,214,206,0.7)';
+  // the chains hang from the top band down to the tray's lip
+  if (g.d < 220) {
+    ctx.strokeStyle = 'rgba(210,214,206,0.75)';
     ctx.lineWidth = Math.max(0.8, 0.07 * g.s);
     for (let i = 0; i < 9; i++) {
       const a = (i / 9) * Math.PI * 2;
-      const up = project(cam, view, x + Math.cos(a) * 1.45, y + Math.sin(a) * 1.45, 4.4);
+      const up = project(cam, view, x + Math.cos(a) * 1.45, y + Math.sin(a) * 1.45, RING_H);
       const sway = jiggle * 0.5 * Math.sin(t / 38 + i * 1.9); // the chains rattle when something has gone through
-      const dn = project(cam, view, x + Math.cos(a) * 0.9 + sway, y + Math.sin(a) * 0.9 - sway * 0.6, 2.3);
+      const dn = project(cam, view, x + Math.cos(a) * TRAY_R * 0.92 + sway, y + Math.sin(a) * TRAY_R * 0.92 - sway * 0.6, TRAY_H + 0.1);
       if (!up || !dn) continue;
       ctx.beginPath();
       ctx.moveTo(up.x, up.y);

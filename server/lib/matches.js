@@ -237,7 +237,7 @@ function throwMove(gp, m, uid, body) {
   const disc = gp.discs.get(discId);
   const ex = G.applySlip(G.sanitizeExecution(body.ex), G.rollSlip(disc, settings, Math.random())); // the server rolls: a slip cannot be dodged
   const result = G.resolveThrow(hole, disc, settings, G.headingTo(r.lie, hole.basket) + aimOff, ex, r.lie);
-  return record(gp, m, uid, disc, result, { ex: { o: ex.o, pure: ex.pure, grade: ex.grade, slip: ex.slip }, putt: false });
+  return record(gp, m, uid, disc, result, { ex: { o: ex.o, pure: ex.pure, grade: ex.grade, slip: ex.slip, swipe: ex.swipe, swipeAim: ex.swipeAim, swipeSpeed: ex.swipeSpeed }, putt: false });
 }
 
 function puttMove(gp, m, uid, body) {

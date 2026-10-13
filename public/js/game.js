@@ -5,10 +5,10 @@
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=8';
-import * as G from './gamecore.js?v=18';
+import * as G from './gamecore.js?v=19';
 import * as T from './trash.js?v=3';
-import * as C3 from './cam3d.js?v=6';
-import * as PF from './puttfx.js?v=2';
+import * as C3 from './cam3d.js?v=7';
+import * as PF from './puttfx.js?v=3';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -453,6 +453,10 @@ function panelMeter() {
 const panelFlight = () => `<div class="gm-card"><h2>${esc(S.last?.ex?.grade ?? '')}</h2><p>${S.last?.ex ? describeExecution(S.last.ex) : 'Here it goes…'}</p></div>`;
 
 function describeExecution(ex) {
+  const sw = ex.swipe ? ` ${ex.swipeSpeed < 0.97 ? 'The swipe was too soft.' : ex.swipe.power > 1 + G.DRIVE_SWIPE.power ? 'The swipe was too hard.' : ''}${Math.abs(ex.swipeAim || 0) > 1 ? ` The swipe pulled it ${ex.swipeAim < 0 ? 'left' : 'right'}.` : ''}` : '';
+  return `${describeRelease(ex)}${sw}`.trim();
+}
+function describeRelease(ex) {
   if (ex.slip === 'grip') return 'The disc stuck to your fingers and came out late and short.';
   if (ex.slip === 'early') return 'The disc slipped out of your hand early.';
   return ex.o < -0.08 ? 'Released early.' : ex.o > 0.08 ? 'Released late.' : 'Released on time.';
@@ -638,9 +642,7 @@ function tap() {
     next('release');
     toast(angleName(S.settings), '', 900);
   } else if (S.phase === 'release') {
-    const ex = G.combine(G.readRelease(G.releaseAt(t, m.rel), m.rel.w));
-    // solo rolls the slip here; in a match the server does, and the throw comes back with it
-    throwDisc(S.mode === 'match' ? ex : G.applySlip(ex, G.rollSlip(curDisc(), S.settings, Math.random())));
+    startSwipe(null, G.combine(G.readRelease(G.releaseAt(t, m.rel), m.rel.w))); // the release is timed; the swipe is the throw itself
   } else if (S.phase === 'putt') {
     const shot = G.puttCursorAt(m.params, t, m.speed);
     if (toBasket() <= G.GIMME) puttDisc(shot, null); // a tap-in needs no swipe
@@ -690,16 +692,20 @@ function puttAnim(from, result, lie, who) {
 /* ----- the swipe: after the radar, a flick toward the basket. True in aim and in power, or it misses. ----- */
 
 // how far a swipe must run, in pixels, to be exactly enough: longer for a longer putt
-const swipeNeed = () => (H - S.dock) * (0.22 + 0.0065 * toBasket());
+const swipeNeed = () => (H - S.dock) * (S.meter?.throwEx ? 0.3 + 0.0042 * S.settings.mph : 0.22 + 0.0065 * toBasket()); // a drive: harder arm, longer swipe
+const swipeTol = () => (S.meter?.throwEx ? G.DRIVE_SWIPE : G.swipeTolerance(toBasket()));
 
-function startSwipe(shot) {
-  S.meter = { kind: 'swipe', shot, drag: null };
+function startSwipe(shot = null, throwEx = null) {
+  S.meter = { kind: 'swipe', shot, throwEx, drag: null };
   setPhase('swipe');
 }
 function panelSwipe() {
-  return `<div class="gm-meter gm-meter--putt">
-      <p class="gm-meter__t"><span>2 ·</span> Swipe</p>
-      <div class="gm-meter__h"><p>Flick from the disc toward the basket. Keep it straight inside the lime lines, and stop inside the lime band: too soft dies short, too hard runs long, and off line misses.</p></div>
+  const drive = !!S.meter?.throwEx;
+  return `<div class="gm-meter ${drive ? '' : 'gm-meter--putt'}">
+      <p class="gm-meter__t"><span>${drive ? 5 : 2} ·</span> Swipe</p>
+      <div class="gm-meter__h"><p>${drive
+    ? 'Flick up the screen to throw. Stay inside the lime lines and stop in the lime band: off line steers the throw, too soft loses distance, too hard makes it loose.'
+    : 'Flick from the disc toward the basket. Keep it straight inside the lime lines, and stop inside the lime band: too soft dies short, too hard runs long, and off line misses.'}</p></div>
     </div>`;
 }
 function swipePoint(e) {
@@ -727,16 +733,22 @@ function endSwipe() {
   const dy = d.y - d.y0;
   const len = Math.hypot(dx, dy);
   if (len < 28) return; // a tap, not a swipe: try again
-  puttDisc(m.shot, { aim: Math.round(((Math.atan2(dx, -dy) * 180) / Math.PI) * 10) / 10, power: Math.round((len / swipeNeed()) * 1000) / 1000 });
+  const swipe = { aim: Math.round(((Math.atan2(dx, -dy) * 180) / Math.PI) * 10) / 10, power: Math.round((len / swipeNeed()) * 1000) / 1000 };
+  if (m.throwEx) {
+    const ex = G.withSwipe(m.throwEx, swipe);
+    // solo rolls the slip here; in a match the server does, and the throw comes back with it
+    throwDisc(S.mode === 'match' ? ex : G.applySlip(ex, G.rollSlip(curDisc(), S.settings, Math.random())));
+  } else {
+    puttDisc(m.shot, swipe);
+  }
 }
 
 // the guide you swipe by: the cone to stay inside, the band to stop in, and your own line as you draw it
 function drawSwipeGuide() {
   const m = S.meter;
   if (!m || m.kind !== 'swipe') return;
-  const dist = toBasket();
   const need = swipeNeed();
-  const tol = G.swipeTolerance(dist);
+  const tol = swipeTol();
   const d = m.drag;
   const ax = d ? d.x0 : W / 2;
   const ay = d ? d.y0 : (H - S.dock) * 0.88;
@@ -782,15 +794,16 @@ function drawSwipeGuide() {
     ctx.fillStyle = '#eef1e8';
     ctx.strokeStyle = 'rgba(0,0,0,0.8)';
     ctx.lineWidth = 5;
-    ctx.strokeText('SWIPE UP TO PUTT', ax, ay + 34);
-    ctx.fillText('SWIPE UP TO PUTT', ax, ay + 34);
+    const word = m.throwEx ? 'SWIPE UP TO THROW' : 'SWIPE UP TO PUTT';
+    ctx.strokeText(word, ax, ay + 34);
+    ctx.fillText(word, ax, ay + 34);
   } else { // your line, coloured by how true it is right now
     const dx = d.x - d.x0;
     const dy = d.y - d.y0;
     const len = Math.hypot(dx, dy);
     const aim = (Math.atan2(dx, -dy) * 180) / Math.PI;
-    const sq = G.swipeQuality(dist, { aim, power: len / need });
-    const color = sq.q <= 1 ? '#a3e635' : sq.q <= 1.5 ? '#f2c14e' : '#ff6a3a';
+    const q = Math.max(Math.abs(aim) / tol.aim, Math.abs(len / need - 1) / tol.power);
+    const color = q <= 1 ? '#a3e635' : q <= 1.5 ? '#f2c14e' : '#ff6a3a';
     ctx.beginPath();
     ctx.moveTo(d.x0, d.y0);
     ctx.lineTo(d.x, d.y);
@@ -2229,7 +2242,7 @@ function mpThrow(ex) {
   const disc = curDisc();
   S.last = { result: null, ex, disc, from: { ...lieOf() }, who: 'me' };
   setPhase('flight');
-  mpMove('throw', { discId: disc.id, settings: { ...S.settings }, aimOff: S.aimOff, ex: { o: ex.o, pure: ex.pure } });
+  mpMove('throw', { discId: disc.id, settings: { ...S.settings }, aimOff: S.aimOff, ex: { o: ex.o, pure: ex.pure, swipe: ex.swipe } });
 }
 
 function mpPutt(shot, swipe = null) {

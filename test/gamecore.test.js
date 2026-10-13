@@ -593,3 +593,41 @@ test('a forest, not a row of trees: pine, maple and oak, bushes and shrubs, and 
   const rest = bend.trees.filter((t) => ['p', 'm', 'o'].includes(t.k) && G.routePosition(bend, t.x, t.y).side === -1 && G.routePosition(bend, t.x, t.y).s < 120).length;
   assert.ok(rest > 50, `the rest of the left side is forest: ${rest}`);
 });
+
+test('the swipe on a drive is graded: a true one changes nothing, off line steers, too soft is short, too hard is loose', async () => {
+  const G = await load();
+  const hole = await field();
+  const lie = { x: 0, y: 0 };
+  const base = G.combine(G.readRelease(0, 0.14)); // a clean release
+  const go = (swipe, mph = 62) => G.resolveThrow(hole, DRIVER, { ...RIGHT, mph }, 0, G.withSwipe(base, swipe), lie);
+  const plain = G.resolveThrow(hole, DRIVER, RIGHT, 0, base, lie);
+
+  assert.strictEqual(G.withSwipe(base, null), base, 'no swipe, no change');
+  const truth = G.withSwipe(base, { aim: 8, power: 1.15 });
+  assert.ok(truth.pure === base.pure && truth.sloppy === base.sloppy && truth.swipeSpeed === 1 && truth.swipeAim === 0, 'inside the tolerance it is forgiven');
+  assert.ok(Math.abs(go({ aim: 8, power: 1.15 }).end.x - plain.end.x) < 0.01 && Math.abs(go({ aim: 8, power: 1.15 }).plan.feet - plain.plan.feet) < 0.01);
+
+  // off line: steered the way the swipe went, and the more the further
+  const right = go({ aim: 30, power: 1 });
+  const left = go({ aim: -30, power: 1 });
+  assert.ok(right.end.x > plain.end.x + 15 && left.end.x < plain.end.x - 15, 'a swipe off to the right sends it right, to the left sends it left');
+  assert.ok(go({ aim: 45, power: 1 }).end.x > right.end.x, 'and more off is more');
+  assert.ok(Math.abs(G.withSwipe(base, { aim: 59, power: 1 }).swipeAim) <= 25, 'but never wildly');
+
+  // too soft: slower, so shorter
+  const soft = go({ aim: 0, power: 0.4 });
+  assert.ok(soft.plan.feet < plain.plan.feet * 0.8, `a soft swipe is a shorter throw: ${Math.round(soft.plan.feet)} vs ${Math.round(plain.plan.feet)}`);
+  assert.ok(go({ aim: 0, power: 0.1 }).plan.feet > 40 && go({ aim: 0, power: 0.1 }).plan.feet < soft.plan.feet, 'a limp swipe is shorter still, but it still goes somewhere');
+  // too hard: it goes loose, graded down
+  const hard = G.withSwipe(base, { aim: 0, power: 1.9 });
+  assert.ok(hard.sloppy > base.sloppy + 0.4 && ['Loose', 'Shank'].includes(hard.grade) && !hard.pure, `a hard swipe is loose: ${hard.grade}`);
+  assert.ok(G.withSwipe({ ...base, pure: true, grade: 'Pure' }, { aim: 0, power: 1 }).pure, 'a pure release with a true swipe stays pure');
+  assert.ok(!G.withSwipe({ ...base, pure: true, grade: 'Pure' }, { aim: 20, power: 1 }).pure, 'but not with a swipe off line');
+  assert.strictEqual(G.withSwipe({ ...base, slip: 'grip', grade: 'Grip lock' }, { aim: 0, power: 1.9 }).grade, 'Grip lock', 'a slip keeps its name');
+
+  // what a server accepts: the swipe rides along in the execution
+  const server = G.sanitizeExecution({ o: 0, pure: false, swipe: { aim: 40, power: 0.5 } });
+  assert.ok(server.swipe && server.swipeAim > 0 && server.swipeSpeed < 1, 'the server applies it itself');
+  assert.strictEqual(G.sanitizeExecution({ o: 0, swipe: 'junk' }).swipe, undefined, 'and ignores nonsense');
+  assert.strictEqual(G.sanitizeExecution({ o: 0 }).swipe, undefined, 'an older page has none');
+});

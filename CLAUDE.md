@@ -182,6 +182,12 @@ that way; don't introduce React/Vite/Tailwind here.
   misses short (`why: 'weak'`), long (`'strong'`, and more likely a nasty roll), left or right, or lips out if only just off. A
   swipe near the limit still counts as true, and tap-ins need none. With no swipe (an older page, a test) it counts as true.
   The server takes `body.swipe` (`sanitizeSwipe`) and, like the meters, trusts the player about the gesture.
+- **A drive ends with a swipe too** (phase `swipe`, after the release tap): a flick up the screen as long as the arm speed needs
+  (`swipeNeed()`). It is **graded**, not pass or fail (`withSwipe` in `gamecore.js`): inside `DRIVE_SWIPE` (12 deg, 25% power) it
+  changes nothing; past it, off line steers the throw the same way (`swipeAim`, up to 25 deg), too soft slows it (`swipeSpeed`,
+  down to half) and too hard makes it loose. The page sends `ex.swipe` and `sanitizeExecution` applies it, so the server does the
+  steering itself. An older page sends none and gets none. The basket in the 3D view has a catch tray about 3 ft up (`TRAY_H`),
+  and a made putt drops into it and rests there.
 - **Putting** (`public/js/puttfx.js`): within putting range the 3D view stays up (camera behind the disc, looking at the basket)
   from setup to the end of the hole. `resolvePutt` decides: `finish` is `swish` (dead center), `rattle` (near the edge), `tapin`,
   `rim` (just outside: it laps the rim and spits out), `miss`, or `nasty` (a miss that runs 14-46 ft away; the dice are passed in,

@@ -111,6 +111,22 @@ export function applySlip(ex, kind) {
   return ex;
 }
 
+/* The swipe on a drive, after the release: a flick up the screen, as long as this arm speed needs. It is graded, not pass or fail: off line
+   steers the throw the same way, too soft loses speed, too hard makes the throw loose. Within the tolerance it changes nothing. */
+export const DRIVE_SWIPE = { aim: 12, power: 0.25 };
+export function withSwipe(ex, swipe) {
+  if (!swipe) return ex;
+  const aimOver = Math.max(0, Math.abs(swipe.aim) - DRIVE_SWIPE.aim); // degrees past what is forgiven
+  const weak = Math.max(0, 1 - DRIVE_SWIPE.power - swipe.power);
+  const strong = Math.max(0, swipe.power - 1 - DRIVE_SWIPE.power);
+  const swipeAim = clamp(Math.sign(swipe.aim) * aimOver * 0.9, -25, 25);
+  const swipeSpeed = 1 - Math.min(0.5, weak * 1.3);
+  const sloppy = clamp(ex.sloppy + Math.min(0.8, strong * 0.9) + Math.min(0.5, aimOver / 60), 0, 1.4);
+  const pure = ex.pure && Math.abs(swipe.aim) <= DRIVE_SWIPE.aim && Math.abs(swipe.power - 1) <= DRIVE_SWIPE.power;
+  const grade = ex.slip ? ex.grade : pure ? 'Pure' : sloppy < 0.25 ? 'Good' : sloppy < 0.55 ? 'Loose' : 'Shank';
+  return { ...ex, swipe, swipeAim, swipeSpeed, sloppy, pure, grade };
+}
+
 // How the release changes the throw: an early one goes toward the turn side and flattens, a late one goes toward the
 // fade side and tips onto hyzer, and a sloppy one loses spin and a little speed.
 export function applyExecution(settings, aimDeg, ex) {
@@ -119,13 +135,13 @@ export function applyExecution(settings, aimDeg, ex) {
     t2: {
       hand: settings.hand,
       style: settings.style,
-      mph: settings.mph * (1 - 0.06 * ex.sloppy) * (ex.slip === 'grip' ? 0.7 : ex.slip === 'early' ? 0.85 : 1),
+      mph: settings.mph * (1 - 0.06 * ex.sloppy) * (ex.slip === 'grip' ? 0.7 : ex.slip === 'early' ? 0.85 : 1) * (ex.swipeSpeed ?? 1),
       spin: Math.round(spinOf(settings) * (1 - 0.38 * clamp(ex.sloppy - 0.08, 0, 1.2))),
       nose: settings.nose || 0,
       angle: settings.angle,
       angleExtra: ex.o * 8,
     },
-    headingDeg: aimDeg - dir * ex.o * 14,
+    headingDeg: aimDeg - dir * ex.o * 14 + (ex.swipeAim || 0),
     bonus: ex.pure ? 1.04 : 1,
   };
 }
@@ -150,7 +166,8 @@ export function sanitizeExecution(raw = {}) {
   const sloppy = clamp(Math.abs(o), 0, 1.4);
   const pure = !!raw.pure && Math.abs(o) <= 0.05;
   const grade = pure ? 'Pure' : sloppy < 0.25 ? 'Good' : sloppy < 0.55 ? 'Loose' : 'Shank';
-  return { o, pure, sloppy, grade };
+  const base = { o, pure, sloppy, grade };
+  return withSwipe(base, sanitizeSwipe(raw.swipe)); // a drive's swipe, if the page sent one
 }
 
 const PERFECT = { o: 0, pure: false, sloppy: 0, grade: 'Preview' };

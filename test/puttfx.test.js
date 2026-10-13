@@ -80,7 +80,7 @@ test('the film of a putt: continuous, the right length, and it ends where the ru
     for (let ms = 16; ms <= s.total; ms += 16) { const p = s.at(ms); worst = Math.max(worst, Math.hypot(p.x - prev.x, p.y - prev.y, p.h - prev.h)); prev = p; assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.h) && p.h >= -0.01, `${name}: sane at ${ms}`); }
     assert.ok(worst < 2.2, `${name}: no jumps (${worst.toFixed(2)} ft in a frame)`);
     const end = s.at(s.total + 5000);
-    if (result.made) assert.ok(Math.hypot(end.x - basket.x, end.y - basket.y) < 0.3 && end.h < 1, `${name}: ends in the basket`);
+    if (result.made) assert.ok(Math.hypot(end.x - basket.x, end.y - basket.y) < 0.3 && end.h > 2.4 && end.h < 3.2, `${name}: ends in the tray, about three feet up (${end.h.toFixed(2)})`);
     else assert.ok(Math.hypot(end.x - result.lie.x, end.y - result.lie.y) < 0.3 && end.h < 0.2, `${name}: ends on the grass where the lie is`);
   }
   // a rim-out really goes round the rim: close to the ring, at the height of the cage, for a good while

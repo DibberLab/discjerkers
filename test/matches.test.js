@@ -570,3 +570,27 @@ test('a putt in a match takes the swipe: a true one lets the radar decide, a bad
   const m2 = store.get(id);
   if (m2.status === 'active' && !m2.round.rounds[m2.round.turn].done) assert.strictEqual(putt(undefined).made, true, 'no swipe (an older page) counts as true');
 });
+
+test('a drive in a match takes the swipe: the server steers and slows the throw by it', async () => {
+  const { gp, store, id } = await seated();
+  begin(store, gp, id);
+  const hole = gp.hole(store.get(id).round.holeId);
+  const m = store.get(id);
+  const who = m.round.turn;
+  const user = who === ANA.id ? ANA : BEN;
+  const body = plan(gp, store.view(m, who), who).body;
+  assert.strictEqual(body.settings.mph >= 10, true);
+  const first = store.move(user, id, 'throw', { ...body, ex: { o: 0, pure: false, swipe: { aim: 0, power: 1 } } }, gp).last;
+  assert.ok(first.ex.swipe && first.ex.swipeSpeed === 1 && first.ex.swipeAim === 0, 'a true swipe is recorded and changes nothing');
+  const m2 = store.get(id);
+  const who2 = m2.round.turn;
+  if (m2.status === 'active' && G_distanceOk(gp, m2, who2, hole)) {
+    const user2 = who2 === ANA.id ? ANA : BEN;
+    const b2 = plan(gp, store.view(m2, who2), who2);
+    if (b2.kind === 'throw') {
+      const soft = store.move(user2, id, 'throw', { ...b2.body, ex: { o: 0, pure: false, swipe: { aim: 0, power: 0.3 } } }, gp).last;
+      assert.ok(soft.ex.swipeSpeed < 0.9, `the soft swipe slowed it: ${soft.ex.swipeSpeed}`);
+    }
+  }
+});
+const G_distanceOk = (gp, m, uid, hole) => gp.G.distance(m.round.rounds[uid].lie, hole.basket) > gp.G.PUTT_RANGE;
