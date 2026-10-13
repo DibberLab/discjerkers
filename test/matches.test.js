@@ -514,3 +514,19 @@ test('a tie for the lead is shared, and the winners are listed', async () => {
   assert.deepStrictEqual([...g.winners].sort(), winners.sort());
   assert.strictEqual(g.winner, winners.length === 1 ? winners[0] : 'tie');
 });
+
+test('you can aim any way at all, including straight back', async () => {
+  const { gp, store, id } = await seated();
+  begin(store, gp, id);
+  const m = store.get(id);
+  const who = m.round.turn;
+  const user = who === ANA.id ? ANA : BEN;
+  const body = { ...plan(gp, store.view(m, who), who).body, aimOff: 180 };
+  const hole = gp.hole(m.round.holeId);
+  const toBasket = gp.G.headingTo(m.round.rounds[who].lie, hole.basket);
+  const out = store.move(user, id, 'throw', body, gp);
+  const from = out.last.from;
+  const went = gp.G.headingTo(from, out.last.end);
+  const off = Math.abs(((went - toBasket + 540) % 360) - 180);
+  assert.ok(off > 120 || out.last.kind === 'tree', `it went away from the basket, not within 60 degrees of it (${Math.round(off)} degrees off)`);
+});

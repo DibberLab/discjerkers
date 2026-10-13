@@ -146,26 +146,72 @@
 .gm-zoom button:disabled { opacity: 0.35; cursor: default; }
 .gm-zoom button:focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; }
 
+/* floating remarks (Marebear, the caddy) over the hole on a phone; they fade on their own */
+.gm-bubble { display: none; }
+/* the step tabs and the dock only exist on a phone, but are styled here so they are ready */
+.gm-dock { display: grid; gap: 10px; }
+.gm-dock__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.gm-tabs { display: flex; gap: 5px; }
+.gm-tab {
+  padding: 6px 12px; border: 1px solid var(--hair); border-radius: 999px; background: none; cursor: pointer; color: var(--bone-dim);
+  font: 700 0.64rem/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+.gm-tab b { margin-right: 6px; color: var(--bone-faint); }
+.gm-tab[aria-selected="true"] { background: var(--lime); border-color: var(--lime); color: #0b1000; }
+.gm-tab[aria-selected="true"] b { color: #0b1000; }
+.gm-tab:focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; }
+.gm-dock__body { display: grid; gap: 8px; }
+.gm-dock__go { display: grid; gap: 6px; }
+.gm-dock__go .btn { width: 100%; padding: 14px 18px; }
+.gm-dock__go .btn small { margin-left: 6px; }
+@keyframes gm-bubble { 0% { opacity: 0; transform: translateY(-6px); } 6% { opacity: 1; transform: none; } 88% { opacity: 1; } 100% { opacity: 0; } }
+
 @media (max-width: 900px) {
-  /* a phone: the hole gets the bigger share of the screen, and the Tap button stays in view */
-  .gm { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  /* a phone: the hole fills the screen, and the controls are a dock along the bottom, one step at a time */
   .gm-page .masthead__inner { padding: 8px 0; }
   .gm-page .logo__mark { width: 28px; height: 28px; }
-  .gm-panel { max-height: 41dvh; border-left: 0; border-top: 1px solid var(--hair); padding: 12px 16px calc(14px + env(safe-area-inset-bottom)); gap: 10px; }
+  .gm { display: block; position: relative; }
+  .gm-stage { position: absolute; inset: 0; }
+  .gm-panel {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; max-height: 66dvh; border-left: 0; border-top: 1px solid var(--hair);
+    border-radius: 14px 14px 0 0; padding: 10px 14px calc(12px + env(safe-area-inset-bottom)); gap: 8px;
+    background: rgba(17, 23, 15, 0.97); box-shadow: 0 -10px 26px rgba(0, 0, 0, 0.5);
+  }
+  .gm-zoom { bottom: calc(var(--dock, 0px) + 12px); }
+  .gm-bubble {
+    display: block; position: absolute; left: 12px; right: 12px; top: 98px; z-index: 3; padding: 8px 11px; opacity: 0; pointer-events: none;
+    background: rgba(6, 11, 7, 0.82); border-left: 3px solid var(--rust); border-radius: 0 var(--radius) var(--radius) 0;
+    font-size: 0.8rem; line-height: 1.35; color: var(--bone);
+  }
+  .gm-bubble.is-on { animation: gm-bubble 10s ease forwards; }
+  .gm-bubble b { color: var(--lime); }
+  .gm-bubble small { display: block; margin-top: 3px; font: 700 0.54rem/1 var(--mono); letter-spacing: 0.18em; text-transform: uppercase; color: var(--rust-lift); }
+  .gm-bubble:not(.is-on) { visibility: hidden; }
+  /* the pieces of the dock, tightened */
+  .gm-dock .gm-bagbar { font-size: 0.64rem; gap: 6px 10px; }
+  .gm-dock .gm-bagbar > span:first-child { display: none; }
+  .gm-dock .chip, .gm-dock__top .chip { padding: 6px 11px; font-size: 0.62rem; }
+  .gm-dock .gm-discs { padding: 2px 2px 4px; }
+  .gm-dock .gm-disc { width: 58px; }
+  .gm-dock .gm-disc .disc { --disc: 38px; margin-bottom: 4px; }
+  .gm-dock .gm-pick { padding: 7px 10px; }
+  .gm-dock .gm-pick output { font-size: 1.35rem; }
+  .gm-dock .fg-rng, .gm-dock .fg-throw { margin: 0; padding-top: 4px; }
+  .gm-dock .gm-note { font-size: 0.6rem; }
+  .gm-dock .gm-go__line { font-size: 0.58rem; }
+  /* the throw meters */
   .gm-meter { gap: 8px; }
-  .gm-meter__t { font-size: 1.6rem; }
-  .gm-meter__h { font-size: 0.8rem; line-height: 1.35; }
-  .gm-read { height: 1.6rem; }
-  .gm-read b { font-size: 1.45rem; }
-  .gm-bar { height: 46px; }
-  .gm-tap { min-height: 68px; font-size: 1.7rem; position: sticky; bottom: 0; z-index: 2; box-shadow: 0 -10px 10px -4px var(--panel); }
-  /* the green is as big as the panel leaves room for, so it and the Tap button always show together */
-  .gm-meter .gm-putt { width: min(100%, 280px, calc(50dvh - 150px)); }
-  .gm-meter--putt .gm-tap { position: static; box-shadow: none; }
-  .gm-meter--putt .gm-meter__h { font-size: 0.74rem; }
-  .gm-panel:has(.gm-putt) { max-height: 50dvh; } /* a putt needs the whole green in view, and the hole is zoomed in on it anyway */
+  .gm-meter__t { font-size: 1.5rem; }
+  .gm-meter__h { font-size: 0.76rem; line-height: 1.3; }
+  .gm-read { height: 1.5rem; }
+  .gm-read b { font-size: 1.35rem; }
+  .gm-bar { height: 44px; }
+  .gm-tap { min-height: 64px; font-size: 1.6rem; }
+  .gm-meter .gm-putt { width: min(100%, 250px, 30dvh); }
+  .gm-meter--putt .gm-meter__h { font-size: 0.72rem; }
+  .gm-card h2 { font-size: 1.6rem; }
 }
-@media (max-width: 900px) and (max-height: 700px) { .gm-panel { max-height: 50dvh; } }
+@media (max-width: 900px) and (max-height: 700px) { .gm-panel { max-height: 72dvh; } }
 @media (prefers-reduced-motion: reduce) { .gm-toast { transition: none; } }
 
 .gm-discs::-webkit-scrollbar { display: none; }

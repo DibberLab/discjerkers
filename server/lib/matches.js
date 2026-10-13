@@ -227,7 +227,7 @@ function throwMove(gp, m, uid, body) {
   if (G.distance(r.lie, hole.basket) <= G.PUTT_RANGE) throw new MatchError('Inside 50 feet you putt.');
   const settings = G.sanitizeSettings(body.settings);
   if (!settings) throw new MatchError('Those throw settings are not allowed.');
-  const aimOff = Math.max(-60, Math.min(60, Math.round(Number(body.aimOff) || 0)));
+  const aimOff = Math.max(-180, Math.min(180, Math.round(Number(body.aimOff) || 0))); // any way at all: some holes turn away from the basket
   const disc = gp.discs.get(discId);
   const ex = G.applySlip(G.sanitizeExecution(body.ex), G.rollSlip(disc, settings, Math.random())); // the server rolls: a slip cannot be dodged
   const result = G.resolveThrow(hole, disc, settings, G.headingTo(r.lie, hole.basket) + aimOff, ex, r.lie);

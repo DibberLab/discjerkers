@@ -149,9 +149,16 @@ that way; don't introduce React/Vite/Tailwind here.
   lie remembers it as `t`), so nobody is stuck. `test/gamecore.test.js` throws every way off the tee and checks the
   woods stop nearly all of it.
 - **Marebear heckles** (`public/js/trash.js`): the game talking, not a chat. `eventFor` turns a throw into an event (shank,
-  splash, tree, grip lock, ace...), `remark`/`holeRemark`/`matchRemark` pick a line (`{name}` for someone else's throw, so
-  everyone in a match hears about the others' disasters). Pure functions with the dice passed in; she never repeats the last
-  line. Keep it cheeky, not cruel, and no crew names (`test/trash.test.js` checks).
+  splash, tree, grip lock, ace...), `remark`/`holeRemark`/`matchRemark` pick a line; she never repeats the last one. The
+  owner's own lines live in `public/data/heckles.json` (from their Heckles.csv; categories Birdie, Par, Bogey, Double Bogey,
+  Eagle, Going in the Water, Hitting a Tree) and are used for those events; they are second person, so on somebody else's
+  throw they are shown "to" that player by name. Everything else (shanks, slips, out of bounds, match results) still uses the
+  built-in lines in trash.js. To change her mind about a category, edit the JSON (`test/trash.test.js` checks its shape).
+- **Aim goes any way** (`AIM_MAX` 180 in game.js, ±180 on the server): some holes turn away from the basket.
+- **Phone layout** (≤900px): the hole fills the screen and the controls are a dock along the bottom (`.gm-panel` is an
+  overlay; `S.dock` is its height and `midY()` centers the camera in what is left). A throw is set up in steps (Disc, Grip,
+  Aim, then the four meters); caddy notes and Marebear's remarks float over the hole (`#gm-bubble`) instead of sitting in
+  the panel. Desktop keeps the one side panel.
 - Modules import each other with `?v=N`: bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 

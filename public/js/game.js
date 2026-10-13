@@ -6,7 +6,7 @@ import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl,
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=6';
 import * as G from './gamecore.js?v=16';
-import * as T from './trash.js?v=1';
+import * as T from './trash.js?v=2';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -76,6 +76,11 @@ const S = {
   mp: null, // the match being played (two to eight players): { id, view, me, es, shownSeq, queue, ... }
   others: [], // the other players on this hole, as I see them: [{ uid, name, color, lie, strokes, done, holed, trail }]
   quip: '', // Marebear's latest remark
+  step: 'disc', // on a phone, which part of setting up the shot you are on: disc | grip | aim
+  stepKey: '',
+  dock: 0, // on a phone, how much of the bottom of the screen the controls cover
+  bubbleKey: '',
+  quipTo: '',
   lastQuip: '',
   boardOpen: null, // the scoreboard in a match: open or folded (null: open for a small group)
   lobby: { matches: [], msg: '', holes: 18, invite: '', code: '', busy: false },
@@ -217,18 +222,24 @@ function rangeRow({ key, label, text, value, min, max, step, aria = label, dec =
     </div>`;
 }
 
-const aimText = (off) => (off === 0 ? 'At the basket' : `${Math.abs(off)}° ${off > 0 ? 'right' : 'left'}`);
+const AIM_MAX = 180; // some holes turn away from the basket, so you can aim any way at all
+const aimText = (off) => (off === 0 ? 'At the basket' : Math.abs(off) === 180 ? 'Straight back' : `${Math.abs(off)}° ${off > 0 ? 'right' : 'left'}${Math.abs(off) > 90 ? ' (backwards)' : ''}`);
 
-function settingsBlock() {
+function gripChips() {
   const t = S.settings;
   const chip = (key, val, label) => `<button class="chip" type="button" data-${key}="${val}" aria-pressed="${t[key] === val}">${label}</button>`;
-  return `<div class="gm-block gm-settings">
-      <p class="gm-h">Your throw <span>· hand and aim</span></p>
-      <div class="fg-throw" role="group" aria-label="How you throw">
+  return `<div class="fg-throw" role="group" aria-label="How you throw">
         <div class="fg-seg">${chip('hand', 'right', 'Right')}${chip('hand', 'left', 'Left')}</div>
         <div class="fg-seg">${chip('style', 'backhand', 'Backhand')}${chip('style', 'forehand', 'Forehand')}</div>
-      </div>
-      ${rangeRow({ key: 'aim', label: 'Aim', text: aimText(S.aimOff), value: S.aimOff, min: -60, max: 60, step: 1, aria: 'aim', dec: '‹', inc: '›' })}
+      </div>`;
+}
+const aimRow = () => rangeRow({ key: 'aim', label: 'Aim', text: aimText(S.aimOff), value: S.aimOff, min: -AIM_MAX, max: AIM_MAX, step: 1, aria: 'aim', dec: '‹', inc: '›' });
+
+function settingsBlock() {
+  return `<div class="gm-block gm-settings">
+      <p class="gm-h">Your throw <span>· hand and aim</span></p>
+      ${gripChips()}
+      ${aimRow()}
       <p class="gm-note">The dotted line is a typical throw with this disc; the shaded band is where a mistimed release can land. Your meters decide the real one.</p>
     </div>`;
 }
@@ -237,13 +248,78 @@ const tipSeen = () => { try { return localStorage.getItem('dj_game_tip') === '1'
 const tipHtml = () => (tipSeen() ? '' : `<div class="gm-tip"><p><b>How to play:</b> pick a disc, choose forehand or backhand, and aim (drag on the hole). Then <b>Throw</b> and tap four times: where you stop the power, spin and angle bars is your arm speed, your spin and your hyzer; the last tap is the release. A slow arm can grip lock or let go early, so watch the slip percentage. Trees stop low throws, water costs a stroke, and a triple bogey draws Marebear.</p><button type="button" data-tip-close aria-label="Got it">×</button></div>`);
 
 // Marebear's remark, in a card of its own under whatever it is about
-function say(text) {
-  S.quip = text || '';
+function say(r) {
+  const text = typeof r === 'string' ? r : r?.text || '';
+  S.quip = text;
+  S.quipTo = (typeof r === 'object' && r?.to) || '';
   if (text) S.lastQuip = text;
 }
-const quipHtml = () => (S.quip ? `<p class="gm-quip">“${esc(S.quip)}”<small>Marebear</small></p>` : '');
+const phoneQuery = window.matchMedia('(max-width: 900px)');
+const isPhone = () => phoneQuery.matches;
+const quipHtml = () => (S.quip && !isPhone() ? `<p class="gm-quip">“${esc(S.quip)}”<small>Marebear${S.quipTo ? ` to ${esc(S.quipTo)}` : ''}</small></p>` : '');
+
+/* ----- a phone: the hole fills the screen and the shot is set up a step at a time along the bottom ----- */
+
+// how much of the screen the controls cover, so the camera frames the hole in what is left
+function measureDock() {
+  const d = isPhone() ? Math.round(panel().getBoundingClientRect().height) : 0;
+  if (d === S.dock) return;
+  S.dock = d;
+  $('#gm-stage').style.setProperty('--dock', `${d}px`);
+  if (S.round) retarget(false);
+}
+
+// the caddy's note and Marebear's remarks float over the hole on a phone, and fade
+function updateBubble() {
+  const b = $('#gm-bubble');
+  if (!b) return;
+  let html = '';
+  let key = '';
+  if (isPhone() && !isMeter() && S.round) {
+    if (S.phase === 'pick' && S.round.strokes === 0 && S.hole.note) { key = `c${S.hole.id}`; html = `<b>${esc(S.hole.name)}.</b> ${esc(S.hole.note)}`; }
+    else if (S.quip) { key = `q${S.quip}`; html = `“${esc(S.quip)}”<small>Marebear${S.quipTo ? ` to ${esc(S.quipTo)}` : ''}</small>`; }
+  }
+  if (key === S.bubbleKey) return;
+  S.bubbleKey = key;
+  b.classList.remove('is-on');
+  b.innerHTML = html;
+  if (html) { void b.offsetWidth; b.classList.add('is-on'); }
+}
+
+function panelPickPhone() {
+  const d = curDisc();
+  if (!d) return panelNoDiscs();
+  const putting = inPutt();
+  const key = `${S.mode}:${S.hole.id}:${S.round.strokes}`;
+  if (S.stepKey !== key) { S.stepKey = key; S.step = 'disc'; } // each throw starts with the disc
+  const steps = putting ? ['disc'] : ['disc', 'grip', 'aim'];
+  if (!steps.includes(S.step)) S.step = steps[0];
+  const names = { disc: 'Disc', grip: 'Grip', aim: 'Aim' };
+  const i = steps.indexOf(S.step);
+  const tabs = steps.length > 1
+    ? `<div class="gm-tabs" role="tablist" aria-label="Set up the shot">${steps.map((k, n) => `<button class="gm-tab" type="button" role="tab" data-step="${k}" aria-selected="${k === S.step}"><b>${n + 1}</b>${names[k]}</button>`).join('')}</div>`
+    : `<p class="gm-h">Putt <span>· ${ft(toBasket())} out</span></p>`;
+  const leave = S.mode === 'match' ? '<button class="chip" type="button" data-mp-leave>Forfeit</button>' : '<button class="chip" type="button" data-quit>Quit</button>';
+  let body;
+  if (S.step === 'disc') {
+    body = `${bagBar()}${discRow()}${pickInfo(d, { wind: G.windFor(S.hole, heading()) }, putting)}${putting && toBasket() > G.LONG_PUTT ? '<p class="gm-note">Past 30 feet the target is a pinprick.</p>' : ''}`;
+  } else if (S.step === 'grip') {
+    body = `${gripChips()}<p class="gm-note">Backhand or forehand, and which hand. The flight bends the other way for a lefty.</p>`;
+  } else {
+    body = `${aimRow()}<p class="gm-note">Drag on the hole to aim, or use the slider. The dotted line is a typical throw; the band is where a mistimed release can land.</p>`;
+  }
+  const last = i === steps.length - 1;
+  const go = last ? `<button class="btn" type="button" data-go>${putting ? 'Putt' : 'Throw'}</button>` : `<button class="btn" type="button" data-next-step>${names[steps[i + 1]]} <small>next</small></button>`;
+  return `<div class="gm-dock">
+      <div class="gm-dock__top">${tabs}${leave}</div>
+      ${S.mode === 'match' ? boardHtml() : ''}
+      <div class="gm-dock__body">${body}</div>
+      <div class="gm-dock__go">${go}</div>
+    </div>`;
+}
 
 function panelPick() {
+  if (isPhone()) return panelPickPhone();
   const d = curDisc();
   if (!d) return panelNoDiscs();
   const putting = inPutt();
@@ -470,6 +546,8 @@ function renderPanel(focusSel) {
   p.innerHTML = (views[S.phase] || (() => ''))();
   p.dataset.phase = S.phase;
   p.scrollTop = keepScroll;
+  updateBubble();
+  measureDock();
   if (focusSel) $(focusSel, p)?.focus({ preventScroll: true });
   else if (isMeter()) $('[data-tap]', p)?.focus({ preventScroll: true });
 }
@@ -724,7 +802,7 @@ function retarget(snap, extra = []) {
   const h = Math.max(maxY - minY, putting ? 70 : 140);
   cam.tx = (minX + maxX) / 2;
   cam.ty = (minY + maxY) / 2;
-  cam.ts = Math.min(W / w, H / h);
+  cam.ts = Math.min(W / w, (H - S.dock) / h);
   if (S.zoom > 1 && !extra.length) { // zoomed in: stay on the next shot, halfway between where you are and where you are aiming
     const aim = putting || S.phase !== 'pick' || !curDisc() ? b : G.previewThrow(S.hole, curDisc(), S.settings, heading(), lie, 12).end;
     cam.tx = lie.x + (aim.x - lie.x) * 0.45;
@@ -734,8 +812,10 @@ function retarget(snap, extra = []) {
   if (snap) { cam.x = cam.tx; cam.y = cam.ty; cam.s = cam.ts; }
 }
 
-const P = (x, y) => [W / 2 + (x - cam.x) * cam.s, H / 2 - (y - cam.y) * cam.s];
-const toWorld = (px, py) => ({ x: cam.x + (px - W / 2) / cam.s, y: cam.y - (py - H / 2) / cam.s });
+// the hole is centered in the part of the screen the controls do not cover
+const midY = () => (H - S.dock) / 2;
+const P = (x, y) => [W / 2 + (x - cam.x) * cam.s, midY() - (y - cam.y) * cam.s];
+const toWorld = (px, py) => ({ x: cam.x + (px - W / 2) / cam.s, y: cam.y - (py - midY()) / cam.s });
 
 /* ---------- drawing ---------- */
 
@@ -1359,13 +1439,13 @@ function setAimFromPointer(e) {
 }
 
 function setAim(v) {
-  S.aimOff = clamp(Math.round(v), -60, 60);
+  S.aimOff = clamp(Math.round(v), -AIM_MAX, AIM_MAX);
   const input = $('[data-gr="aim"]');
   if (input) {
     input.value = S.aimOff;
     const rng = input.closest('.fg-rng');
     rng.querySelector('output').textContent = aimText(S.aimOff);
-    rng.querySelectorAll('[data-gstep]').forEach((b) => { b.disabled = (b.dataset.dir === '-1' && S.aimOff <= -60) || (b.dataset.dir === '1' && S.aimOff >= 60); });
+    rng.querySelectorAll('[data-gstep]').forEach((b) => { b.disabled = (b.dataset.dir === '-1' && S.aimOff <= -AIM_MAX) || (b.dataset.dir === '1' && S.aimOff >= AIM_MAX); });
   }
   retarget(false);
 }
@@ -1376,7 +1456,7 @@ function rangeEvent(e) {
   const src = stepBtn || input;
   if (!src) return false;
   const next = stepBtn ? S.aimOff + Number(stepBtn.dataset.dir) : Number(input.value);
-  S.aimOff = clamp(Math.round(next), -60, 60);
+  S.aimOff = clamp(Math.round(next), -AIM_MAX, AIM_MAX);
   renderPanel('[data-gr="aim"]');
   retarget(false);
   return true;
@@ -1395,6 +1475,12 @@ function onPanelClick(e) {
   } else if (t.closest('[data-disc]')) {
     const id = Number(t.closest('[data-disc]').dataset.disc);
     if (!S.round.eaten.includes(id)) { S.discId = id; renderPanel(`[data-disc="${id}"]`); retarget(false); }
+  } else if (t.closest('[data-step]')) {
+    S.step = t.closest('[data-step]').dataset.step;
+    renderPanel();
+  } else if (t.closest('[data-next-step]')) {
+    S.step = S.step === 'disc' ? 'grip' : 'aim';
+    renderPanel();
   } else if (t.closest('[data-go]')) {
     startMeter();
   } else if (t.closest('[data-next]')) {
@@ -1845,7 +1931,7 @@ function mpPutt(shot) {
 
 /* ----- the match screens ----- */
 
-const boardOpen = (v) => S.boardOpen ?? v.players.length <= 4;
+const boardOpen = (v) => S.boardOpen ?? (!isPhone() && v.players.length <= 4);
 
 function boardHtml() {
   const v = S.mp.view;
@@ -1907,6 +1993,8 @@ function panelMturn() {
 
 // Marebear on how a hole went in a match, and on how the match went
 function matchHoleRemark(he, v) {
+  const mine = he.results.find((r) => r.uid === S.mp.me);
+  if (mine) return T.holeRemark(mine.strokes, he.par, mine.holed, Math.random, S.lastQuip); // the hole you just played, in her words
   const sorted = [...he.results].sort((a, b) => a.score - b.score);
   const winners = sorted.filter((r) => r.score === sorted[0].score);
   const me = S.mp.me;
@@ -2039,6 +2127,7 @@ async function boot() {
   document.documentElement.style.setProperty('--gm-top', `${top}px`);
   const res = await fetch('/data/flightguide.json?v=1');
   DATA = await res.json();
+  try { T.useHeckles(await (await fetch('/data/heckles.json?v=1')).json()); } catch { /* her own lines are enough */ }
   for (const r of DATA.discs) DISCS.set(r[0], { id: r[0], name: r[1], b: r[2], cat: r[3], speed: r[4], glide: r[5], turn: r[6], fade: r[7], col: r[8] });
 
   new ResizeObserver(resize).observe($('#gm-stage'));
@@ -2057,6 +2146,8 @@ async function boot() {
   $('#gm-zin').addEventListener('click', () => zoomBy(ZOOM.step));
   $('#gm-zout').addEventListener('click', () => zoomBy(1 / ZOOM.step));
   $('#gm-zout').disabled = true;
+  new ResizeObserver(measureDock).observe(p);
+  phoneQuery.addEventListener('change', () => { renderPanel(); measureDock(); });
   p.addEventListener('input', onPanelInput);
   // the meter answers the moment a finger lands, not when it lifts
   p.addEventListener('pointerdown', (e) => { if (e.target.closest('[data-tap], .gm-bar, #gm-putt') && isMeter()) { e.preventDefault(); tap(); } });

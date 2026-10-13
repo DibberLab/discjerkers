@@ -3,7 +3,11 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
+const fs = require('node:fs');
+const path = require('node:path');
+
 const load = () => import('../public/js/trash.js');
+const heckles = () => JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'public', 'data', 'heckles.json'), 'utf8'));
 
 test('every line is a real sentence with its blanks filled, and nobody is named who should not be', async () => {
   const T = await load();
@@ -41,12 +45,12 @@ test('a throw is classified, and only the notable ones get a remark', async () =
   assert.strictEqual(T.eventFor({ kind: 'basket', putt: true, made: true, dist: 12 }), null);
   assert.strictEqual(T.eventFor({ kind: 'basket', putt: true, made: true, gimme: true, dist: 2 }), null);
 
-  assert.strictEqual(T.remark(null), '');
-  assert.ok(T.remark('water', { who: 'me' }, () => 0).length > 0, 'a splash always gets one');
-  assert.strictEqual(T.remark('rough', { who: 'me' }, () => 0.99), '', 'and a rough lie only now and then');
+  assert.strictEqual(T.remark(null).text, '');
+  assert.ok(T.remark('water', { who: 'me' }, () => 0).text.length > 0, 'a splash always gets one');
+  assert.strictEqual(T.remark('rough', { who: 'me' }, () => 0.99).text, '', 'and a rough lie only now and then');
   const theirs = T.remark('tree', { who: 'them', name: 'Ben' }, () => 0);
-  assert.match(theirs, /Ben/, 'what happens to someone else names them');
-  assert.ok(!/\{/.test(theirs));
+  assert.match(theirs.text, /Ben/, 'what happens to someone else names them');
+  assert.ok(!/\{/.test(theirs.text));
 });
 
 test('she does not repeat herself, and a hole and a match each have something to say', async () => {
@@ -54,7 +58,7 @@ test('she does not repeat herself, and a hole and a match each have something to
   let last = '';
   const seen = new Set();
   for (let i = 0; i < 20; i++) {
-    const l = T.remark('water', { who: 'me' }, () => (i % 5) / 5, last);
+    const l = T.remark('water', { who: 'me' }, () => (i % 5) / 5, last).text;
     assert.notStrictEqual(l, last, 'never the same line twice in a row');
     seen.add(l);
     last = l;
@@ -65,4 +69,30 @@ test('she does not repeat herself, and a hole and a match each have something to
   }
   for (const k of ['holeWin', 'holeLose', 'holeShare', 'win', 'lose', 'tie', 'left']) assert.ok(T.matchRemark(k, { name: 'Dee' }, () => 0).length > 10, k);
   assert.match(T.bearRemark(false, 'Dee', () => 0), /Dee/);
+});
+
+test('the owner\'s own heckles (the CSV) are what she says about trees, water and the score of a hole', async () => {
+  const T = await load();
+  const data = heckles();
+  assert.deepStrictEqual(Object.keys(data).sort(), ['Birdie', 'Bogey', 'Double Bogey', 'Eagle', 'Going in the Water', 'Hitting a Tree', 'Par']);
+  for (const [cat, lines] of Object.entries(data)) {
+    assert.ok(lines.length >= 25, `${cat}: ${lines.length} lines`);
+    assert.strictEqual(new Set(lines).size, lines.length, `${cat}: no repeats`);
+    for (const l of lines) assert.ok(typeof l === 'string' && l.length > 20 && l.length < 200 && !/\{/.test(l), `${cat}: ${l}`);
+  }
+  T.useHeckles(data);
+  try {
+    assert.ok(data['Hitting a Tree'].includes(T.remark('tree', { who: 'me' }, () => 0).text), 'a tree: from the CSV');
+    assert.ok(data['Going in the Water'].includes(T.remark('water', { who: 'me' }, () => 0).text), 'water: from the CSV');
+    const aimed = T.remark('tree', { who: 'them', name: 'Dee' }, () => 0);
+    assert.ok(data['Hitting a Tree'].includes(aimed.text) && aimed.to === 'Dee', 'about somebody else: aimed at them by name');
+    assert.strictEqual(T.remark('tree', { who: 'me' }, () => 0).to, '');
+    const hole = (strokes, par) => T.holeRemark(strokes, par, true, () => 0);
+    assert.ok(data.Birdie.includes(hole(3, 4)));
+    assert.ok(data.Par.includes(hole(4, 4)));
+    assert.ok(data.Bogey.includes(hole(5, 4)));
+    assert.ok(data['Double Bogey'].includes(hole(6, 4)) && data['Double Bogey'].includes(hole(9, 4)), 'a double or worse');
+    assert.ok(data.Eagle.includes(hole(2, 4)) && data.Eagle.includes(hole(1, 3)), 'an eagle or an ace');
+    assert.strictEqual(T.remark('oob', { who: 'me' }, () => 0).text.length > 0, true, 'and the events the CSV does not cover still get her own lines');
+  } finally { T.useHeckles({}); }
 });

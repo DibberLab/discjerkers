@@ -54,6 +54,13 @@ const MATCH = {
 };
 const BEAR = { mine: ['Do not look at me. You earned it.'], theirs: ['{name} is at a triple bogey. Smells like dinner.'] };
 
+// Lines from public/data/heckles.json (the ones the owner wrote), by their own category names. They are in the second person,
+// so when they are about somebody else's throw they are aimed at that player by name.
+let CSV = {};
+export function useHeckles(data) { CSV = data && typeof data === 'object' ? data : {}; }
+const THROW_KEY = { tree: 'Hitting a Tree', water: 'Going in the Water' };
+const HOLE_KEY = { ace: 'Eagle', eagle: 'Eagle', birdie: 'Birdie', par: 'Par', bogey: 'Bogey', double: 'Double Bogey', triple: 'Double Bogey' };
+
 const fill = (line, vars = {}) => line.replace(/\{(\w+)\}/g, (_, k) => (vars[k] ?? ''));
 
 // Pick a line from a list, not the one used last. `rnd` is a function returning 0..1.
@@ -88,13 +95,17 @@ export function eventFor({ kind, putt, made, gimme, ex, strokes, dist, surface }
 // a remark on a throw: mine or somebody else's (`name` is theirs). Plain throws get nothing, and some of the rest get nothing too,
 // so she stays funny instead of constant.
 export function remark(event, { who = 'me', name = '' } = {}, rnd = Math.random, avoid = '') {
-  if (!event) return '';
-  const table = who === 'me' ? MINE : THEIRS;
-  const list = table[event];
-  if (!list) return '';
-  const chance = { grip: 1, early: 1, shank: 1, tree: 0.7, water: 1, oob: 1, rim: 0.7, longMiss: 0.8, pure: 0.5, ace: 1, chains: 0.8, sunk: 1, rough: 0.2 }[event] ?? 0.5;
-  if (rnd() > chance) return '';
-  return pick(list, { name }, rnd, avoid);
+  if (!event) return { text: '', to: '' };
+  const chance = { grip: 1, early: 1, shank: 1, tree: 0.85, water: 1, oob: 1, rim: 0.7, longMiss: 0.8, pure: 0.5, ace: 1, chains: 0.8, sunk: 1, rough: 0.2 }[event] ?? 0.5;
+  const own = CSV[THROW_KEY[event]];
+  if (own && own.length) {
+    if (rnd() > chance) return { text: '', to: '' };
+    return { text: pick(own, {}, rnd, avoid), to: who === 'me' ? '' : name }; // "you" lines go to whoever threw
+  }
+  const list = (who === 'me' ? MINE : THEIRS)[event];
+  if (!list) return { text: '', to: '' };
+  if (rnd() > chance) return { text: '', to: '' };
+  return { text: pick(list, { name }, rnd, avoid), to: '' };
 }
 
 // a hole finished: how it went (`score` is strokes, or the score a hole you could not finish counts as)
@@ -102,7 +113,8 @@ export function holeRemark(strokes, par, holed, rnd = Math.random, avoid = '') {
   if (!holed) return pick(HOLE.none, {}, rnd, avoid);
   const d = strokes - par;
   const key = strokes === 1 ? 'ace' : d <= -2 ? 'eagle' : d === -1 ? 'birdie' : d === 0 ? 'par' : d === 1 ? 'bogey' : d === 2 ? 'double' : 'triple';
-  return pick(HOLE[key], {}, rnd, avoid);
+  const own = CSV[HOLE_KEY[key]];
+  return pick(own && own.length ? own : HOLE[key], {}, rnd, avoid);
 }
 
 // the others in a match: who took the hole, who won the day
