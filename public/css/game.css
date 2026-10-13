@@ -95,11 +95,15 @@
 .gm-meter { display: grid; gap: 12px; }
 .gm-meter__t { margin: 0; font: 400 2rem/1 var(--display); text-transform: uppercase; }
 .gm-meter__t span { color: var(--lime); }
-.gm-meter__h { margin: 0; color: var(--bone-dim); font-size: 0.9rem; }
+.gm-meter__h { display: grid; color: var(--bone-dim); font-size: 0.9rem; }
+/* every stage's hint (and the longest one) sits in the same cell, so the box is as tall as the tallest and the Tap button never moves */
+.gm-meter__h p { grid-area: 1 / 1; margin: 0; }
+.gm-meter__h .is-off { visibility: hidden; }
 .gm-bar {
   position: relative; height: 54px; background: var(--void); border: 1px solid var(--hair); border-radius: var(--radius); overflow: hidden; touch-action: manipulation;
 }
 .gm-zone { position: absolute; top: 0; bottom: 0; background: rgba(163, 230, 53, 0.28); border-inline: 2px solid var(--lime); }
+.gm-hard { position: absolute; top: 0; bottom: 0; right: 0; background: repeating-linear-gradient(135deg, rgba(211, 84, 0, 0.35) 0 6px, rgba(211, 84, 0, 0.12) 6px 12px); }
 .gm-tick { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--lime); opacity: 0.8; }
 .gm-read { display: flex; justify-content: center; align-items: baseline; gap: 10px; height: 1.9rem; white-space: nowrap; overflow: hidden; color: var(--lime); }
 .gm-read b { flex: none; font: 400 1.7rem/1 var(--display); letter-spacing: 0.04em; text-transform: uppercase; }

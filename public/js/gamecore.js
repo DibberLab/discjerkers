@@ -8,7 +8,7 @@ import { surfaceAt } from './course.js?v=2';
 
 const DEG = Math.PI / 180;
 export const PUTT_RANGE = 50; // inside this you putt
-export const GIMME = 3; // inside this the putt is given
+export const GIMME = 2; // inside this the putt is given
 
 export const headingVec = (deg) => ({ ux: Math.sin(deg * DEG), uy: Math.cos(deg * DEG), rx: Math.cos(deg * DEG), ry: -Math.sin(deg * DEG) });
 export const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -42,14 +42,24 @@ const triangle = (sec, period) => {
   const u = (((sec % period) + period) % period) / period;
   return u < 0.5 ? u * 2 : 2 - u * 2;
 };
-export const powerAt = (sec) => triangle(sec, METER.power.period); // 0..1
+// The power marker speeds up toward the end of the bar (POWER_EASE), and the top speeds are squeezed into the last stretch
+// of it (past POWER_KNEE), so a fast arm is a fast marker and a thin target: the harder you swing, the harder to land.
+export const POWER_KNEE = 0.76;
+export const POWER_KNEE_MPH = 62;
+const POWER_EASE = 1.7;
+export const powerAt = (sec) => triangle(sec, METER.power.period) ** POWER_EASE; // 0..1: where the marker is on the bar
 export const needleAt = (sec, period) => triangle(sec, period) * 2 - 1; // -1 .. 1
 export const releaseAt = (sec, setup) => needleAt(sec, setup.period); // -1 (early) .. 1 (late)
 
 export const ARM = { min: 10, max: 90, step: 2 }; // the guide stops at 30; a hole needs soft approaches too
 const snap = (v, step) => Math.round(v / step) * step;
 // the arm speed a position on the power bar (0..1) stands for
-export const mphAt = (m) => clamp(snap(ARM.min + m * (ARM.max - ARM.min), ARM.step), ARM.min, ARM.max);
+export const mphAt = (m) => {
+  const raw = m <= POWER_KNEE
+    ? ARM.min + (POWER_KNEE_MPH - ARM.min) * (m / POWER_KNEE)
+    : POWER_KNEE_MPH + (ARM.max - POWER_KNEE_MPH) * ((m - POWER_KNEE) / (1 - POWER_KNEE));
+  return clamp(snap(raw, ARM.step), ARM.min, ARM.max);
+};
 // the spin (rpm) a position on the spin bar (0..1) stands for
 export const spinAt = (m) => clamp(snap(SPIN.min + m * (SPIN.max - SPIN.min), SPIN.step), SPIN.min, SPIN.max);
 // where on the spin bar (0..1) a typical throw at this arm speed sits
@@ -314,8 +324,8 @@ function penalty(plan, pts, kind, at, from, extra = null, roll = []) {
 export function puttZone(dist, disc) {
   return clamp(0.36 - 0.0068 * dist - 0.012 * Math.max(0, disc.speed - 4), 0.04, 0.36);
 }
-export const puttRadius = (dist, disc) => clamp(puttZone(dist, disc) * 1.2, 0.07, 0.42); // of the grid's radius
-export const puttSpeed = (dist) => 1 + 0.9 * clamp(dist / PUTT_RANGE, 0, 1);
+export const puttRadius = (dist, disc) => clamp(puttZone(dist, disc) * 0.9, 0.05, 0.34); // of the grid's radius
+export const puttSpeed = (dist) => 1.2 + 1.1 * clamp(dist / PUTT_RANGE, 0, 1);
 
 // The wandering dot: it spirals out from the middle and back through it, its distance from the center the size of two slow
 // waves added together, and the direction it faces speeding up, slowing and even reversing. Every pass through the middle
@@ -325,8 +335,8 @@ export const puttSpeed = (dist) => 1 + 0.9 * clamp(dist / PUTT_RANGE, 0, 1);
 export function makePuttSeed(rand) {
   const between = (lo, hi) => lo + (hi - lo) * rand();
   return {
-    f: [between(0.7, 1.0), between(1.5, 2.1)],
-    p: [between(0, 6.2832), between(0, 6.2832)],
+    f: [between(0.7, 1.0), between(1.5, 2.1), between(3.2, 4.4)], // the last is a quick twitch on top of the two slow waves
+    p: [between(0, 6.2832), between(0, 6.2832), between(0, 6.2832)],
     w: between(1.3, 2.1) * (rand() < 0.5 ? -1 : 1),
     g: between(0.5, 0.9),
     gp: between(0, 6.2832),
@@ -335,7 +345,7 @@ export function makePuttSeed(rand) {
 }
 export function puttCursorAt(seed, sec, speed = 1) {
   const t = sec * speed;
-  const wave = 0.7 * Math.sin(seed.f[0] * t + seed.p[0]) + 0.3 * Math.sin(seed.f[1] * t + seed.p[1]);
+  const wave = 0.62 * Math.sin(seed.f[0] * t + seed.p[0]) + 0.28 * Math.sin(seed.f[1] * t + seed.p[1]) + 0.12 * Math.sin(seed.f[2] * t + seed.p[2]);
   const r = Math.min(1, Math.abs(wave) * 1.05);
   const th = seed.th0 + seed.w * t + 1.1 * Math.sin(seed.g * t + seed.gp);
   return { x: r * Math.cos(th), y: r * Math.sin(th) }; // x across the green (left/right), y along the putt (short/long)

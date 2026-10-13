@@ -5,7 +5,7 @@
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=2';
-import * as G from './gamecore.js?v=9';
+import * as G from './gamecore.js?v=10';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -293,7 +293,8 @@ function panelNoDiscs() {
 
 // a slider with a green zone in the middle, for the stages that read "how far off the middle were you"
 function centeredBar(w, left, right) {
-  return `<div class="gm-bar" id="gm-bar"><i class="gm-zone" style="left:${(0.5 - w / 2) * 100}%;width:${w * 100}%"></i><b class="gm-mark" id="gm-mark" style="left:0%"></b></div>
+  return `<output class="gm-read" aria-hidden="true"><b>&nbsp;</b></output>
+    <div class="gm-bar" id="gm-bar"><i class="gm-zone" style="left:${(0.5 - w / 2) * 100}%;width:${w * 100}%"></i><b class="gm-mark" id="gm-mark" style="left:0%"></b></div>
     <div class="gm-ends"><span>${left}</span><span>${right}</span></div>`;
 }
 
@@ -301,8 +302,9 @@ const METER_STAGES = ['power', 'spin', 'angle', 'release'];
 
 // a bar with a marker that sweeps; power, spin and angle read out the value under the marker as it goes
 function valueBar(kind, left, right, tick) {
+  const hard = kind === 'power' ? `<i class="gm-hard" style="left:${G.POWER_KNEE * 100}%"></i>` : ''; // the fast end of the power bar
   return `<output class="gm-read" id="gm-read" aria-live="off"><b>&nbsp;</b></output>
-    <div class="gm-bar" id="gm-bar">${tick == null ? '' : `<i class="gm-tick" style="left:${tick * 100}%"></i>`}<b class="gm-mark" id="gm-mark" style="left:0%"></b></div>
+    <div class="gm-bar" id="gm-bar">${hard}${tick == null ? '' : `<i class="gm-tick" style="left:${tick * 100}%"></i>`}<b class="gm-mark" id="gm-mark" style="left:0%"></b></div>
     <div class="gm-ends"><span>${left}</span><span>${right}</span></div>`;
 }
 
@@ -315,6 +317,8 @@ function barMarkup(kind) {
   return centeredBar(m.rel.w, 'Early', 'Late');
 }
 
+const releaseHint = (risk) => `Tap when the needle crosses the middle. Early goes toward the turn side, late toward the fade side.${risk ? ` <b>${risk}% chance the disc slips</b>: a slow arm can grip lock or let go early.` : ''}`;
+
 function panelMeter() {
   const kind = S.phase;
   const d = curDisc();
@@ -324,16 +328,16 @@ function panelMeter() {
   const risk = kind === 'release' && d ? Math.round(G.slipChance(d, S.settings) * 100) : 0;
   const title = kind === 'putt' ? 'Putt' : `<span>${n} ·</span> ${names[kind]}`;
   const hints = {
-    power: 'Tap to set your arm speed: where the marker stops is how hard you throw. Harder is farther, but harder to time on the release.',
+    power: 'Tap to set your arm speed: where the marker stops is how hard you throw. Harder is farther, but the marker speeds up toward the hatched end, and fast arms are harder to time on the release.',
     spin: 'Tap to set the spin. The tick is the usual spin for your arm speed; more holds the line, less lets it turn over.',
     angle: 'Tap to set the release angle. The middle is flat; right tips it onto hyzer, left onto anhyzer.',
-    release: `Tap when the needle crosses the middle. Early goes toward the turn side, late toward the fade side.${risk ? ` <b>${risk}% chance the disc slips</b>: a slow arm can grip lock or let go early.` : ''}`,
+    release: releaseHint(risk),
     putt: `Tap when the dot is inside the green circle. It never takes the same path twice, and a miss goes the way the dot was. ${d ? esc(d.name) : ''}, ${ft(toBasket())}.`,
   };
   return `<div class="gm-meter">
       ${stages.length ? `<div class="gm-steps" aria-hidden="true">${stages.map((_, i) => `<i class="${i < n ? 'is-on' : ''}"></i>`).join('')}</div>` : ''}
       <p class="gm-meter__t">${title}</p>
-      <p class="gm-meter__h">${hints[kind]}</p>
+      <div class="gm-meter__h">${Object.entries(hints).filter(([k]) => (k === 'putt') === (kind === 'putt')).map(([k, h]) => `<p${k === kind ? '' : ' aria-hidden="true"'}${k === kind ? '' : ' class="is-off"'}>${h}</p>`).join('')}<p class="is-off" aria-hidden="true">${releaseHint(40)}</p></div>
       ${barMarkup(kind)}
       <button class="gm-tap" type="button" data-tap>Tap</button>
     </div>`;

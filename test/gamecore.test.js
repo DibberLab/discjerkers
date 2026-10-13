@@ -24,6 +24,12 @@ test('the meters: power, spin and angle set the throw; the release is graded', a
   assert.strictEqual(G.mphAt(0), 10);
   assert.strictEqual(G.mphAt(1), 90);
   assert.strictEqual(G.mphAt(0.5) % 2, 0, 'arm speed lands on a whole step');
+  assert.strictEqual(G.mphAt(G.POWER_KNEE), G.POWER_KNEE_MPH);
+  // the fast end is harder: the marker moves faster there, and each mph takes less of the bar
+  const pace = (sec) => Math.abs(G.mphAt(G.powerAt(sec + 0.005)) - G.mphAt(G.powerAt(sec - 0.005))) / 0.01; // mph per second
+  const per = G.METER.power.period;
+  assert.ok(pace(per * 0.47) > pace(per * 0.2) * 2, 'the top of the bar flies by compared with the bottom');
+  for (let x = 0.05; x < 1; x += 0.05) assert.ok(G.mphAt(x + 0.05) >= G.mphAt(x), 'more bar is never less speed');
   assert.ok(G.mphAt(0.7) > G.mphAt(0.4));
   assert.strictEqual(G.spinAt(0), 400);
   assert.strictEqual(G.spinAt(1), 1600);
@@ -160,14 +166,14 @@ test('a disc that lands on the basket holes out', async () => {
   assert.strictEqual(r.strokes, 1);
 });
 
-test('putting: given inside three feet, and the target narrows with distance and with a faster disc', async () => {
+test('putting: given inside two feet, and the target narrows with distance and with a faster disc', async () => {
   const G = await load();
   const hole = await field({ basket: { x: 0, y: 40 } });
   assert.ok(G.puttZone(10, PUTTER) > G.puttZone(30, PUTTER));
   assert.ok(G.puttZone(20, PUTTER) > G.puttZone(20, DRIVER));
   assert.ok(G.puttZone(500, DRIVER) >= 0.04, 'never impossible');
   assert.ok(G.puttRadius(10, PUTTER) > G.puttRadius(40, PUTTER));
-  assert.ok(G.puttRadius(40, DRIVER) >= 0.07, 'a target you can still see');
+  assert.ok(G.puttRadius(40, DRIVER) >= 0.05, 'a target you can still see');
   assert.ok(G.puttSpeed(45) > G.puttSpeed(5), 'the dot moves faster on a long putt');
 
   const near = G.resolvePutt(hole, { x: 0, y: 38 }, PUTTER, { x: 0.9, y: 0.4 });
