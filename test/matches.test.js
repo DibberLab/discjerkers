@@ -17,7 +17,7 @@ const ANA = { id: 'u1', name: 'Ana', bags: [] };
 const BEN = { id: 'u2', name: 'Ben', bags: [] };
 const CAL = { id: 'u3', name: 'Cal', bags: [] };
 const SETTINGS = { hand: 'right', style: 'backhand', mph: 62, spin: null, angle: 0 };
-const CLEAN = { pf: 1, over: 0, o: 0, pure: false };
+const CLEAN = { o: 0, pure: false };
 let gpPromise;
 const gameplay = () => (gpPromise ||= loadGameplay());
 

@@ -3,7 +3,7 @@
    same place and the whole thing can be tested without a screen. The flight itself comes from flightmodel.js, the
    same model the flight guide uses. Feet; x is east, y is north; heading 0 is north, positive is clockwise. */
 
-import { clamp, carryRaw, flightCurve, spinOf, spinsClockwise, angleDeg } from './flightmodel.js?v=1';
+import { clamp, carryRaw, flightCurve, spinOf, spinsClockwise, angleDeg, SPIN, ANGLE_MAX, typicalSpin } from './flightmodel.js?v=1';
 import { surfaceAt } from './course.js?v=2';
 
 const DEG = Math.PI / 180;
@@ -25,77 +25,61 @@ export function windFor(hole, headingDeg) {
 
 /* ---------- the throw meter ---------- */
 
-// Two taps. First the power bar: stop the marker in the zone. Then the release: stop the needle at the middle.
-// A harder arm is harder to time: a faster marker and a narrower zone.
-export function meterSetup(mph) {
+// Four taps, and the player's own throw comes out of them. Power, spin and angle are each a bar with a marker that
+// sweeps back and forth: where you stop it IS the arm speed, the spin, the hyzer angle. Then the release is the test:
+// stop the needle in the middle. Each bar has its own speed so there is no rhythm to carry from one to the next.
+export const METER = {
+  power: { period: 2.2 },
+  spin: { period: 1.75 },
+  angle: { period: 2.05 },
+};
+// a harder arm is harder to time on the release: a faster needle and a narrower zone
+export function releaseSetup(mph) {
   const hard = clamp((mph - 40) / 50, 0, 1);
-  return {
-    power: { c: 0.9, w: 0.085 - 0.04 * hard, period: 2.3 - 0.8 * hard },
-    release: { w: 0.14 - 0.07 * hard, period: 1.9 - 0.6 * hard },
-    // a drive also gets a spin slider and an angle slider, each its own speed so there is no rhythm to carry over
-    spin: { w: 0.15 - 0.07 * hard, period: 1.75 - 0.55 * hard },
-    angle: { w: 0.15 - 0.07 * hard, period: 2.05 - 0.7 * hard },
-  };
+  return { w: 0.14 - 0.07 * hard, period: 1.9 - 0.6 * hard };
 }
 const triangle = (sec, period) => {
   const u = (((sec % period) + period) % period) / period;
   return u < 0.5 ? u * 2 : 2 - u * 2;
 };
-export const powerAt = (sec, setup) => triangle(sec, setup.power.period); // 0..1
+export const powerAt = (sec) => triangle(sec, METER.power.period); // 0..1
 export const needleAt = (sec, period) => triangle(sec, period) * 2 - 1; // -1 .. 1
-export const releaseAt = (sec, setup) => needleAt(sec, setup.release.period); // -1 (early) .. 1 (late)
+export const releaseAt = (sec, setup) => needleAt(sec, setup.period); // -1 (early) .. 1 (late)
 
-export function readPower(m, zone) {
-  const lo = zone.c - zone.w;
-  const hi = zone.c + zone.w;
-  if (m < lo) return { m, pf: clamp(0.3 + 0.7 * (m / lo), 0.3, 1), over: 0, inZone: false };
-  if (m <= hi) return { m, pf: 1, over: 0, inZone: true };
-  return { m, pf: 1, over: clamp((m - hi) / (1 - hi), 0, 1), inZone: false };
-}
+export const ARM = { min: 10, max: 90, step: 2 }; // the guide stops at 30; a hole needs soft approaches too
+const snap = (v, step) => Math.round(v / step) * step;
+// the arm speed a position on the power bar (0..1) stands for
+export const mphAt = (m) => clamp(snap(ARM.min + m * (ARM.max - ARM.min), ARM.step), ARM.min, ARM.max);
+// the spin (rpm) a position on the spin bar (0..1) stands for
+export const spinAt = (m) => clamp(snap(SPIN.min + m * (SPIN.max - SPIN.min), SPIN.step), SPIN.min, SPIN.max);
+// where on the spin bar (0..1) a typical throw at this arm speed sits
+export const spinPos = (mph) => clamp((typicalSpin(mph) - SPIN.min) / (SPIN.max - SPIN.min), 0, 1);
+// the release angle a needle position (-1 anhyzer .. 1 hyzer) stands for: whole steps, 0 is flat
+export const angleAt = (x) => clamp(Math.round(x * ANGLE_MAX), -ANGLE_MAX, ANGLE_MAX);
+
 export function readRelease(x, zoneW) {
   const inZone = Math.abs(x) <= zoneW;
   return { x, o: inZone ? x * 0.3 : x, inZone };
 }
-// Spin: the green holds your full spin; a lazy snap or an overcooked one both lose some.
-export function readSpin(x, zoneW) {
-  const inZone = Math.abs(x) <= zoneW;
-  return { x, inZone, spinF: inZone ? 1 : clamp(1 - 0.45 * Math.abs(x), 0.55, 1) };
-}
-// Angle: the green holds the angle you chose; left of it is flatter, right of it tips onto hyzer, by up to 14 degrees.
-export function readAngle(x, zoneW) {
-  const inZone = Math.abs(x) <= zoneW;
-  return { x, inZone, angleD: inZone ? x * 0.3 * 14 : x * 14 };
-}
-// a drive's four readings in one: power, spin, angle, release
-export function combineDrive(power, spin, angle, release) {
-  const sloppy = clamp(Math.abs(release.o) + 0.6 * power.over + 0.8 * (1 - spin.spinF) + Math.abs(angle.angleD) / 20, 0, 1.4);
-  const pure = power.inZone && spin.inZone && angle.inZone && release.inZone;
+export function combine(release) {
+  const sloppy = clamp(Math.abs(release.o), 0, 1.4);
+  const pure = release.inZone;
   const grade = pure ? 'Pure' : sloppy < 0.25 ? 'Good' : sloppy < 0.55 ? 'Loose' : 'Shank';
-  return { pf: power.pf, over: power.over, o: release.o, spinF: spin.spinF, angleD: angle.angleD, pure, sloppy, grade };
+  return { o: release.o, pure, sloppy, grade };
 }
 
-export function combine(power, release) {
-  const sloppy = clamp(Math.abs(release.o) + 0.6 * power.over, 0, 1.4);
-  const pure = power.inZone && release.inZone;
-  const grade = pure ? 'Pure' : sloppy < 0.25 ? 'Good' : sloppy < 0.55 ? 'Loose' : 'Shank';
-  return { pf: power.pf, over: power.over, o: release.o, pure, sloppy, grade };
-}
-
-// How the execution changes the throw: a weaker pull is slower, an early release goes toward the turn side and flattens,
-// a late one goes toward the fade side and tips onto hyzer, and a sloppy release loses spin.
+// How the release changes the throw: an early one goes toward the turn side and flattens, a late one goes toward the
+// fade side and tips onto hyzer, and a sloppy one loses spin and a little speed.
 export function applyExecution(settings, aimDeg, ex) {
   const dir = spinsClockwise(settings) ? 1 : -1;
-  const drive = ex.spinF !== undefined; // a drive's own spin and angle readings
-  const speedF = ex.pf * (1 - 0.06 * ex.sloppy);
-  const spinF = drive ? ex.pf * ex.spinF : ex.pf * (1 - 0.38 * clamp(ex.sloppy - 0.08, 0, 1.2));
   return {
     t2: {
       hand: settings.hand,
       style: settings.style,
-      mph: settings.mph * speedF,
-      spin: Math.round(spinOf(settings) * spinF),
+      mph: settings.mph * (1 - 0.06 * ex.sloppy),
+      spin: Math.round(spinOf(settings) * (1 - 0.38 * clamp(ex.sloppy - 0.08, 0, 1.2))),
       angle: settings.angle,
-      angleExtra: drive ? ex.angleD + ex.o * 3 : ex.o * 8,
+      angleExtra: ex.o * 8,
     },
     headingDeg: aimDeg - dir * ex.o * 14,
     bonus: ex.pure ? 1.04 : 1,
@@ -116,19 +100,14 @@ export function sanitizeSettings(raw) {
   return { hand: raw.hand, style: raw.style, mph, spin, angle };
 }
 export function sanitizeExecution(raw = {}) {
-  const pf = clamp(num(raw.pf, 1), 0.3, 1);
-  const over = clamp(num(raw.over, 0), 0, 1);
   const o = clamp(num(raw.o, 0), -1, 1);
-  const drive = raw.spinF !== undefined || raw.angleD !== undefined;
-  const spinF = drive ? clamp(num(raw.spinF, 1), 0.55, 1) : undefined;
-  const angleD = drive ? clamp(num(raw.angleD, 0), -14, 14) : undefined;
-  const sloppy = clamp(Math.abs(o) + 0.6 * over + (drive ? 0.8 * (1 - spinF) + Math.abs(angleD) / 20 : 0), 0, 1.4);
-  const pure = !!raw.pure && pf === 1 && over === 0 && Math.abs(o) <= 0.05 && (!drive || (spinF === 1 && Math.abs(angleD) <= 1.1));
+  const sloppy = clamp(Math.abs(o), 0, 1.4);
+  const pure = !!raw.pure && Math.abs(o) <= 0.05;
   const grade = pure ? 'Pure' : sloppy < 0.25 ? 'Good' : sloppy < 0.55 ? 'Loose' : 'Shank';
-  return drive ? { pf, over, o, spinF, angleD, pure, sloppy, grade } : { pf, over, o, pure, sloppy, grade };
+  return { o, pure, sloppy, grade };
 }
 
-const PERFECT = { pf: 1, over: 0, o: 0, pure: false, sloppy: 0, grade: 'Preview' };
+const PERFECT = { o: 0, pure: false, sloppy: 0, grade: 'Preview' };
 
 /* ---------- the flight ---------- */
 

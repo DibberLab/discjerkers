@@ -218,7 +218,7 @@ function throwMove(gp, m, uid, body) {
   const ex = G.sanitizeExecution(body.ex);
   const disc = gp.discs.get(discId);
   const result = G.resolveThrow(hole, disc, settings, G.headingTo(r.lie, hole.basket) + aimOff, ex, r.lie);
-  return record(gp, m, uid, disc, result, { ex: { pf: ex.pf, over: ex.over, o: ex.o, spinF: ex.spinF, angleD: ex.angleD, pure: ex.pure, grade: ex.grade }, putt: false });
+  return record(gp, m, uid, disc, result, { ex: { o: ex.o, pure: ex.pure, grade: ex.grade }, putt: false });
 }
 
 function puttMove(gp, m, uid, body) {

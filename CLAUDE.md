@@ -108,11 +108,10 @@ that way; don't introduce React/Vite/Tailwind here.
   (length, bend, woods, ponds, creek, guards). A round is a practice hole, the front nine, or all eighteen, with a
   scorecard; discs Marebear eats stay eaten for the round. `test/gamecore.test.js` checks every hole (trees not in
   ponds, tee and basket clear) and has a bot play each one: **a new or changed hole must stay solvable in par.**
-- The throw meter is a set of sliders: **a drive (disc speed 7+) gets four, in order: power, spin, angle, release**;
-  slower discs get power and release; a putt is one tap on a swirling circular green (the dot's path is seeded and
-  never repeats, and a miss goes the way the dot was). The player's own sliders plan the throw (arm speed, spin,
-  angle, plus hand, style and aim); the meter is how well they pull it off. `sanitizeExecution` is what a server
-  accepts back from the browser.
+- The throw meter is four taps for every full throw, in order: **power, spin, angle, release**. Arm speed, spin and hyzer are NOT settings: where the marker stops on each of the first three bars is the value. Hand, style and aim are set first;
+  a putt is one tap on a swirling circular green (the dot's path is seeded and never repeats, and a miss goes the way
+  the dot was). Only the release is a skill test (`sanitizeExecution` is what a server accepts back for it); the other
+  three are choices, and `sanitizeSettings` range-checks them.
 - Marebear eats the disc you just threw, once per hole, the first time you are at a triple bogey or worse and have
   not holed out. That rule lives in `applyResult` and is tested; the bear is drawn in `drawBear`.
 - **Head-to-head** (`/api/game`, `server/routes/game.js`, `server/lib/matches.js`): two signed-in players, host picks

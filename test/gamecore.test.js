@@ -8,7 +8,7 @@ const load = async () => ({ ...(await import('../public/js/gamecore.js')), ...(a
 const DRIVER = { id: 1, speed: 12, glide: 5, turn: -1, fade: 3 };
 const PUTTER = { id: 2, speed: 3, glide: 3, turn: 0, fade: 1 };
 const RIGHT = { hand: 'right', style: 'backhand', mph: 62, spin: null, angle: 0 };
-const CLEAN = { pf: 1, over: 0, o: 0, pure: false, sloppy: 0, grade: 'Good' };
+const CLEAN = { o: 0, pure: false, sloppy: 0, grade: 'Good' };
 
 // a bare field: a long fairway, nothing in the way, calm air
 async function field(extra = {}) {
@@ -16,31 +16,38 @@ async function field(extra = {}) {
   return makeHole({ id: 9, name: 'Test', par: 4, fairway: [[0, 0, 60], [0, 600, 60]], basket: { x: 0, y: 900 }, wind: { mph: 0, from: 0 }, ...extra });
 }
 
-test('the meter: the power zone, early and late, and how a throw is graded', async () => {
+test('the meters: power, spin and angle set the throw; the release is graded', async () => {
   const G = await load();
-  const setup = G.meterSetup(56);
-  assert.ok(setup.power.w > 0.04 && setup.release.w > 0.07);
-  assert.ok(G.meterSetup(88).power.w < G.meterSetup(40).power.w, 'a harder arm has a narrower zone');
-  assert.ok(G.meterSetup(88).power.period < G.meterSetup(40).power.period, '...and a faster marker');
+  // each bar sweeps and its stop position is the value
+  assert.strictEqual(G.powerAt(0), 0);
+  assert.ok(Math.abs(G.powerAt(G.METER.power.period / 2) - 1) < 1e-9);
+  assert.strictEqual(G.mphAt(0), 10);
+  assert.strictEqual(G.mphAt(1), 90);
+  assert.strictEqual(G.mphAt(0.5) % 2, 0, 'arm speed lands on a whole step');
+  assert.ok(G.mphAt(0.7) > G.mphAt(0.4));
+  assert.strictEqual(G.spinAt(0), 400);
+  assert.strictEqual(G.spinAt(1), 1600);
+  assert.strictEqual(G.spinAt(0.5) % 50, 0);
+  assert.strictEqual(G.angleAt(-1), -6);
+  assert.strictEqual(G.angleAt(0), 0);
+  assert.strictEqual(G.angleAt(1), 6);
+  assert.strictEqual(G.angleAt(0.5), 3);
+  assert.strictEqual(G.angleAt(7), 6, 'never past the ends');
+  // the typical-spin tick sits where a typical throw at that speed would put it
+  assert.strictEqual(G.spinAt(G.spinPos(60)), 900);
+  assert.ok(G.spinPos(40) < G.spinPos(80));
+  // every bar has its own speed
+  assert.strictEqual(new Set([G.METER.power.period, G.METER.spin.period, G.METER.angle.period]).size, 3);
+  assert.strictEqual(G.needleAt(0, G.METER.spin.period), -1);
 
-  const z = setup.power;
-  assert.strictEqual(G.readPower(z.c, z).pf, 1);
-  assert.ok(G.readPower(z.c, z).inZone);
-  assert.ok(G.readPower(0.4, z).pf < 0.8, 'a weak pull is a slow throw');
-  assert.strictEqual(G.readPower(0, z).pf, 0.3);
-  const over = G.readPower(1, z);
-  assert.ok(over.over > 0.9 && over.pf === 1 && !over.inZone, 'overswinging keeps the power and loses the control');
-
-  assert.ok(G.readRelease(0.05, setup.release.w).inZone);
-  assert.ok(!G.readRelease(0.6, setup.release.w).inZone);
-  assert.strictEqual(G.combine(G.readPower(z.c, z), G.readRelease(0, setup.release.w)).grade, 'Pure');
-  assert.strictEqual(G.combine(G.readPower(z.c, z), G.readRelease(0.9, setup.release.w)).grade, 'Shank');
-  assert.strictEqual(G.combine(G.readPower(0.5, z), G.readRelease(0, setup.release.w)).pure, false);
-
-  // the markers sweep 0..1 and -1..1
-  assert.strictEqual(G.powerAt(0, setup), 0);
-  assert.ok(Math.abs(G.powerAt(setup.power.period / 2, setup) - 1) < 1e-9);
-  assert.strictEqual(G.releaseAt(0, setup), -1);
+  // the release: a harder arm is harder to time
+  assert.ok(G.releaseSetup(88).w < G.releaseSetup(40).w && G.releaseSetup(88).period < G.releaseSetup(40).period);
+  const rel = G.releaseSetup(56);
+  assert.ok(G.readRelease(0.05, rel.w).inZone);
+  assert.ok(!G.readRelease(0.6, rel.w).inZone);
+  assert.strictEqual(G.combine(G.readRelease(0, rel.w)).grade, 'Pure');
+  assert.strictEqual(G.combine(G.readRelease(0.9, rel.w)).grade, 'Shank');
+  assert.strictEqual(G.releaseAt(0, rel), -1);
 });
 
 test('wind is felt relative to where you throw', async () => {
@@ -68,14 +75,13 @@ test('a throw goes where it is aimed, for about as far as the guide says, and th
   assert.ok(east.pts.at(-1).x > 200 && Math.abs(east.pts.at(-1).y) < 120, 'aim east and it goes east');
 });
 
-test('a late release pulls a right-hander left; an early one goes right; a weak pull is short', async () => {
+test('a late release pulls a right-hander left; an early one goes right', async () => {
   const G = await load();
   const hole = await field();
   const end = (ex) => G.resolveThrow(hole, DRIVER, RIGHT, 0, { ...CLEAN, ...ex }, { x: 0, y: 0 }).end;
   const flat = end({});
   assert.ok(end({ o: 0.8, sloppy: 0.8 }).x < flat.x - 5, 'late: left');
   assert.ok(end({ o: -0.8, sloppy: 0.8 }).x > flat.x + 5, 'early: right');
-  assert.ok(end({ pf: 0.5 }).y < flat.y * 0.7, 'weak: short');
   // a left-hander is the mirror
   const lefty = (ex) => G.resolveThrow(hole, DRIVER, { ...RIGHT, hand: 'left' }, 0, { ...CLEAN, ...ex }, { x: 0, y: 0 }).end;
   assert.ok(lefty({ o: 0.8, sloppy: 0.8 }).x > lefty({}).x + 5, 'late for a lefty: right');
@@ -405,61 +411,23 @@ test('what a server accepts: settings in range, and a meter reading that is a re
   for (const bad of [null, 'x', { ...good, hand: 'both' }, { ...good, style: 'sidearm' }, { ...good, mph: 63 }, { ...good, mph: 94 }, { ...good, mph: 8 }, { ...good, mph: 'fast' }, { ...good, angle: 7 }, { ...good, angle: 1.5 }, { ...good, spin: 100 }, { ...good, spin: 5000 }, { ...good, spin: 'lots' }]) {
     assert.strictEqual(G.sanitizeSettings(bad), null, JSON.stringify(bad));
   }
-  assert.strictEqual(G.sanitizeExecution({ pf: 5, over: -3, o: 9 }).pf, 1, 'clamped');
-  assert.strictEqual(G.sanitizeExecution({ pf: 0, o: -9 }).o, -1);
-  assert.strictEqual(G.sanitizeExecution({ pf: 'abc' }).pf, 1);
-  assert.ok(G.sanitizeExecution({ pf: 1, over: 0, o: 0, pure: true }).pure);
-  assert.ok(!G.sanitizeExecution({ pf: 1, over: 0, o: 0.3, pure: true }).pure, 'a sloppy release cannot claim to be pure');
-  assert.ok(!G.sanitizeExecution({ pf: 0.9, over: 0, o: 0, pure: true }).pure);
-  assert.strictEqual(G.sanitizeExecution({ pf: 1, over: 0, o: 0.9 }).grade, 'Shank');
+  assert.strictEqual(G.sanitizeExecution({ o: 9 }).o, 1, 'clamped');
+  assert.strictEqual(G.sanitizeExecution({ o: -9 }).o, -1);
+  assert.strictEqual(G.sanitizeExecution({ o: 'abc' }).o, 0);
+  assert.ok(G.sanitizeExecution({ o: 0, pure: true }).pure);
+  assert.ok(!G.sanitizeExecution({ o: 0.3, pure: true }).pure, 'a sloppy release cannot claim to be pure');
+  assert.strictEqual(G.sanitizeExecution({ o: 0.9 }).grade, 'Shank');
 });
 
 
-test('a drive has four sliders: power, spin, angle and release, and each one changes the flight', async () => {
+test('the settings the meters choose change the flight: faster, more spin, and the angle', async () => {
   const G = await load();
-  const setup = G.meterSetup(62);
-  assert.ok(setup.spin.w > 0.05 && setup.angle.w > 0.05);
-  assert.ok(G.meterSetup(88).spin.w < G.meterSetup(40).spin.w, 'a harder arm has narrower zones on every slider');
-  assert.notStrictEqual(setup.spin.period, setup.angle.period);
-  assert.strictEqual(G.needleAt(0, setup.spin.period), -1);
-
-  // spin: the green keeps it all; a lazy snap or an overcooked one loses some
-  assert.strictEqual(G.readSpin(0.05, setup.spin.w).spinF, 1);
-  assert.ok(G.readSpin(-0.9, setup.spin.w).spinF < 0.7);
-  assert.ok(G.readSpin(0.9, setup.spin.w).spinF < 0.7);
-  assert.ok(G.readSpin(-0.9, setup.spin.w).spinF >= 0.55, 'never worse than a floor');
-  // angle: left is flatter, right is more hyzer
-  assert.ok(Math.abs(G.readAngle(0.05, setup.angle.w).angleD) < 1);
-  assert.ok(G.readAngle(0.8, setup.angle.w).angleD > 8 && G.readAngle(-0.8, setup.angle.w).angleD < -8);
-
-  const power = G.readPower(setup.power.c, setup.power);
-  const power2 = G.readPower(setup.power.c, setup.power.zone || setup.power);
-  assert.ok(power.inZone && power2);
-  const perfect = G.combineDrive(G.readPower(0.9, setup.power), G.readSpin(0, setup.spin.w), G.readAngle(0, setup.angle.w), G.readRelease(0, setup.release.w));
-  assert.strictEqual(perfect.grade, 'Pure');
-  assert.strictEqual(perfect.spinF, 1);
-  const bad = G.combineDrive(G.readPower(0.9, setup.power), G.readSpin(0.95, setup.spin.w), G.readAngle(-0.9, setup.angle.w), G.readRelease(0, setup.release.w));
-  assert.ok(!bad.pure && bad.sloppy > 0.4);
-
-  // what each slider does to a real throw
   const hole = await field();
-  const flat = G.resolveThrow(hole, DRIVER, RIGHT, 0, perfect, { x: 0, y: 0 });
-  const hyzer = G.resolveThrow(hole, DRIVER, RIGHT, 0, { ...perfect, pure: false, angleD: 12 }, { x: 0, y: 0 });
-  const anhyzer = G.resolveThrow(hole, DRIVER, RIGHT, 0, { ...perfect, pure: false, angleD: -12 }, { x: 0, y: 0 });
-  assert.ok(hyzer.end.x < flat.end.x - 5, 'the angle slider tips it onto hyzer: left for a right-hand backhand');
-  assert.ok(anhyzer.end.x > hyzer.end.x + 10, 'and flatter goes the other way');
-  assert.ok(hyzer.plan.feet < flat.plan.feet);
-  const lazy = G.resolveThrow(hole, DRIVER, RIGHT, 0, { ...perfect, pure: false, spinF: 0.55 }, { x: 0, y: 0 });
-  assert.ok(lazy.plan.feet < flat.plan.feet, 'a lazy snap is a shorter throw');
-  const weak = G.resolveThrow(hole, DRIVER, RIGHT, 0, { ...perfect, pure: false, pf: 0.6 }, { x: 0, y: 0 });
-  assert.ok(weak.plan.feet < flat.plan.feet * 0.8, 'the power slider is the speed');
-
-  // the server takes the extra readings, clamps them, and will not take a claim of a pure throw it can see is not
-  const ok = G.sanitizeExecution({ pf: 1, over: 0, o: 0, spinF: 1, angleD: 0.4, pure: true });
-  assert.ok(ok.pure && ok.spinF === 1);
-  assert.ok(!G.sanitizeExecution({ pf: 1, over: 0, o: 0, spinF: 0.9, angleD: 0, pure: true }).pure);
-  assert.ok(!G.sanitizeExecution({ pf: 1, over: 0, o: 0, spinF: 1, angleD: 5, pure: true }).pure);
-  assert.strictEqual(G.sanitizeExecution({ spinF: 0.1, angleD: 99 }).spinF, 0.55);
-  assert.strictEqual(G.sanitizeExecution({ spinF: 0.1, angleD: 99 }).angleD, 14);
-  assert.strictEqual(G.sanitizeExecution({ pf: 1 }).spinF, undefined, 'a throw without the drive sliders is the classic two');
+  const go = (t) => G.resolveThrow(hole, DRIVER, { ...RIGHT, ...t }, 0, CLEAN, { x: 0, y: 0 });
+  const flat = go({});
+  assert.ok(go({ mph: 80 }).plan.feet > go({ mph: 50 }).plan.feet + 40, 'the power meter is the arm speed');
+  assert.ok(go({ angle: 5 }).end.x < flat.end.x - 5, 'the angle meter tips it onto hyzer: left for a right-hand backhand');
+  assert.ok(go({ angle: -5 }).end.x > flat.end.x + 5, 'and flatter goes the other way');
+  assert.ok(go({ angle: 5 }).plan.feet < flat.plan.feet);
+  assert.ok(go({ spin: 400 }).plan.feet < go({ spin: 1400 }).plan.feet || go({ spin: 400 }).end.x !== go({ spin: 1400 }).end.x, 'the spin meter changes the flight');
 });
