@@ -16,7 +16,7 @@ async function field(extra = {}) {
   return makeHole({ id: 9, name: 'Test', par: 4, fairway: [[0, 0, 60], [0, 600, 60]], basket: { x: 0, y: 900 }, wind: { mph: 0, from: 0 }, ...extra });
 }
 
-test('the meters: power, spin and angle set the throw; the release is graded', async () => {
+test('the meters: power, nose and angle set the throw; the release is graded', async () => {
   const G = await load();
   // each bar sweeps and its stop position is the value
   assert.strictEqual(G.powerAt(0), 0);
@@ -31,20 +31,22 @@ test('the meters: power, spin and angle set the throw; the release is graded', a
   assert.ok(pace(per * 0.47) > pace(per * 0.2) * 2, 'the top of the bar flies by compared with the bottom');
   for (let x = 0.05; x < 1; x += 0.05) assert.ok(G.mphAt(x + 0.05) >= G.mphAt(x), 'more bar is never less speed');
   assert.ok(G.mphAt(0.7) > G.mphAt(0.4));
-  assert.strictEqual(G.spinAt(0), 400);
-  assert.strictEqual(G.spinAt(1), 1600);
-  assert.strictEqual(G.spinAt(0.5) % 50, 0);
+  assert.strictEqual(G.noseAt(-1), -5);
+  assert.strictEqual(G.noseAt(0), 0);
+  assert.strictEqual(G.noseAt(1), 5);
+  assert.strictEqual(G.noseAt(0.5), 3, 'a needle position is a whole step');
+  assert.strictEqual(G.noseAt(9), 5, 'never past the ends');
+  assert.strictEqual(G.noseName(0), 'Level');
+  assert.strictEqual(G.noseName(3), 'Nose up 7.5°');
+  assert.strictEqual(G.noseName(-2), 'Nose down 5°');
   assert.strictEqual(G.angleAt(-1), -6);
   assert.strictEqual(G.angleAt(0), 0);
   assert.strictEqual(G.angleAt(1), 6);
   assert.strictEqual(G.angleAt(0.5), 3);
   assert.strictEqual(G.angleAt(7), 6, 'never past the ends');
-  // the typical-spin tick sits where a typical throw at that speed would put it
-  assert.strictEqual(G.spinAt(G.spinPos(60)), 900);
-  assert.ok(G.spinPos(40) < G.spinPos(80));
   // every bar has its own speed
-  assert.strictEqual(new Set([G.METER.power.period, G.METER.spin.period, G.METER.angle.period]).size, 3);
-  assert.strictEqual(G.needleAt(0, G.METER.spin.period), -1);
+  assert.strictEqual(new Set([G.METER.power.period, G.METER.nose.period, G.METER.angle.period]).size, 3);
+  assert.strictEqual(G.needleAt(0, G.METER.nose.period), -1);
 
   // the release: a harder arm is harder to time
   assert.ok(G.releaseSetup(88).w < G.releaseSetup(40).w && G.releaseSetup(88).period < G.releaseSetup(40).period);
@@ -388,8 +390,8 @@ test('the woods are solid: you cannot just throw any way from the tee, the fairw
     for (let aim = 0; aim < 360; aim += 6) {
       const away = Math.abs(((aim - first + 540) % 360) - 180);
       if (away < 75) continue; // along the hole is fair
-      for (const mph of [40, 62, 80]) {
-        const r = G.resolveThrow(hole, DRIVER, { ...RIGHT, mph }, aim, CLEAN, hole.tee);
+      for (const [mph, nose] of [[40, 0], [62, 0], [80, 0], [80, 5], [62, 4]]) { // and a lofted throw does not clear the pines either
+        const r = G.resolveThrow(hole, DRIVER, { ...RIGHT, mph, nose }, aim, CLEAN, hole.tee);
         off++;
         // a throw that is not along the hole should be stopped by trees (or end up wet or out), not be a good shot
         if (r.kind === 'landed' && G.routeLeft(hole, r.lie.x, r.lie.y) < G.routeLeft(hole, hole.tee.x, hole.tee.y) - 60) through++;
@@ -402,10 +404,12 @@ test('the woods are solid: you cannot just throw any way from the tee, the fairw
 
 test('what a server accepts: settings in range, and a meter reading that is a real reading', async () => {
   const G = await load();
-  const good = { hand: 'right', style: 'backhand', mph: 62, spin: null, angle: 0 };
+  const good = { hand: 'right', style: 'backhand', mph: 62, spin: null, angle: 0, nose: 0 };
   assert.deepStrictEqual(G.sanitizeSettings(good), good);
-  assert.deepStrictEqual(G.sanitizeSettings({ ...good, spin: 1100, mph: 10, angle: -6 }), { ...good, spin: 1100, mph: 10, angle: -6 });
-  for (const bad of [null, 'x', { ...good, hand: 'both' }, { ...good, style: 'sidearm' }, { ...good, mph: 63 }, { ...good, mph: 94 }, { ...good, mph: 8 }, { ...good, mph: 'fast' }, { ...good, angle: 7 }, { ...good, angle: 1.5 }, { ...good, spin: 100 }, { ...good, spin: 5000 }, { ...good, spin: 'lots' }]) {
+  const { nose: _omit, ...older } = good;
+  assert.deepStrictEqual(G.sanitizeSettings(older), good, 'a page that does not send a nose angle throws level');
+  assert.deepStrictEqual(G.sanitizeSettings({ ...good, spin: 1100, mph: 10, angle: -6, nose: -5 }), { ...good, spin: 1100, mph: 10, angle: -6, nose: -5 });
+  for (const bad of [null, 'x', { ...good, hand: 'both' }, { ...good, style: 'sidearm' }, { ...good, mph: 63 }, { ...good, mph: 94 }, { ...good, mph: 8 }, { ...good, mph: 'fast' }, { ...good, angle: 7 }, { ...good, angle: 1.5 }, { ...good, spin: 100 }, { ...good, spin: 5000 }, { ...good, spin: 'lots' }, { ...good, nose: 6 }, { ...good, nose: -6 }, { ...good, nose: 1.5 }, { ...good, nose: 'up' }]) {
     assert.strictEqual(G.sanitizeSettings(bad), null, JSON.stringify(bad));
   }
   assert.strictEqual(G.sanitizeExecution({ o: 9 }).o, 1, 'clamped');
@@ -417,7 +421,7 @@ test('what a server accepts: settings in range, and a meter reading that is a re
 });
 
 
-test('the settings the meters choose change the flight: faster, more spin, and the angle', async () => {
+test('the settings the meters choose change the flight: faster, the nose, and the angle', async () => {
   const G = await load();
   const hole = await field();
   const go = (t) => G.resolveThrow(hole, DRIVER, { ...RIGHT, ...t }, 0, CLEAN, { x: 0, y: 0 });
@@ -426,7 +430,13 @@ test('the settings the meters choose change the flight: faster, more spin, and t
   assert.ok(go({ angle: 5 }).end.x < flat.end.x - 5, 'the angle meter tips it onto hyzer: left for a right-hand backhand');
   assert.ok(go({ angle: -5 }).end.x > flat.end.x + 5, 'and flatter goes the other way');
   assert.ok(go({ angle: 5 }).plan.feet < flat.plan.feet);
-  assert.ok(go({ spin: 400 }).plan.feet < go({ spin: 1400 }).plan.feet || go({ spin: 400 }).end.x !== go({ spin: 1400 }).end.x, 'the spin meter changes the flight');
+  // the nose angle: up goes higher, and both ways from level cost distance
+  const apex = (r) => Math.max(...r.pts.map((p) => p.h));
+  assert.ok(apex(go({ nose: 4 })) > apex(go({ nose: 0 })) * 1.3, 'nose up is a higher flight');
+  assert.ok(apex(go({ nose: -4 })) < apex(go({ nose: 0 })) * 0.6, 'nose down is a lower one');
+  assert.ok(go({ nose: 5 }).plan.feet < go({ nose: 0 }).plan.feet * 0.9, 'a lot of nose up spends distance');
+  assert.ok(go({ nose: -5 }).plan.feet < go({ nose: 0 }).plan.feet * 0.85, 'and so does a lot of nose down');
+  assert.ok(Math.abs(go({ nose: 1 }).plan.feet - go({ nose: 0 }).plan.feet) < go({ nose: 0 }).plan.feet * 0.03, 'a touch of nose up costs almost nothing');
 });
 
 test('a slow arm can slip: grip lock or early release, rarer as the arm speeds up, and never from a fast one', async () => {
@@ -438,7 +448,7 @@ test('a slow arm can slip: grip lock or early release, rarer as the arm speeds u
   assert.ok(chance(DRIVER, 40) < chance(DRIVER, 12));
   assert.ok(chance(DRIVER, 12) <= 0.4, 'capped');
   assert.ok(chance(PUTTER, 30) < chance(DRIVER, 30), 'a fast disc is harder to hold on to');
-  assert.ok(chance(DRIVER, 40, { spin: 1500 }) > chance(DRIVER, 40), 'a spin far from the usual adds to it');
+  assert.ok(chance(DRIVER, 40, { nose: 5 }) > chance(DRIVER, 40), 'a nose angle far from level adds to it');
   assert.ok(chance(DRIVER, 40, { angle: 6 }) > chance(DRIVER, 40), 'so does an extreme angle');
 
   // the caller rolls: a low roll slips, a high one does not, and the two kinds split the chance
@@ -486,7 +496,7 @@ test('the sweet spots: each bar shows where to stop to get closest to the basket
   const G = await load();
   const hole = await field({ basket: { x: 0, y: 330 } });
   const from = { x: 0, y: 0 };
-  const base = { hand: 'right', style: 'backhand', mph: null, spin: null, angle: 0 };
+  const base = { hand: 'right', style: 'backhand', mph: null, spin: null, angle: 0, nose: 0 };
   const power = G.sweetSpots(hole, DRIVER, base, 0, from, 'power');
   const okMph = power.values.filter((_, i) => power.ok[i]);
   assert.ok(okMph.length > 0 && okMph.length < power.values.length / 2, 'a stretch of speeds, not all of them');
@@ -497,15 +507,17 @@ test('the sweet spots: each bar shows where to stop to get closest to the basket
   // the bar position round-trips with what the bar reads
   for (const mph of [10, 30, 50, 62, 78, 90]) assert.strictEqual(G.mphAt(G.powerPos(mph)), mph);
 
-  // later bars narrow it: with the arm speed chosen, the spin band depends on that speed
+  // later bars narrow it: with the arm speed chosen, the nose band depends on that speed
   const mph = okMph[Math.floor(okMph.length / 2)];
-  const spin = G.sweetSpots(hole, DRIVER, { ...base, mph }, 0, from, 'spin');
-  assert.ok(spin.ok.some(Boolean) && spin.best <= power.best + 20);
-  const tooSoft = G.sweetSpots(hole, DRIVER, { ...base, mph: 30 }, 0, from, 'spin');
-  assert.ok(tooSoft.best > spin.best + 50, 'a speed that is wrong for the distance has no good spin');
+  const nose = G.sweetSpots(hole, DRIVER, { ...base, mph }, 0, from, 'nose');
+  assert.strictEqual(nose.values.length, 11);
+  assert.ok(nose.ok.some(Boolean) && nose.best <= power.best + 20);
+  assert.ok(G.sweetBands(nose).every((b) => b.from >= 0 && b.to <= 1));
+  const tooSoft = G.sweetSpots(hole, DRIVER, { ...base, mph: 30 }, 0, from, 'nose');
+  assert.ok(tooSoft.best > nose.best + 50, 'a speed that is wrong for the distance has no good nose angle');
 
-  // the angle bar: with speed and spin chosen, the best angle is a real one and the flat throw's miss shows up
-  const angle = G.sweetSpots(hole, DRIVER, { ...base, mph, spin: 900 }, 0, from, 'angle');
+  // the angle bar: with speed and nose chosen, the best angle is a real one and the flat throw's miss shows up
+  const angle = G.sweetSpots(hole, DRIVER, { ...base, mph, nose: 0 }, 0, from, 'angle');
   assert.strictEqual(angle.values.length, 13);
   assert.ok(angle.ok.some(Boolean));
   const ab = G.sweetBands(angle);
@@ -516,4 +528,68 @@ test('the sweet spots: each bar shows where to stop to get closest to the basket
   const farSweet = G.sweetSpots(far, DRIVER, base, 0, from, 'power');
   assert.ok(farSweet.ok[farSweet.ok.length - 1], 'full speed is as close as you can get');
   assert.ok(!farSweet.ok[0]);
+});
+
+test('the nose angle can lift a throw over something low, and the pines stay too tall for it', async () => {
+  const G = await load();
+  const hole0 = await field();
+  const open = G.resolveThrow(hole0, DRIVER, RIGHT, 0, CLEAN, { x: 0, y: 0 });
+  const mid = open.pts[Math.floor(open.pts.length / 2)];
+  const low = { x: mid.x, y: mid.y, r: 4, h: 45 }; // a branch at 45 feet, right under the top of the usual arc
+  const hole = await field({ trees: [low], basket: { x: 0, y: 1500 }, bounds: { minX: -300, maxX: 300, minY: -50, maxY: 1600 } });
+  assert.strictEqual(G.resolveThrow(hole, DRIVER, RIGHT, 0, CLEAN, { x: 0, y: 0 }).kind, 'tree', 'a level throw hits it');
+  const lob = G.resolveThrow(hole, DRIVER, { ...RIGHT, nose: 4 }, 0, CLEAN, { x: 0, y: 0 });
+  assert.notStrictEqual(lob.kind, 'tree', 'nose up goes over');
+  assert.ok(lob.plan.feet < open.plan.feet, 'and it cost some distance');
+  // the woods on the course are taller than the highest lob can get
+  const G2 = await load();
+  const tallest = Math.max(...[40, 62, 86].map((mph) => Math.max(...G2.resolveThrow(hole0, DRIVER, { ...RIGHT, mph, nose: 5 }, 0, CLEAN, { x: 0, y: 0 }).pts.map((p) => p.h))));
+  const woods = G2.HOLES.flatMap((h) => h.trees).filter((t) => t.h >= 60);
+  assert.ok(woods.length > 1000 && tallest < 62, `the highest throw (${Math.round(tallest)} ft) is under the shortest pine`);
+});
+
+test('a forest, not a row of trees: pine, maple and oak, bushes and shrubs, and clearings where the design has them', async () => {
+  const G = await load();
+  const kinds = {};
+  let withGrowth = 0;
+  for (const h of G.HOLES) {
+    const c = {};
+    for (const t of h.trees) { c[t.k] = (c[t.k] || 0) + 1; kinds[t.k] = (kinds[t.k] || 0) + 1; assert.ok(['p', 'm', 'o', 's', 'b'].includes(t.k), `hole ${h.id}: a tree with a species (${t.k})`); }
+    if ((c.b || 0) >= 15 && (c.s || 0) >= 1) withGrowth++;
+  }
+  const big = (kinds.p || 0) + (kinds.m || 0) + (kinds.o || 0);
+  for (const k of ['p', 'm', 'o']) assert.ok(kinds[k] / big > 0.15, `a real mix: ${k} is ${Math.round((100 * kinds[k]) / big)}%`);
+  assert.ok(kinds.b > 800 && kinds.s > 100, `bushes and shrubs: ${kinds.b} and ${kinds.s}`);
+  assert.ok(withGrowth >= 15, `most holes have undergrowth: ${withGrowth}`);
+  // species are sized as they should be: pines narrow and tallest, oaks broad
+  const avg = (k, f) => { const l = G.HOLES.flatMap((h) => h.trees.filter((t) => t.k === k)); return l.reduce((n, t) => n + f(t), 0) / l.length; };
+  assert.ok(avg('p', (t) => t.r) < avg('m', (t) => t.r) && avg('m', (t) => t.r) < avg('o', (t) => t.r), 'pines are narrowest, oaks broadest');
+  assert.ok(avg('p', (t) => t.h) > avg('m', (t) => t.h), 'and pines are the tallest');
+  assert.ok(G.HOLES.flatMap((h) => h.trees).filter((t) => ['p', 'm', 'o'].includes(t.k)).every((t) => t.h >= 30), 'real trees are tall');
+
+  // the forest goes all the way out: on hole 1, away from the fairway on both sides, nearly every patch of ground has trees
+  const hole = G.holeById(1);
+  let cells = 0;
+  let filled = 0;
+  for (let x = hole.bounds.minX + 20; x < hole.bounds.maxX - 20; x += 30) {
+    for (let y = hole.bounds.minY + 40; y < hole.bounds.maxY - 40; y += 30) {
+      const left = G.routeAhead(hole, x, y, 0);
+      if (Math.hypot(x - left.x, y - left.y) < 70) continue; // beside the fairway or on it
+      cells++;
+      if (hole.trees.some((t) => ['p', 'm', 'o'].includes(t.k) && Math.abs(t.x - x) < 15 && Math.abs(t.y - y) < 15)) filled++;
+    }
+  }
+  assert.ok(cells > 40 && filled / cells > 0.85, `the whole outside is forest: ${filled} of ${cells} patches`);
+
+  // and the clearing on the inside of hole 3's corner (no woods there by design) stays open: only low shrubs
+  const bend = G.holeById(3);
+  const inside = bend.trees.filter((t) => {
+    if (!['p', 'm', 'o'].includes(t.k)) return false;
+    const w = G.routePosition(bend, t.x, t.y);
+    return w.side === -1 && w.s > 165 && w.s < 255 && w.d > w.hw + 12; // the left of the corner, past the first rows
+  });
+  assert.strictEqual(inside.length, 0, `the cut-the-corner clearing has no big trees: ${inside.length}`);
+  // and it is not just empty because the whole side is: the rest of that side is forest
+  const rest = bend.trees.filter((t) => ['p', 'm', 'o'].includes(t.k) && G.routePosition(bend, t.x, t.y).side === -1 && G.routePosition(bend, t.x, t.y).s < 120).length;
+  assert.ok(rest > 50, `the rest of the left side is forest: ${rest}`);
 });

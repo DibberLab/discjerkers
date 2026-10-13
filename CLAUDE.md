@@ -114,17 +114,17 @@ that way; don't introduce React/Vite/Tailwind here.
   the route: **a new or changed hole must stay solvable in par**, and a short way across must not exist where the hole
   is meant to turn (the bot finds it). A round is a practice hole, the front nine, or all eighteen, with a scorecard;
   discs Marebear eats stay eaten for the round.
-- The throw meter is four taps for every full throw, in order: **power, spin, angle, release**. Arm speed, spin and hyzer are NOT settings: where the marker stops on each of the first three bars is the value. Hand, style and aim are set first;
+- The throw meter is four taps for every full throw, in order: **power, nose, angle, release**. Arm speed, nose angle and hyzer are NOT settings: where the marker stops on each of the first three bars is the value (spin just follows the arm speed). The **nose angle** (-5..5 steps of 2.5 degrees, `settings.nose`) tips the front of the disc: up lifts the arc (over a shrub or low branch) and spends distance, down keeps it low and short. Woods are 68+ ft tall, above the highest lob. Hand, style and aim are set first;
   a putt is one tap on a swirling circular green (the dot's path is seeded and never repeats, and a miss goes the way
   the dot was). Only the release is a skill test (`sanitizeExecution` is what a server accepts back for it); the other
   three are choices, and `sanitizeSettings` range-checks them.
-- The power, spin and angle bars each show a **sweet spot** (`sweetSpots`/`sweetBands` in `gamecore.js`): the values that
+- The power, nose and angle bars each show a **sweet spot** (`sweetSpots`/`sweetBands` in `gamecore.js`): the values that
   land within 20 ft of the best landing there is, from here, for the aim and the bars already set (power assumes the best
-  angle and the usual spin). It plays candidates through `resolveThrow`, so trees and water count. It is only a guide
+  angle and a level nose). It plays candidates through `resolveThrow`, so trees and water count. It is only a guide
   drawn on the bar: nothing about it is sent to or trusted by the server.
 - A slow arm can slip (`slipChance`/`rollSlip`/`applySlip` in `gamecore.js`): below 66 mph (Intermediate Plus) there is a
   growing chance of a **grip lock** (short, hooks to the fade side) or an **early release** (flat, to the turn side);
-  more for fast discs, odd spin, extreme angles. The core never rolls: solo rolls in the browser, and in a match the
+  more for fast discs, extreme nose angles and extreme release angles. The core never rolls: solo rolls in the browser, and in a match the
   **server rolls** (browsers cannot hand themselves or dodge a slip; `sanitizeExecution` drops it).
 - Marebear eats the disc you just threw, once per hole, the first time you are at a triple bogey or worse and have
   not holed out. That rule lives in `applyResult` and is tested; the bear is drawn in `drawBear`.
@@ -143,6 +143,15 @@ that way; don't introduce React/Vite/Tailwind here.
   Live updates are SSE like the change log (keep `X-Accel-Buffering: no` and the ping).
   Matches live in `data/matches.json` (gitignored, atomic writes, fail-soft like accounts): back it up with
   `accounts.json`. Limits: 6 open matches per user, unstarted matches expire after 24h, finished ones are kept 14 days.
+- **The forest.** Wherever a side of a hole has `woods`, everything outside the fairway on that side, out to the course
+  edge, is forest (`build()` in `course.js`): white pine (`k: 'p'`, narrow and tallest), maple (`'m'`, round, a fifth turning
+  orange) and oak (`'o'`, broad), with low bushes (`'b'`) and taller shrubs (`'s'`) under and between them. A side or a stretch
+  with no woods, or a `gap`, stays open ground, which is how the designed clearings (the inside of a dogleg, a window) work.
+  Trees are looked up through a grid (`treesIn()`), because a hole has 450-1100 of them. They are drawn per species on the
+  map (`drawTrees`) and in the 3D view (`cam3d.js`).
+- **3D putting (preview):** with the 3D preview on, once you are within putting range the view stays in 3D (camera behind your disc,
+  looking at the basket and its chains) through setting up, the meter, the putt and any miss, until the hole is done. A drawing
+  mistake falls back to the map (`draw()` catches it) and `frame()` can never stop the loop.
 - **The woods are solid.** A disc is a point and a trunk stops it within 0.9 of its radius, so `woods` put a tree every
   6-8 ft (a wall) and the tee is boxed in behind: you play down the fairway, not any way you like. Only features you
   design (`gaps`, `shrubs`, low guard trees) are ways through. A tree you hit is out of the way of your next throw (the

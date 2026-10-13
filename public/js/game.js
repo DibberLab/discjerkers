@@ -4,10 +4,10 @@
 
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
-import { HOLES, holeById, holesFor } from './course.js?v=6';
-import * as G from './gamecore.js?v=16';
+import { HOLES, holeById, holesFor } from './course.js?v=8';
+import * as G from './gamecore.js?v=18';
 import * as T from './trash.js?v=3';
-import * as C3 from './cam3d.js?v=2';
+import * as C3 from './cam3d.js?v=5';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -86,7 +86,7 @@ const S = {
   boardOpen: null, // the scoreboard in a match: open or folded (null: open for a small group)
   lobby: { matches: [], msg: '', holes: 18, invite: '', code: '', busy: false },
   course: null, // the round being played: { length, holes, idx, card, eaten }
-  phase: 'loading', // menu | lobby | pick | power | spin | angle | release | putt | flight | result | bear | done | summary | mwait | mturn | mhole | mdone
+  phase: 'loading', // menu | lobby | pick | power | nose | angle | release | putt | flight | result | bear | done | summary | mwait | mturn | mhole | mdone
   bag: { starter: true, discs: [] },
   discId: null,
   settings: loadSettings(),
@@ -104,8 +104,8 @@ const S = {
 };
 
 function loadSettings() {
-  // arm speed, spin and angle are not settings: each throw's meters set them
-  const base = { hand: 'right', style: 'backhand', mph: 56, spin: null, angle: 0 };
+  // arm speed, nose and angle are not settings: each throw's meters set them (spin follows the arm speed)
+  const base = { hand: 'right', style: 'backhand', mph: 56, spin: null, angle: 0, nose: 0 };
   try {
     const t = JSON.parse(localStorage.getItem('dj_game_throw')) || JSON.parse(localStorage.getItem('dj_fg_throw')) || {};
     if (['right', 'left'].includes(t.hand)) base.hand = t.hand;
@@ -120,7 +120,7 @@ const bestKey = () => (S.course && S.course.length > 1 ? `dj_game_best_${S.cours
 const parTotal = (holes) => holes.reduce((n, h) => n + h.par, 0);
 const vsPar = (n) => (n === 0 ? 'E' : n > 0 ? `+${n}` : String(n));
 
-const METER = ['power', 'spin', 'angle', 'release', 'putt']; // the phases that wait for a tap
+const METER = ['power', 'nose', 'angle', 'release', 'putt']; // the phases that wait for a tap
 const isMeter = () => METER.includes(S.phase);
 const lieOf = () => S.round.lie;
 const toBasket = () => G.distance(lieOf(), S.hole.basket);
@@ -246,7 +246,7 @@ function settingsBlock() {
 }
 
 const tipSeen = () => { try { return localStorage.getItem('dj_game_tip') === '1'; } catch { return false; } };
-const tipHtml = () => (tipSeen() ? '' : `<div class="gm-tip"><p><b>How to play:</b> pick a disc, choose forehand or backhand, and aim (drag on the hole). Then <b>Throw</b> and tap four times: where you stop the power, spin and angle bars is your arm speed, your spin and your hyzer; the last tap is the release. A slow arm can grip lock or let go early, so watch the slip percentage. Trees stop low throws, water costs a stroke, and a triple bogey draws Marebear.</p><button type="button" data-tip-close aria-label="Got it">×</button></div>`);
+const tipHtml = () => (tipSeen() ? '' : `<div class="gm-tip"><p><b>How to play:</b> pick a disc, choose forehand or backhand, and aim (drag on the hole). Then <b>Throw</b> and tap four times: where you stop the power, nose and angle bars is your arm speed, how high the nose is tipped and your hyzer; the last tap is the release. A slow arm can grip lock or let go early, so watch the slip percentage. Trees stop low throws, water costs a stroke, and a triple bogey draws Marebear.</p><button type="button" data-tip-close aria-label="Got it">×</button></div>`);
 
 // Marebear's remark, in a card of its own under whatever it is about
 function say(r) {
@@ -390,9 +390,9 @@ function centeredBar(w, left, right) {
     <div class="gm-ends"><span>${left}</span><span>${right}</span></div>`;
 }
 
-const METER_STAGES = ['power', 'spin', 'angle', 'release'];
+const METER_STAGES = ['power', 'nose', 'angle', 'release'];
 
-// a bar with a marker that sweeps; power, spin and angle read out the value under the marker as it goes
+// a bar with a marker that sweeps; power, nose and angle read out the value under the marker as it goes
 function sweetMarkup(kind) {
   return (S.meter.sweet?.[kind] || []).map((b) => `<i class="gm-zone gm-zone--sweet" style="left:${b.from * 100}%;width:${Math.max(b.to - b.from, 0.008) * 100}%"></i>`).join('');
 }
@@ -408,7 +408,7 @@ function barMarkup(kind) {
   const m = S.meter;
   if (kind === 'power') return valueBar(kind, 'Easy', 'Full send');
   if (kind === 'putt') return '<canvas class="gm-putt" id="gm-putt" aria-label="The green: tap when the dot is inside the green circle"></canvas>';
-  if (kind === 'spin') return valueBar(kind, 'Lazy', 'Overcooked', G.spinPos(m.mph));
+  if (kind === 'nose') return valueBar(kind, 'Nose down', 'Nose up', 0.5);
   if (kind === 'angle') return valueBar(kind, 'Anhyzer', 'Hyzer', 0.5);
   return centeredBar(m.rel.w, 'Early', 'Late');
 }
@@ -420,13 +420,13 @@ function panelMeter() {
   const d = curDisc();
   const stages = kind === 'putt' ? [] : METER_STAGES;
   const n = stages.indexOf(kind) + 1;
-  const names = { power: 'Power', spin: 'Spin', angle: 'Angle', release: 'Release', putt: 'Putt' };
+  const names = { power: 'Power', nose: 'Nose', angle: 'Angle', release: 'Release', putt: 'Putt' };
   const risk = kind === 'release' && d ? Math.round(G.slipChance(d, S.settings) * 100) : 0;
   const title = kind === 'putt' ? 'Putt' : `<span>${n} ·</span> ${names[kind]}`;
   const hints = {
     power: 'Tap to set your arm speed. The lime band is the sweet spot: the speeds that put this disc closest to the basket from here. Past the hatched end the marker flies, and fast arms are harder to time.',
-    spin: 'Tap to set the spin. The lime band is the sweet spot for the speed you chose; the white tick is the usual spin. More spin holds the line, less lets it turn over.',
-    angle: 'Tap to set the release angle. The lime band is the sweet spot for your speed and spin. The middle is flat; right tips it onto hyzer, left onto anhyzer.',
+    nose: 'Tap to set the nose angle. The lime band is the sweet spot for the speed you chose; the white tick is level. Nose up lifts the disc (over a shrub or a low tree) but spends distance; nose down keeps it low and flat, and shorter.',
+    angle: 'Tap to set the release angle. The lime band is the sweet spot for your speed and nose angle. The middle is flat; right tips it onto hyzer, left onto anhyzer.',
     release: releaseHint(risk),
     putt: `Tap when the dot is in the green circle; a miss goes the way the dot was.${toBasket() > G.LONG_PUTT ? ' Past 30 ft the target is a pinprick.' : ''} ${d ? esc(d.name) : ''}, ${ft(toBasket())}.`,
   };
@@ -543,7 +543,7 @@ function renderPanel(focusSel) {
   const p = panel();
   if (!p) return;
   const keepScroll = p.dataset.phase === S.phase ? p.scrollTop : 0;
-  const views = { menu: panelMenu, pick: panelPick, power: panelMeter, spin: panelMeter, angle: panelMeter, release: panelMeter, putt: panelMeter, flight: panelFlight, result: panelResult, bear: panelBear, done: panelDone, summary: panelSummary, lobby: panelLobby, mwait: panelMwait, mturn: panelMturn, mhole: panelMhole, mdone: panelMdone };
+  const views = { menu: panelMenu, pick: panelPick, power: panelMeter, nose: panelMeter, angle: panelMeter, release: panelMeter, putt: panelMeter, flight: panelFlight, result: panelResult, bear: panelBear, done: panelDone, summary: panelSummary, lobby: panelLobby, mwait: panelMwait, mturn: panelMturn, mhole: panelMhole, mdone: panelMdone };
   p.innerHTML = (views[S.phase] || (() => ''))();
   p.dataset.phase = S.phase;
   p.scrollTop = keepScroll;
@@ -599,7 +599,7 @@ function startMeter() {
     S.meter = { kind: 'putt', start: now(), radius: G.puttRadius(toBasket(), d), speed: G.puttSpeed(toBasket()), params: G.makePuttSeed(Math.random) };
     setPhase('putt');
   } else {
-    // four taps: power, spin and angle each choose a value of the throw, then the release is graded
+    // four taps: power, nose and angle each choose a value of the throw, then the release is graded
     S.meter = { kind: 'power', start: now(), mph: null, rel: null, sweet: {} };
     sweetFor('power');
     setPhase('power');
@@ -610,7 +610,7 @@ function startMeter() {
 function sweetFor(stage) {
   const d = curDisc();
   if (!d || !S.meter) return;
-  const base = { hand: S.settings.hand, style: S.settings.style, mph: S.settings.mph, spin: S.settings.spin, angle: 0 };
+  const base = { hand: S.settings.hand, style: S.settings.style, mph: S.settings.mph, spin: null, nose: stage === 'angle' ? S.settings.nose : 0, angle: 0 };
   S.meter.sweet[stage] = G.sweetBands(G.sweetSpots(S.hole, d, base, heading(), lieOf(), stage));
 }
 
@@ -623,14 +623,15 @@ function tap() {
     m.mph = G.mphAt(G.powerAt(t));
     S.settings.mph = m.mph;
     m.rel = G.releaseSetup(m.mph);
-    sweetFor('spin');
-    next('spin');
+    S.settings.spin = null; // the spin that goes with that arm speed
+    sweetFor('nose');
+    next('nose');
     toast(`${m.mph} mph`, '', 900);
-  } else if (S.phase === 'spin') {
-    S.settings.spin = G.spinAt(G.needleAt(t, G.METER.spin.period) / 2 + 0.5);
+  } else if (S.phase === 'nose') {
+    S.settings.nose = G.noseAt(G.needleAt(t, G.METER.nose.period));
     sweetFor('angle');
     next('angle');
-    toast(`${S.settings.spin} rpm`, '', 900);
+    toast(G.noseName(S.settings.nose), '', 900);
   } else if (S.phase === 'angle') {
     S.settings.angle = G.angleAt(G.needleAt(t, G.METER.angle.period));
     next('release');
@@ -957,26 +958,48 @@ function drawCourse(t) {
   ctx.restore();
 }
 
+// the trees, seen from above: white pine (dark, spiky), maple (round, some turning), oak (broad and olive), and low shrubs and bushes
+const autumn = (t) => ((Math.abs(Math.sin(t.x * 12.9898 + t.y * 78.233)) * 43758.5453) % 1) < 0.2; // a fifth of the maples are turning, the same ones every time
 function drawTrees() {
   for (const tr of S.hole.trees) {
     const [x, y] = P(tr.x, tr.y);
     const R = tr.r * 1.9 * cam.s;
-    const shrub = tr.h < 20;
+    if (x < -R * 2 || x > W + R * 2 || y < -R * 2 || y > H + R * 2) continue; // not on the screen
+    const k = tr.k || (tr.h < 20 ? 's' : 'm');
+    if (k === 's' || k === 'b') {
+      const bush = k === 'b';
+      ctx.beginPath();
+      ctx.arc(x, y, bush ? R * 0.95 : R, 0, Math.PI * 2);
+      ctx.fillStyle = bush ? '#2f5f35' : '#4a8f45';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x - R * 0.12, y - R * 0.12, R * (bush ? 0.55 : 0.62), 0, Math.PI * 2);
+      ctx.fillStyle = bush ? '#3f7a3a' : '#63ad57';
+      ctx.fill();
+      continue;
+    }
     ctx.beginPath();
     ctx.ellipse(x + R * 0.28, y + R * 0.28, R, R * 0.92, 0, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(0,0,0,0.28)';
     ctx.fill();
+    const look = k === 'p' ? ['#12392a', '#1d5a3c'] : k === 'o' ? ['#37591f', '#4c7a2c'] : autumn(tr) ? ['#a85a17', '#d98a2b'] : ['#2b7a37', '#3f9b4b'];
     ctx.beginPath();
     ctx.arc(x, y, R, 0, Math.PI * 2);
-    ctx.fillStyle = shrub ? '#4a8f45' : '#1f5a2a';
+    ctx.fillStyle = look[0];
     ctx.fill();
-    ctx.beginPath();
-    ctx.arc(x - R * 0.12, y - R * 0.12, R * 0.62, 0, Math.PI * 2);
-    ctx.fillStyle = shrub ? '#63ad57' : '#2c7a38';
+    if (k === 'p' && R > 3) { // a pine from above is a star of boughs
+      ctx.beginPath();
+      for (let i = 0; i < 16; i++) { const a = (i / 16) * Math.PI * 2; const rr = i % 2 ? R * 0.4 : R * 0.82; ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+      ctx.closePath();
+    } else {
+      ctx.beginPath();
+      ctx.arc(x - R * 0.12, y - R * 0.12, R * 0.62, 0, Math.PI * 2);
+    }
+    ctx.fillStyle = look[1];
     ctx.fill();
     ctx.beginPath();
     ctx.arc(x, y, Math.max(1.5, tr.r * G.TREE_FORGIVE * cam.s), 0, Math.PI * 2); // the part that stops a disc
-    ctx.fillStyle = shrub ? '#3f7a3a' : '#123a1b';
+    ctx.fillStyle = k === 'p' ? '#0a2619' : '#123a1b';
     ctx.fill();
   }
 }
@@ -1321,7 +1344,45 @@ function drawFlight(t) {
 }
 
 // A throw seen from behind the disc (the preview). The same animation as the map's, from a camera that follows it.
-const riding = () => CAM.on && S.anim?.type === 'flight' && !S.anim.putt && S.anim.pts.length >= 3 && S.last; // a putt is short enough to watch from the map
+const riding = () => CAM.on && S.anim?.type === 'flight' && !S.anim.putt && S.anim.pts.length >= 3 && S.last && !S.anim.fail3d;
+
+// Putting stays in the 3D view from the moment you are in range until you are done: the camera stands behind your disc, looking at
+// the basket, and glides to the next spot after a miss.
+const puttingIn3D = () => {
+  if (!CAM.on || !S.round || S.anim?.fail3d) return false;
+  if (S.phase === 'flight') return !!S.anim?.putt;
+  return ['pick', 'putt', 'result'].includes(S.phase) && !S.round.done && inPutt();
+};
+function drawPutt3D(t) {
+  const a = S.anim;
+  const lie = a ? a.pts[0] : lieOf();
+  const b = S.hole.basket;
+  const d = { x: b.x - lie.x, y: b.y - lie.y };
+  const l = Math.hypot(d.x, d.y) || 1;
+  const dir = { x: d.x / l, y: d.y / l };
+  const want = { x: lie.x - dir.x * 13, y: lie.y - dir.y * 13, z: 5.2, yaw: Math.atan2(dir.x, dir.y), pitch: Math.atan2(3.2 - 5.2, l + 13) };
+  if (!S.pcam) { S.pcam = C3.newCamera(want.x, want.y, want.z, want.yaw, want.pitch); S.pcamT = t; }
+  const dt = clamp((t - S.pcamT) / 1000, 0.001, 0.05);
+  S.pcamT = t;
+  const k = 1 - Math.exp(-dt * 3.2);
+  const c = S.pcam;
+  c.x += (want.x - c.x) * k; c.y += (want.y - c.y) * k; c.z += (want.z - c.z) * k;
+  c.yaw += (((want.yaw - c.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI) * k;
+  c.pitch += (want.pitch - c.pitch) * k;
+  c.roll += (0 - c.roll) * k;
+  let disc = { x: lie.x, y: lie.y, h: 0.3 };
+  let trail = [];
+  let el = 0;
+  if (a) {
+    const p = clamp((t - a.t0) / a.dur, 0, 1);
+    const at = C3.discAt(a.pts, p);
+    disc = { x: at.pos.x, y: at.pos.y, h: at.pos.h };
+    trail = a.pts.slice(0, at.i + 1).concat([disc]);
+    el = t - a.t0;
+  }
+  C3.drawScene(ctx, { hole: S.hole, cam: c, view: C3.viewOf(W, H, c, S.dock), disc, trail, color: (a ? discLook(S.last.disc.id, S.last.who) : discLook(curDisc()?.id ?? S.last?.disc.id, 'me')).color, t });
+  if (a && el >= a.dur + 250) finishThrow();
+}
 function draw3D(t) {
   const a = S.anim;
   const p = clamp((t - a.t0) / a.dur, 0, 1);
@@ -1344,7 +1405,7 @@ function draw3D(t) {
   } else {
     trail.push({ x: pos.x, y: pos.y, h: pos.h });
   }
-  C3.follow(a.cam, disc, dir, dt, { back: 15 + 7 * (1 - Math.abs(p - 0.5) * 2), lift: 4, ahead: 70 });
+  C3.follow(a.cam, { ...disc, h: disc.h * C3.ZS }, dir, dt, { back: 15 + 7 * (1 - Math.abs(p - 0.5) * 2), lift: 3.5, ahead: 70 });
   const kind = a.result.kind;
   const landed = Math.max(0, (t - a.t0 - a.dur) / 700);
   C3.drawScene(ctx, {
@@ -1367,7 +1428,14 @@ function draw(t) {
   const in3d = !!riding();
   const stage = $('#gm-stage');
   if (stage.classList.contains('is-3d') !== in3d) stage.classList.toggle('is-3d', in3d);
-  if (in3d) { draw3D(t); return; }
+  // a drawing mistake must never freeze the game: fall back to the map for this throw
+  if (in3d) {
+    try { draw3D(t); return; } catch (err) { console.error('3D ride failed, using the map', err); S.anim.fail3d = true; stage.classList.remove('is-3d'); }
+  } else if (CAM.on && puttingIn3D() && S.mode !== 'menu') {
+    try { drawPutt3D(t); return; } catch (err) { console.error('3D putt view failed, using the map', err); CAM.on = false; S.pcam = null; }
+  } else {
+    S.pcam = null;
+  }
   drawCourse(t);
   drawTrail();
   drawTrees();
@@ -1472,8 +1540,8 @@ function update(t) {
     mark.style.left = `${v * 100}%`;
     const read = $('#gm-read');
     if (read && S.phase !== 'release') {
-      const [big, small] = S.phase === 'power' ? (() => { const mph = G.mphAt(v); const risk = Math.round(G.slipChance(curDisc(), { ...S.settings, mph, spin: null, angle: 0 }) * 100); return [`${mph} mph`, `${tierName(Math.max(30, mph))}${risk ? ` · ${risk}% slip` : ''}`]; })()
-        : S.phase === 'spin' ? [`${G.spinAt(v)} rpm`, '']
+      const [big, small] = S.phase === 'power' ? (() => { const mph = G.mphAt(v); const risk = Math.round(G.slipChance(curDisc(), { ...S.settings, mph, spin: null, angle: 0, nose: 0 }) * 100); return [`${mph} mph`, `${tierName(Math.max(30, mph))}${risk ? ` · ${risk}% slip` : ''}`]; })()
+        : S.phase === 'nose' ? [G.noseName(G.noseAt(v * 2 - 1)), '']
           : [angleName({ angle: G.angleAt(v * 2 - 1) }), ''];
       const text = `${big}|${small}`;
       if (read.dataset.t !== text) { read.dataset.t = text; read.innerHTML = `<b>${big}</b>${small ? `<small>${small}</small>` : ''}`; }
@@ -1482,10 +1550,15 @@ function update(t) {
 }
 
 function frame() {
-  const t = now();
-  update(t);
-  draw(t);
-  requestAnimationFrame(frame);
+  try {
+    const t = now();
+    update(t);
+    draw(t);
+  } catch (err) {
+    console.error(err); // never let one bad frame stop the game
+  } finally {
+    requestAnimationFrame(frame);
+  }
 }
 
 /* ---------- input ---------- */

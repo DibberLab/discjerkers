@@ -83,3 +83,24 @@ test('every hole draws from the tee and from out in the fairway without a hitch'
   assert.ok(calls > 5000, `something was actually drawn: ${calls}`);
   assert.ok(G.PUTT_RANGE > 0);
 });
+
+test('no camera position crashes the scene: near the basket, over water, inside trees, looking any way', async () => {
+  const { C, course } = await load();
+  let calls = 0;
+  const grad = { addColorStop() {} };
+  const ctx = new Proxy({}, { get: (_, k) => (k === 'createLinearGradient' ? () => grad : () => { calls++; }), set: () => true });
+  let seed = 7;
+  const rnd = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
+  for (const hole of course.HOLES) {
+    const spots = [hole.basket, hole.tee, ...hole.trees.slice(0, 6), ...hole.water.map((w) => ({ x: w[0][0], y: w[0][1] }))];
+    for (const at of spots) {
+      for (let k = 0; k < 6; k++) {
+        const cam = C.newCamera(at.x + (rnd() - 0.5) * 12, at.y + (rnd() - 0.5) * 12, rnd() * 60, rnd() * Math.PI * 2, (rnd() - 0.5) * 1.4, 0.5 + rnd());
+        cam.roll = (rnd() - 0.5) * 0.3;
+        const view = C.viewOf(380, 780, cam, rnd() * 300);
+        assert.doesNotThrow(() => C.drawScene(ctx, { hole, cam, view, disc: { x: at.x, y: at.y, h: rnd() * 40 }, trail: [{ x: at.x, y: at.y, h: 3 }, { x: at.x + 5, y: at.y + 5, h: 9 }], color: '#fff', t: rnd() * 5000, splash: { at, age: rnd() }, shake: rnd() * 6 }), `hole ${hole.id} near ${Math.round(at.x)},${Math.round(at.y)}`);
+      }
+    }
+  }
+  assert.ok(calls > 1000);
+});

@@ -89,6 +89,33 @@ function nearestOnRoute(route, x, y) {
   return best;
 }
 
+/* ---------- finding trees quickly: a forest is thousands of them ---------- */
+
+const CELL = 40;
+const cellKey = (cx, cy) => `${cx},${cy}`;
+function buildGrid(trees) {
+  const map = new Map();
+  for (const t of trees) {
+    const k = cellKey(Math.floor(t.x / CELL), Math.floor(t.y / CELL));
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(t);
+  }
+  return { src: trees, map };
+}
+// the trees in a box (a little more than the box: whole cells)
+export function treesIn(hole, lo, hi) {
+  const g = hole._grid;
+  if (!g || g.src !== hole.trees) return hole.trees.filter((t) => t.x >= lo.x && t.x <= hi.x && t.y >= lo.y && t.y <= hi.y);
+  const out = [];
+  for (let cx = Math.floor(lo.x / CELL); cx <= Math.floor(hi.x / CELL); cx++) {
+    for (let cy = Math.floor(lo.y / CELL); cy <= Math.floor(hi.y / CELL); cy++) {
+      const cell = g.map.get(cellKey(cx, cy));
+      if (cell) out.push(...cell);
+    }
+  }
+  return out;
+}
+
 // Fill in what a hole needs to be drawn and played from its spec.
 export function makeHole(spec) {
   const hole = { wind: { mph: 0, from: 0 }, water: [], oob: [], trees: [], bounds: { minX: -160, maxX: 240, minY: -50, maxY: 530 }, tee: { x: 0, y: 0 }, ...spec };
@@ -111,6 +138,7 @@ export function makeHole(spec) {
   });
   hole.fairwayPoly = [...left, ...right.reverse()];
   hole.tee.pad = { minX: -9, maxX: 9, minY: -5, maxY: 9 };
+  Object.defineProperty(hole, '_grid', { value: buildGrid(hole.trees), writable: true, enumerable: false });
   return hole;
 }
 
@@ -126,6 +154,24 @@ export function surfaceAt(hole, x, y) {
   if (near.d <= near.hw) return 'fairway';
   if (Math.hypot(x - hole.basket.x, y - hole.basket.y) <= 24) return 'fairway'; // a trimmed circle around the basket
   return 'rough';
+}
+
+// Where a point is in the hole's own terms: how far along the route (s), how far off it (d), which side (+1 right, -1 left) and
+// the fairway's half-width there.
+export function routePosition(hole, x, y) {
+  const P = hole.route.pts;
+  let best = { d: Infinity };
+  for (let i = 1; i < P.length; i++) {
+    const [x0, y0, w0] = P[i - 1];
+    const [x1, y1, w1] = P[i];
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const len2 = dx * dx + dy * dy || 1;
+    const t = Math.max(0, Math.min(1, ((x - x0) * dx + (y - y0) * dy) / len2));
+    const d = Math.hypot(x - (x0 + dx * t), y - (y0 + dy * t));
+    if (d < best.d) best = { d, s: hole.route.s[i - 1] + (hole.route.s[i] - hole.route.s[i - 1]) * t, hw: w0 + (w1 - w0) * t, side: (dx * (y - y0) - dy * (x - x0)) <= 0 ? 1 : -1 };
+  }
+  return best;
 }
 
 // How far is left to play from here, following the route: for judging progress on a hole that turns away from the basket.
@@ -157,7 +203,7 @@ export function routeAhead(hole, x, y, feet) {
  *   creeks: { s, w, gap }  water straight across, with an optional dry ford [o0, o1]           oob: { s0, s1, o0, o1 }
  */
 function build(spec) {
-  const { id, name, note, par, path, wind, woods = [], trees: explicit = [], shrubs = [], groves = [], walls = [], rows = [], ponds = [], creeks = [], oob = [], backstop = true, teeWall = true, front = 0, padBottom = 60, seed = id * 131 } = spec;
+  const { id, name, note, par, path, wind, woods = [], trees: explicit = [], shrubs = [], groves = [], walls = [], rows = [], ponds = [], creeks = [], oob = [], backstop = true, teeWall = true, forest = true, front = 0, padBottom = 60, seed = id * 131 } = spec;
   const rnd = seeded(seed);
   const line = smooth(path);
   const route = { pts: line, s: [0] };
@@ -198,7 +244,7 @@ function build(spec) {
 
   // the woods along the edges
   for (const w of woods) {
-    const { side, from = -20, to = L - 10, d = 7, rows = 1, dense = 0.7, gaps = [], h = [48, 66] } = w;
+    const { side, from = -20, to = L - 10, d = 7, rows = 1, dense = 0.7, gaps = [], h = [68, 96] } = w; // tall pines: even a lofted throw (nose up) does not clear them
     // a tree every 6 to 8 feet is a wall: a disc is a point, and a trunk stops it within 0.9 of its radius (4.4 and up here)
     const space = 8.5 - 3 * dense;
     for (let sAt = from; sAt <= to; sAt += space * (0.92 + rnd() * 0.16)) {
@@ -208,7 +254,7 @@ function build(spec) {
     }
   }
   for (const [sAt, o, r, h] of explicit) treeAt(sAt, o, r, h);
-  for (const [sAt, o] of shrubs) treeAt(sAt, o, 2.6 + rnd() * 0.5, 8 + rnd() * 3);
+  for (const [sAt, o] of shrubs) { treeAt(sAt, o, 2.6 + rnd() * 0.5, 8 + rnd() * 3); trees.at(-1).k = 's'; }
   for (const g of groves) {
     const { s: sAt, o, n = 5, spread = 18, h = [44, 64] } = g;
     for (let k = 0; k < n; k++) {
@@ -218,21 +264,21 @@ function build(spec) {
     }
   }
   for (const w of walls) {
-    const { s: sAt, from, to, gaps = [], h = [56, 72], gap = 5.2 } = w;
+    const { s: sAt, from, to, gaps = [], h = [70, 94], gap = 5.2 } = w;
     for (let o = from; o <= to; o += gap + rnd() * 0.5) {
       if (gaps.some(([a, b]) => o >= a && o <= b)) continue;
       treeAt(sAt + rnd() * 6 - 3, o, 4 + rnd() * 1.5, h[0] + rnd() * (h[1] - h[0]));
     }
   }
   for (const r of rows) {
-    const { s0, s1, o, h = [56, 74], gap = 5.2 } = r; // a disc is a point and a trunk stops it within 3/4 of its radius, so a solid row is a tree every 5 feet
+    const { s0, s1, o, h = [70, 94], gap = 5.2 } = r; // a disc is a point and a trunk stops it within 3/4 of its radius, so a solid row is a tree every 5 feet
     for (let sAt = s0; sAt <= s1; sAt += gap + rnd() * 0.5) treeAt(sAt, o + rnd() * 4 - 2, 4 + rnd() * 1.5, h[0] + rnd() * (h[1] - h[0]));
   }
   // the tee is boxed in behind: you play down the hole, not out of the back of the tee
-  if (teeWall) for (let o = -(path[0][2] + 26); o <= path[0][2] + 26; o += 5.2 + rnd() * 0.4) treeAt(-26, o, 4.4 + rnd() * 1.3, 56 + rnd() * 16);
+  if (teeWall) for (let o = -(path[0][2] + 26); o <= path[0][2] + 26; o += 5.2 + rnd() * 0.4) treeAt(-26, o, 4.4 + rnd() * 1.3, 70 + rnd() * 20);
   // a backstop behind the basket, and shrubs and trees in front of it
   if (backstop) for (let k = -3; k <= 3; k++) { const f = frame(L + 14 + Math.abs(k) * 2 + rnd() * 8, k * 14 + rnd() * 6); tree(f.x + end.tx * 14, f.y + end.ty * 14, 4.2 + rnd(), 58); }
-  for (let k = 0; k < front; k++) { const side = rnd() < 0.5 ? -1 : 1; treeAt(L - 22 - rnd() * 24, side * (13 + rnd() * 12), 2.7 + rnd() * 0.4, 8 + rnd() * 2); }
+  for (let k = 0; k < front; k++) { const side = rnd() < 0.5 ? -1 : 1; treeAt(L - 22 - rnd() * 24, side * (13 + rnd() * 12), 2.7 + rnd() * 0.4, 8 + rnd() * 2); trees.at(-1).k = 's'; }
 
   // water: ponds are wobbly ellipses in the route's own frame, creeks cross it
   const water = [];
@@ -269,6 +315,66 @@ function build(spec) {
   const xs = line.map((p) => p[0]);
   const ys = line.map((p) => p[1]);
   const bounds = { minX: Math.min(...xs) - 120, maxX: Math.max(...xs) + 120, minY: Math.min(...ys, 0) - padBottom, maxY: Math.max(...ys) + 120 };
+  // The forest. Wherever a side has woods, everything outside the fairway on that side is forest, not just a row of trees at the
+  // edge: white pine, maple and oak, with bushes between them. Where a side has no woods, or a gap in them, it is open ground.
+  if (woods.length && forest) {
+    const covered = (sd, sAt) => {
+      const q = sAt <= 0 ? 0 : sAt >= L ? L - 10 : sAt;
+      return woods.some((w) => w.side === sd && q >= (w.from ?? -20) && q <= (w.to ?? L - 10) && !(w.gaps || []).some(([a, c]) => q >= a && q <= c));
+    };
+    const grid = buildGrid(trees);
+    const add = (t) => { trees.push(t); const k = cellKey(Math.floor(t.x / CELL), Math.floor(t.y / CELL)); if (!grid.map.has(k)) grid.map.set(k, []); grid.map.get(k).push(t); };
+    const crowded = (x, y, r, gap) => {
+      for (let cx = Math.floor((x - 14) / CELL); cx <= Math.floor((x + 14) / CELL); cx++) {
+        for (let cy = Math.floor((y - 14) / CELL); cy <= Math.floor((y + 14) / CELL); cy++) {
+          for (const t of grid.map.get(cellKey(cx, cy)) || []) if (Math.hypot(t.x - x, t.y - y) < (t.r + r) * gap) return true;
+        }
+      }
+      return false;
+    };
+    const wet = (x, y) => water.some((w) => pointInPoly(w, x, y)) || zones.some((w) => pointInPoly(w, x, y));
+    // where is this, in the hole's own terms: how far from the route, which side, how far along
+    const where = (x, y) => {
+      const n = nearestOnRoute(route, x, y);
+      const f = frame(Math.max(0, Math.min(L, n.s)), 0);
+      return { ...n, side: (x - f.x) * f.ty - (y - f.y) * f.tx >= 0 ? 1 : -1 };
+    };
+    const KINDS = { p: { r: [3.8, 4.8], h: [78, 105] }, m: { r: [5, 6.4], h: [66, 84] }, o: { r: [6, 7.8], h: [70, 92] } }; // tall: a lofted throw does not clear them
+    const between = ([lo, hi]) => lo + rnd() * (hi - lo);
+    const pickKind = () => { const u = rnd(); return u < 0.4 ? 'p' : u < 0.7 ? 'm' : 'o'; };
+    const lo = { x: Math.min(...line.map((p) => p[0])) - 120, y: Math.min(...line.map((p) => p[1]), 0) - padBottom };
+    const hi = { x: Math.max(...line.map((p) => p[0])) + 120, y: Math.max(...line.map((p) => p[1])) + 120 };
+    for (let gx = lo.x + 6; gx < hi.x - 6; gx += 15) {
+      for (let gy = lo.y + 6; gy < hi.y - 6; gy += 15) {
+        const x = gx + (rnd() - 0.5) * 12;
+        const y = gy + (rnd() - 0.5) * 12;
+        const w = where(x, y);
+        if (w.d < w.hw + 20 || !covered(w.side, w.s) || wet(x, y)) continue;
+        if (Math.hypot(x, y) < 32 || Math.hypot(x - basket.x, y - basket.y) < 34) continue;
+        const k = pickKind();
+        const r = between(KINDS[k].r);
+        if (crowded(x, y, r, 0.8)) continue;
+        add({ x: r1(x), y: r1(y), r: r1(r), h: Math.round(between(KINDS[k].h)), k });
+      }
+    }
+    // bushes in the rough and under the trees
+    for (let gx = lo.x + 6; gx < hi.x - 6; gx += 21) {
+      for (let gy = lo.y + 6; gy < hi.y - 6; gy += 21) {
+        if (rnd() > 0.62) continue;
+        const x = gx + (rnd() - 0.5) * 16;
+        const y = gy + (rnd() - 0.5) * 16;
+        const w = where(x, y);
+        if (w.d < w.hw + 4 || !covered(w.side, w.s) || wet(x, y)) continue;
+        if (Math.hypot(x, y) < 28 || Math.hypot(x - basket.x, y - basket.y) < 30) continue;
+        const shrub = rnd() < 0.35; // some are taller shrubs, the rest low bushes
+        const r = shrub ? 2.5 + rnd() * 1 : 2.2 + rnd() * 1.4;
+        if (crowded(x, y, r, 0.7)) continue;
+        add({ x: r1(x), y: r1(y), r: r1(r), h: shrub ? Math.round(8 + rnd() * 4) : Math.round((3 + rnd() * 2.8) * 10) / 10, k: shrub ? 's' : 'b' });
+      }
+    }
+  }
+  for (const t of trees) if (!t.k) t.k = t.h < 20 ? 's' : ['p', 'p', 'm', 'm', 'o', 'o'][Math.floor(rnd() * 6)]; // the edge rows get their species too
+
   // no trees growing in a pond, in out of bounds, or on the tee or basket
   const dry = trees.filter((t) => !water.some((w) => pointInPoly(w, t.x, t.y)) && !zones.some((w) => pointInPoly(w, t.x, t.y)) && Math.hypot(t.x, t.y) > t.r + 10 && Math.hypot(t.x - basket.x, t.y - basket.y) > t.r + 8);
   return makeHole({ id, name, note, par, fairway: line, basket, wind, water, oob: zones, trees: dry, bounds });
@@ -337,7 +443,7 @@ const HOLE_SPECS = [
     ponds: [{ s: 250, o: -72, rx: 58, ry: 80, n: 14 }, { s: 250, o: 74, rx: 58, ry: 80, n: 14 }, { s: 420, o: -66, rx: 50, ry: 60, n: 14 }, { s: 420, o: 68, rx: 50, ry: 60, n: 14 }] },
   // 16: a wall of trees across the hole with two gates: wide and long to the left, tight and straight on the right
   { id: 16, note: "A wall of trees with two gates: wide and long on the left, tight and straight on the right.", name: 'The Gate', par: 4, path: trail(-25, 36, [[200, 10, 36], [200, -6, 36]]), wind: { mph: 5, from: 180 },
-    woods: [{ side: -1, dense: 0.7 }, { side: 1, dense: 0.7 }], walls: [{ s: 200, from: -90, to: 90, gaps: [[-58, -30], [26, 36]], h: [60, 76] }], shrubs: [[320, 20], [330, -22]], front: 2 },
+    woods: [{ side: -1, dense: 0.7 }, { side: 1, dense: 0.7 }], walls: [{ s: 200, from: -90, to: 90, gaps: [[-58, -30], [26, 36]], h: [72, 94] }], shrubs: [[320, 20], [330, -22]], front: 2 },
   // 17: Marebear's den: little room, lots of pine
   { id: 17, note: "Marebear's den. Not much room and a lot of pine. Be patient.", name: "Marebear's Den", par: 3, path: trail(-8, 22, [[225, 10, 20]]), wind: { mph: 3, from: 270 },
     woods: [{ side: -1, dense: 0.95, rows: 2 }, { side: 1, dense: 0.95, rows: 2 }], trees: [[100, -8, 4.4, 66], [135, 12, 4.4, 62], [175, -2, 4.6, 70]], front: 3 },

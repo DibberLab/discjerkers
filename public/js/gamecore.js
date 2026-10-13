@@ -3,8 +3,8 @@
    same place and the whole thing can be tested without a screen. The flight itself comes from flightmodel.js, the
    same model the flight guide uses. Feet; x is east, y is north; heading 0 is north, positive is clockwise. */
 
-import { clamp, carryRaw, flightCurve, spinOf, spinsClockwise, angleDeg, armAt, SPIN, ANGLE_MAX, typicalSpin } from './flightmodel.js?v=1';
-import { surfaceAt } from './course.js?v=6';
+import { clamp, carryRaw, flightCurve, spinOf, spinsClockwise, angleDeg, armAt, ANGLE_MAX } from './flightmodel.js?v=1';
+import { surfaceAt, treesIn } from './course.js?v=8';
 
 const DEG = Math.PI / 180;
 export const PUTT_RANGE = 50; // inside this you putt
@@ -25,12 +25,12 @@ export function windFor(hole, headingDeg) {
 
 /* ---------- the throw meter ---------- */
 
-// Four taps, and the player's own throw comes out of them. Power, spin and angle are each a bar with a marker that
-// sweeps back and forth: where you stop it IS the arm speed, the spin, the hyzer angle. Then the release is the test:
+// Four taps, and the player's own throw comes out of them. Power, nose and angle are each a bar with a marker that
+// sweeps back and forth: where you stop it IS the arm speed, the nose angle, the hyzer angle. Then the release is the test:
 // stop the needle in the middle. Each bar has its own speed so there is no rhythm to carry from one to the next.
 export const METER = {
   power: { period: 2.2 },
-  spin: { period: 1.75 },
+  nose: { period: 1.75 },
   angle: { period: 2.05 },
 };
 // a harder arm is harder to time on the release: a faster needle and a narrower zone
@@ -61,10 +61,16 @@ export const mphAt = (m) => {
     : POWER_KNEE_MPH + (ARM.max - POWER_KNEE_MPH) * ((m - POWER_KNEE) / (1 - POWER_KNEE)) ** POWER_CURVE;
   return clamp(snap(raw, ARM.step), ARM.min, ARM.max);
 };
-// the spin (rpm) a position on the spin bar (0..1) stands for
-export const spinAt = (m) => clamp(snap(SPIN.min + m * (SPIN.max - SPIN.min), SPIN.step), SPIN.min, SPIN.max);
-// where on the spin bar (0..1) a typical throw at this arm speed sits
-export const spinPos = (mph) => clamp((typicalSpin(mph) - SPIN.min) / (SPIN.max - SPIN.min), 0, 1);
+// The nose angle: how far the front of the disc is tipped up (+) or down (-) as it leaves the hand, in steps of 2.5 degrees.
+// Nose up lifts the disc higher (over a shrub or a low branch) but spends distance; nose down keeps it low and flat and
+// also shortens it. Level is the usual throw. A needle position (-1..1) stands for a whole step.
+export const NOSE_MAX = 5;
+export const NOSE_DEG = 2.5;
+export const noseAt = (x) => clamp(Math.round(x * NOSE_MAX), -NOSE_MAX, NOSE_MAX);
+export const noseDeg = (n) => n * NOSE_DEG;
+export const noseCarry = (n) => (n >= 0 ? 1 - 0.008 * n - 0.0055 * n * n : 1 - 0.045 * -n); // nose up: a little, then more; nose down: steadily less
+export const noseHeight = (n) => (n >= 0 ? 1 + 0.11 * n : Math.max(0.25, 1 + 0.15 * n));
+export const noseName = (n) => (n === 0 ? 'Level' : `Nose ${n > 0 ? 'up' : 'down'} ${noseDeg(Math.abs(n))}°`);
 // the release angle a needle position (-1 anhyzer .. 1 hyzer) stands for: whole steps, 0 is flat
 export const angleAt = (x) => clamp(Math.round(x * ANGLE_MAX), -ANGLE_MAX, ANGLE_MAX);
 
@@ -80,17 +86,17 @@ export function combine(release) {
 }
 
 // A slow arm can lose the disc: it sticks to the fingers (a grip lock) or slips out early. Below Intermediate Plus the
-// chance grows as the arm slows, more for a fast disc, and a little more when the spin is far from the usual for that
-// arm or the angle is extreme. Nothing here rolls the dice: the caller supplies the roll (0..1), so it stays testable
+// chance grows as the arm slows, more for a fast disc, and a little more when the nose angle or the release angle is
+// extreme. Nothing here rolls the dice: the caller supplies the roll (0..1), so it stays testable
 // and a match server can roll for both players.
 export const SLIP_BELOW = 66; // mph: Intermediate Plus and under
 export function slipChance(disc, settings) {
   const arm = clamp((SLIP_BELOW - settings.mph) / (SLIP_BELOW - ARM.min), 0, 1);
   if (!arm) return 0;
   const fast = 0.6 + 0.4 * clamp(disc.speed / 12, 0, 1);
-  const spinOff = clamp(Math.abs(spinOf(settings) - typicalSpin(settings.mph)) / 600, 0, 1);
+  const noseOff = clamp(Math.abs(settings.nose || 0) / NOSE_MAX, 0, 1);
   const edge = Math.abs(settings.angle) >= 5 ? 1 : 0;
-  return clamp(0.3 * arm ** 1.5 * fast + arm * (0.06 * spinOff + 0.04 * edge), 0, 0.4);
+  return clamp(0.3 * arm ** 1.5 * fast + arm * (0.06 * noseOff + 0.04 * edge), 0, 0.4);
 }
 // 'grip' (a grip lock), 'early' (an early release), or null for a clean throw
 export function rollSlip(disc, settings, roll) {
@@ -115,6 +121,7 @@ export function applyExecution(settings, aimDeg, ex) {
       style: settings.style,
       mph: settings.mph * (1 - 0.06 * ex.sloppy) * (ex.slip === 'grip' ? 0.7 : ex.slip === 'early' ? 0.85 : 1),
       spin: Math.round(spinOf(settings) * (1 - 0.38 * clamp(ex.sloppy - 0.08, 0, 1.2))),
+      nose: settings.nose || 0,
       angle: settings.angle,
       angleExtra: ex.o * 8,
     },
@@ -130,11 +137,13 @@ export function sanitizeSettings(raw) {
   const mph = num(raw.mph, NaN);
   const angle = num(raw.angle, NaN);
   const spin = raw.spin === null || raw.spin === undefined ? null : num(raw.spin, NaN);
+  const nose = raw.nose === undefined || raw.nose === null ? 0 : num(raw.nose, NaN); // older pages do not send one
   if (!['right', 'left'].includes(raw.hand) || !['backhand', 'forehand'].includes(raw.style)) return null;
   if (!Number.isInteger(mph) || mph < 10 || mph > 90 || mph % 2) return null;
   if (!Number.isInteger(angle) || angle < -6 || angle > 6) return null;
   if (spin !== null && (!Number.isInteger(spin) || spin < 400 || spin > 1600)) return null;
-  return { hand: raw.hand, style: raw.style, mph, spin, angle };
+  if (!Number.isInteger(nose) || nose < -NOSE_MAX || nose > NOSE_MAX) return null;
+  return { hand: raw.hand, style: raw.style, mph, spin, angle, nose };
 }
 export function sanitizeExecution(raw = {}) {
   const o = clamp(num(raw.o, 0), -1, 1);
@@ -149,8 +158,8 @@ const PERFECT = { o: 0, pure: false, sloppy: 0, grade: 'Preview' };
 /* ---------- the sweet spots ---------- */
 
 // Each bar can show where its sweet spot is: the settings that put the disc closest to the basket from here, given the
-// aim and whatever the earlier bars already set. Power looks at every arm speed (with the usual spin, and the best angle
-// for each); spin looks at every spin at the arm speed you chose; angle looks at every angle at that speed and spin.
+// aim and whatever the earlier bars already set. Power looks at every arm speed (with a level nose, and the best angle
+// for each); nose looks at every nose angle at the arm speed you chose; angle looks at every angle at that speed and nose.
 // A value is in the sweet spot when it lands within SWEET_SLACK feet of the best landing there is, so on a long hole it
 // is "as close as this disc can get" and near the basket it is "a putt you can make". Trees and water count: it plays
 // each candidate through resolveThrow with a clean release.
@@ -164,10 +173,10 @@ export function sweetSpots(hole, disc, base, aimDeg, from, stage) {
   let dist;
   if (stage === 'power') {
     values = Array.from({ length: (ARM.max - ARM.min) / ARM.step + 1 }, (_, i) => ARM.min + i * ARM.step);
-    dist = values.map((mph) => bestAngle({ ...base, mph, spin: null }));
-  } else if (stage === 'spin') {
-    values = Array.from({ length: (SPIN.max - SPIN.min) / SPIN.step + 1 }, (_, i) => SPIN.min + i * SPIN.step);
-    dist = values.map((spin) => bestAngle({ ...base, spin }));
+    dist = values.map((mph) => bestAngle({ ...base, mph, nose: 0 }));
+  } else if (stage === 'nose') {
+    values = Array.from({ length: NOSE_MAX * 2 + 1 }, (_, i) => i - NOSE_MAX);
+    dist = values.map((nose) => bestAngle({ ...base, nose }));
   } else {
     values = ANGLES;
     dist = values.map((angle) => away({ ...base, angle }));
@@ -180,13 +189,13 @@ export function powerPos(mph) {
   if (mph <= POWER_KNEE_MPH) return POWER_KNEE * clamp((mph - ARM.min) / (POWER_KNEE_MPH - ARM.min), 0, 1);
   return POWER_KNEE + (1 - POWER_KNEE) * clamp((mph - POWER_KNEE_MPH) / (ARM.max - POWER_KNEE_MPH), 0, 1) ** (1 / POWER_CURVE);
 }
-export const spinBarPos = (rpm) => clamp((rpm - SPIN.min) / (SPIN.max - SPIN.min), 0, 1);
+export const noseBarPos = (n) => clamp((n / NOSE_MAX + 1) / 2, 0, 1);
 export const angleBarPos = (a) => clamp((a / ANGLE_MAX + 1) / 2, 0, 1);
 // the runs of sweet values as stretches of their bar: [{ from, to }] in 0..1 (each value owns half a step either side)
 export function sweetBands(sweet) {
   const { stage, values, ok } = sweet;
-  const half = stage === 'power' ? ARM.step / 2 : stage === 'spin' ? SPIN.step / 2 : 0.5;
-  const pos = stage === 'power' ? powerPos : stage === 'spin' ? spinBarPos : angleBarPos;
+  const half = stage === 'power' ? ARM.step / 2 : 0.5;
+  const pos = stage === 'power' ? powerPos : stage === 'nose' ? noseBarPos : angleBarPos;
   const bands = [];
   for (let i = 0; i < values.length; i++) {
     if (!ok[i]) continue;
@@ -209,7 +218,7 @@ export function typicalArm(disc) {
 // mistimed release can reach as a shaded band either side of it. Trees and water are not considered: it is a guide.
 export function previewThrow(hole, disc, settings, aimDeg, from, n = 40) {
   const mph = typicalArm(disc);
-  const base = { hand: settings.hand, style: settings.style, mph, spin: null, angle: 0 };
+  const base = { hand: settings.hand, style: settings.style, mph, spin: null, angle: 0, nose: 0 };
   const path = (o) => samplePath(planThrow(hole, disc, base, aimDeg, { o, pure: false, sloppy: Math.abs(o), grade: 'Preview' }), from, n);
   const line = path(0.1);
   const early = path(-0.4);
@@ -223,11 +232,12 @@ export function previewThrow(hole, disc, settings, aimDeg, from, n = 40) {
 export function planThrow(hole, disc, settings, aimDeg, ex = PERFECT) {
   const { t2, headingDeg, bonus } = applyExecution(settings, aimDeg, ex);
   const wind = windFor(hole, headingDeg);
-  const feet = clamp(carryRaw(disc, wind, t2) * bonus, 12, 560);
+  const nose = settings.nose || 0;
+  const feet = clamp(carryRaw(disc, wind, t2) * bonus * noseCarry(nose), 12, 560);
   const curve = flightCurve(disc, wind, t2, feet);
   const scale = Math.min(1, feet / 260); // the guide's bends are sized for a long throw; a short one bends less
   // how high the disc gets: more with glide and speed, less on a short throw
-  const apex = (14 + disc.glide * 3.2 + disc.speed * 0.8) * clamp(feet / 300, 0.15, 1) ** 0.6;
+  const apex = (14 + disc.glide * 3.2 + disc.speed * 0.8) * clamp(feet / 300, 0.15, 1) ** 0.6 * noseHeight(nose);
   return { headingDeg, feet, lat: curve.lat.map((v) => v * scale), apex, t2, wind, ex, dir: curve.dir };
 }
 
@@ -304,7 +314,7 @@ export function resolveThrow(hole, disc, settings, aimDeg, ex, from) {
   const skip = from.t !== undefined ? hole.trees[from.t] : null;
   const lo = { x: Math.min(...all.map((p) => p.x)) - 10, y: Math.min(...all.map((p) => p.y)) - 10 };
   const hi = { x: Math.max(...all.map((p) => p.x)) + 10, y: Math.max(...all.map((p) => p.y)) + 10 };
-  const trees = hole.trees.filter((tr) => tr !== skip && distance(from, tr) >= tr.r + CLEAR_OF && tr.x >= lo.x && tr.x <= hi.x && tr.y >= lo.y && tr.y <= hi.y);
+  const trees = treesIn(hole, lo, hi).filter((tr) => tr !== skip && distance(from, tr) >= tr.r + CLEAR_OF && tr.x >= lo.x && tr.x <= hi.x && tr.y >= lo.y && tr.y <= hi.y);
   let hit = null;
   let basket = null;
   for (let i = 1; i < all.length; i++) {

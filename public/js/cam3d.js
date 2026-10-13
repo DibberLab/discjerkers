@@ -4,6 +4,7 @@
    Feet; x is east, y is north, z is up (a point of a flight is x, y and its height h). Nothing here knows about the game's
    state: callers hand it a hole, a camera and a disc. */
 
+export const ZS = 0.72; // heights are drawn a little squashed: a real arc looks like a rocket when you ride it
 const NEAR = 1; // nothing nearer than this (feet) is drawn
 const FAR = 1500; // and nothing farther than this is drawn as a tree
 
@@ -172,58 +173,98 @@ function haze(ctx, view, hy) {
   ctx.fillRect(-view.W, hy - 6, view.W * 3, view.H * 0.22 + 6);
 }
 
+const autumn = (t) => ((Math.abs(Math.sin(t.x * 12.9898 + t.y * 78.233)) * 43758.5453) % 1) < 0.2; // the same fifth of the maples are turning, as on the map
+
+// white pine (a narrow cone of boughs), maple (round, some turning), oak (broad with a thick trunk), shrubs and bushes (low blobs)
 function drawTree(ctx, cam, b, view, t) {
   const base = project(cam, view, t.x, t.y, 0);
   if (!base || base.d > FAR) return;
   const sx = base.x;
-  if (sx < -200 || sx > view.W + 200) return;
+  if (sx < -250 || sx > view.W + 250) return;
   const fog = fogAt(base.d);
-  const shrub = t.h < 20;
-  const rx = Math.max(1.5, t.r * (shrub ? 1.5 : 1.35) * base.s);
-  if (shrub) {
-    ctx.fillStyle = mixTo(hex('#4a8f45'), HAZE, fog);
-    ctx.beginPath();
-    ctx.ellipse(sx, base.y - t.h * 0.45 * base.s, rx, Math.max(1.5, t.h * 0.55 * base.s), 0, 0, Math.PI * 2);
-    ctx.fill();
+  const k = t.k || (t.h < 20 ? 's' : 'm');
+  const th = t.h * ZS;
+  const s = base.s;
+  const blob = (color, cx, cy, rx, ry) => { ctx.fillStyle = mixTo(hex(color), HAZE, fog); ctx.beginPath(); ctx.ellipse(cx, cy, Math.max(1.2, rx), Math.max(1.2, ry), 0, 0, Math.PI * 2); ctx.fill(); };
+  if (k === 's' || k === 'b') {
+    const bush = k === 'b';
+    const rx = Math.max(1.5, t.r * (bush ? 1.3 : 1.45) * s);
+    blob(bush ? '#2f5f35' : '#4a8f45', sx, base.y - th * 0.45 * s, rx, th * 0.55 * s);
+    blob(bush ? '#3f7a3a' : '#63ad57', sx - rx * 0.25, base.y - th * 0.55 * s, rx * 0.55, th * 0.3 * s);
     return;
   }
-  // trunk, then a tall oval of branches with a lighter side
-  ctx.fillStyle = mixTo(hex('#2a1d12'), HAZE, fog);
-  ctx.fillRect(sx - Math.max(0.7, t.r * 0.18 * base.s), base.y - t.h * 0.42 * base.s, Math.max(1.4, t.r * 0.36 * base.s), t.h * 0.42 * base.s);
-  const cy = base.y - (t.h * 0.34 + (t.h * 0.66) / 2) * base.s;
-  const ry = (t.h * 0.66 * base.s) / 2;
-  ctx.fillStyle = mixTo(hex('#164a24'), HAZE, fog);
-  ctx.beginPath();
-  ctx.ellipse(sx, cy, rx, ry, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = mixTo(hex('#2a7a38'), HAZE, fog);
-  ctx.beginPath();
-  ctx.ellipse(sx - rx * 0.22, cy - ry * 0.12, rx * 0.62, ry * 0.78, 0, 0, Math.PI * 2);
-  ctx.fill();
+  const trunkW = Math.max(1.4, t.r * (k === 'o' ? 0.5 : 0.34) * s);
+  ctx.fillStyle = mixTo(hex(k === 'p' ? '#3a2616' : '#2a1d12'), HAZE, fog);
+  ctx.fillRect(sx - trunkW / 2, base.y - th * (k === 'o' ? 0.5 : 0.4) * s, trunkW, th * (k === 'o' ? 0.5 : 0.4) * s);
+  if (k === 'p') { // three tiers of boughs, narrowing to the top
+    const w = Math.max(2, t.r * 1.5 * s);
+    const tiers = [[0.12, 0.5, 1], [0.34, 0.75, 0.74], [0.56, 1, 0.46]];
+    tiers.forEach(([from, to, wid], i) => {
+      ctx.fillStyle = mixTo(hex(i % 2 ? '#1d5a3c' : '#12392a'), HAZE, fog);
+      ctx.beginPath();
+      ctx.moveTo(sx - w * wid, base.y - th * from * s);
+      ctx.lineTo(sx + w * wid, base.y - th * from * s);
+      ctx.lineTo(sx, base.y - th * to * s);
+      ctx.closePath();
+      ctx.fill();
+    });
+    return;
+  }
+  if (k === 'o') { // a broad crown, low and wide
+    const rx = Math.max(2, t.r * 1.7 * s);
+    blob('#37591f', sx, base.y - th * 0.68 * s, rx, th * 0.32 * s);
+    blob('#4c7a2c', sx - rx * 0.2, base.y - th * 0.76 * s, rx * 0.7, th * 0.22 * s);
+    return;
+  }
+  const rx = Math.max(2, t.r * 1.35 * s); // maple: a round, bright crown
+  const turning = autumn(t);
+  blob(turning ? '#a85a17' : '#2b7a37', sx, base.y - th * 0.66 * s, rx, th * 0.36 * s);
+  blob(turning ? '#d98a2b' : '#3f9b4b', sx - rx * 0.22, base.y - th * 0.74 * s, rx * 0.65, th * 0.24 * s);
 }
 
-// the basket, with a tall flag so you can find it from a long way off
+// the basket: a pole, a ring with its chains, and a tall flag so you can find it from a long way off
 function drawBasket(ctx, cam, b, view, hole) {
-  const g = project(cam, view, hole.basket.x, hole.basket.y, 0);
+  const { x, y } = hole.basket;
+  const g = project(cam, view, x, y, 0);
   if (!g || g.d > 2500) return;
-  const top = project(cam, view, hole.basket.x, hole.basket.y, 30);
-  const ring = project(cam, view, hole.basket.x, hole.basket.y, 4.4);
+  const poleH = Math.max(9, Math.min(30, 8 + g.d * 0.1)) * ZS; // a tall flag far off, a short one when you are standing at it
+  const top = project(cam, view, x, y, poleH);
+  const ring = project(cam, view, x, y, 4.4);
   ctx.strokeStyle = 'rgba(238,241,232,0.85)';
   ctx.lineWidth = Math.max(1, 0.18 * g.s);
   ctx.beginPath();
   ctx.moveTo(g.x, g.y);
-  ctx.lineTo(top.x, top.y);
+  ctx.lineTo((top || ring || g).x, (top || ring || g).y);
   ctx.stroke();
-  ctx.fillStyle = '#d35400';
-  const fl = Math.max(5, 9 * g.s);
-  ctx.beginPath();
-  ctx.moveTo(top.x, top.y);
-  ctx.lineTo(top.x + fl * 1.5, top.y + fl * 0.5);
-  ctx.lineTo(top.x, top.y + fl);
-  ctx.closePath();
-  ctx.fill();
+  if (top) {
+    ctx.fillStyle = '#d35400';
+    const fl = Math.max(5, Math.min(9, 1.4 + g.d * 0.05) * g.s * ZS);
+    ctx.beginPath();
+    ctx.moveTo(top.x, top.y);
+    ctx.lineTo(top.x + fl * 1.5, top.y + fl * 0.5);
+    ctx.lineTo(top.x, top.y + fl);
+    ctx.closePath();
+    ctx.fill();
+  }
+  if (!ring) return;
+  // the chains hang from the ring to a lower ring
+  const low = project(cam, view, x, y, 2.3);
+  if (low && g.d < 180) {
+    ctx.strokeStyle = 'rgba(210,214,206,0.7)';
+    ctx.lineWidth = Math.max(0.8, 0.07 * g.s);
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2;
+      const up = project(cam, view, x + Math.cos(a) * 1.45, y + Math.sin(a) * 1.45, 4.4);
+      const dn = project(cam, view, x + Math.cos(a) * 0.9, y + Math.sin(a) * 0.9, 2.3);
+      if (!up || !dn) continue;
+      ctx.beginPath();
+      ctx.moveTo(up.x, up.y);
+      ctx.lineTo(dn.x, dn.y);
+      ctx.stroke();
+    }
+  }
   ctx.strokeStyle = '#d35400';
-  ctx.lineWidth = Math.max(1.5, 0.35 * g.s);
+  ctx.lineWidth = Math.max(1.5, 0.3 * g.s);
   ctx.beginPath();
   ctx.ellipse(ring.x, ring.y, Math.max(3, 1.6 * g.s), Math.max(1.2, 0.5 * g.s), 0, 0, Math.PI * 2);
   ctx.stroke();
@@ -231,7 +272,7 @@ function drawBasket(ctx, cam, b, view, hole) {
 
 function drawDisc(ctx, cam, view, p, color, t) {
   const g = project(cam, view, p.x, p.y, 0);
-  const a = project(cam, view, p.x, p.y, Math.max(0.4, p.h));
+  const a = project(cam, view, p.x, p.y, Math.max(0.4, p.h * ZS));
   if (g) { // the shadow on the grass
     ctx.fillStyle = `rgba(0,0,0,${Math.max(0.12, 0.4 - p.h * 0.004)})`;
     ctx.beginPath();
@@ -239,7 +280,7 @@ function drawDisc(ctx, cam, view, p, color, t) {
     ctx.fill();
   }
   if (!a) return;
-  const w = Math.max(6, 3.1 * a.s); // drawn bigger than life, or it would be a speck
+  const w = Math.max(6, Math.min(3.1, 0.9 + 0.022 * a.d) * a.s); // bigger than life far off, or it would be a speck; nearly true size up close
   ctx.fillStyle = color;
   ctx.beginPath();
   ctx.ellipse(a.x, a.y, w, w * 0.34, 0, 0, Math.PI * 2);
@@ -259,7 +300,7 @@ function drawTrail(ctx, cam, view, pts) {
   const n = pts.length;
   let prev = null;
   for (let i = 0; i < n; i++) {
-    const q = project(cam, view, pts[i].x, pts[i].y, pts[i].h);
+    const q = project(cam, view, pts[i].x, pts[i].y, pts[i].h * ZS);
     if (q && prev) {
       ctx.strokeStyle = `rgba(238,241,232,${0.15 + 0.6 * (i / n)})`;
       ctx.lineWidth = Math.max(1.5, 0.28 * q.s);
