@@ -188,6 +188,10 @@ that way; don't introduce React/Vite/Tailwind here.
   down to half) and too hard makes it loose. The page sends `ex.swipe` and `sanitizeExecution` applies it, so the server does the
   steering itself. An older page sends none and gets none. The basket in the 3D view has a catch tray about 3 ft up (`TRAY_H`),
   and a made putt drops into it and rests there.
+- **A disc does not go through a hoop.** In `puttScript` a putt that goes in flies to the side of the chain curtain (about 1.2 ft out,
+  3.7 ft up), is stopped dead by the chains, and falls into the tray; a rattle kicks back out and sideways first. A rim-out clips the
+  chains and runs round the lip of the tray. The basket is drawn in three layers (`base`, `back`, `front` in `cam3d.js`) so the
+  near chains cross in front of a disc that has gone in.
 - **Putting** (`public/js/puttfx.js`): within putting range the 3D view stays up (camera behind the disc, looking at the basket)
   from setup to the end of the hole. `resolvePutt` decides: `finish` is `swish` (dead center), `rattle` (near the edge), `tapin`,
   `rim` (just outside: it laps the rim and spits out), `miss`, or `nasty` (a miss that runs 14-46 ft away; the dice are passed in,

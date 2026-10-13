@@ -7,8 +7,8 @@ import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=8';
 import * as G from './gamecore.js?v=19';
 import * as T from './trash.js?v=3';
-import * as C3 from './cam3d.js?v=7';
-import * as PF from './puttfx.js?v=3';
+import * as C3 from './cam3d.js?v=8';
+import * as PF from './puttfx.js?v=4';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

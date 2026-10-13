@@ -239,11 +239,16 @@ function ringAt(cam, view, x, y, r, z, n = 22) {
 }
 const fillRing = (ctx, pts, color) => { ctx.beginPath(); pts.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y))); ctx.closePath(); ctx.fillStyle = color; ctx.fill(); };
 
-// the basket: a pole, a catch tray three feet up, chains hanging from the top band down to the tray, and a tall flag so you can find it from a long way off
-function drawBasket(ctx, cam, b, view, hole, jiggle = 0, t = 0) {
+// The basket: a pole, a catch tray three feet up, chains hanging from the top band down to the tray, and a tall flag so you can find
+// it from a long way off. It is drawn in layers (the base and the far chains, then the disc, then the near chains and the top band),
+// so a disc that has gone in is inside the cage, behind the front chains, not on top of them.
+//   part: 'all' (a basket far away is one piece), 'base', 'back' or 'front'
+function drawBasket(ctx, cam, b, view, hole, jiggle = 0, t = 0, part = 'all') {
   const { x, y } = hole.basket;
   const g = project(cam, view, x, y, 0);
   if (!g || g.d > 2500) return;
+  const near = g.d < 220;
+  if (part !== 'all' && !near) { if (part === 'base') part = 'all'; else return; } // far off, the base layer draws everything
   const poleH = Math.max(9, Math.min(30, 8 + g.d * 0.1)) * ZS; // a tall flag far off, a short one when you are standing at it
   const top = project(cam, view, x, y, poleH);
   const ring = project(cam, view, x, y, RING_H);
@@ -255,50 +260,56 @@ function drawBasket(ctx, cam, b, view, hole, jiggle = 0, t = 0) {
     ctx.lineTo((top || ring || g).x, (top || ring || g).y);
     ctx.stroke();
   };
-  pole();
-  if (top) {
-    ctx.fillStyle = '#d35400';
-    const fl = Math.max(5, Math.min(9, 1.4 + g.d * 0.05) * g.s * ZS);
-    ctx.beginPath();
-    ctx.moveTo(top.x, top.y);
-    ctx.lineTo(top.x + fl * 1.5, top.y + fl * 0.5);
-    ctx.lineTo(top.x, top.y + fl);
-    ctx.closePath();
-    ctx.fill();
-  }
-  // the tray: a shallow dish with a bright lip, where a disc comes to rest
-  const lip = g.d < 700 ? ringAt(cam, view, x, y, TRAY_R, TRAY_H) : null;
-  const floor = lip ? ringAt(cam, view, x, y, TRAY_R * 0.82, TRAY_H - 0.35) : null;
-  if (lip && floor) {
-    // the underside first, so the dish has some body: the rim joined to the floor
-    ctx.fillStyle = '#23272e';
-    for (let i = 0; i < lip.length; i++) {
-      const j = (i + 1) % lip.length;
+  if (part === 'all' || part === 'base') {
+    pole();
+    if (top) {
+      ctx.fillStyle = '#d35400';
+      const fl = Math.max(5, Math.min(9, 1.4 + g.d * 0.05) * g.s * ZS);
       ctx.beginPath();
-      ctx.moveTo(lip[i].x, lip[i].y);
-      ctx.lineTo(lip[j].x, lip[j].y);
-      ctx.lineTo(floor[j].x, floor[j].y);
-      ctx.lineTo(floor[i].x, floor[i].y);
+      ctx.moveTo(top.x, top.y);
+      ctx.lineTo(top.x + fl * 1.5, top.y + fl * 0.5);
+      ctx.lineTo(top.x, top.y + fl);
       ctx.closePath();
       ctx.fill();
     }
-    fillRing(ctx, floor, '#14171c');
-    ctx.strokeStyle = '#c9ced6';
-    ctx.lineWidth = Math.max(1, 0.1 * g.s);
-    ctx.beginPath();
-    lip.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
-    ctx.closePath();
-    ctx.stroke();
-    pole(); // the pole stands in the middle of it
+    // the tray: a shallow dish with a bright lip, where a disc comes to rest
+    const lip = g.d < 700 ? ringAt(cam, view, x, y, TRAY_R, TRAY_H) : null;
+    const floor = lip ? ringAt(cam, view, x, y, TRAY_R * 0.82, TRAY_H - 0.35) : null;
+    if (lip && floor) {
+      ctx.fillStyle = '#23272e';
+      for (let i = 0; i < lip.length; i++) {
+        const j = (i + 1) % lip.length;
+        ctx.beginPath();
+        ctx.moveTo(lip[i].x, lip[i].y);
+        ctx.lineTo(lip[j].x, lip[j].y);
+        ctx.lineTo(floor[j].x, floor[j].y);
+        ctx.lineTo(floor[i].x, floor[i].y);
+        ctx.closePath();
+        ctx.fill();
+      }
+      fillRing(ctx, floor, '#14171c');
+      ctx.strokeStyle = '#c9ced6';
+      ctx.lineWidth = Math.max(1, 0.1 * g.s);
+      ctx.beginPath();
+      lip.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+      ctx.closePath();
+      ctx.stroke();
+      pole(); // the pole stands in the middle of it
+    }
   }
   if (!ring) return;
-  // the chains hang from the top band down to the tray's lip
-  if (g.d < 220) {
-    ctx.strokeStyle = 'rgba(210,214,206,0.75)';
+  // the chains hang from the top band down to the tray's lip; the far ones are drawn before the disc, the near ones after
+  if (near && part !== 'base') {
+    const cd = toCam(cam, b, x, y, 0)[2];
+    ctx.strokeStyle = 'rgba(210,214,206,0.78)';
     ctx.lineWidth = Math.max(0.8, 0.07 * g.s);
     for (let i = 0; i < 9; i++) {
       const a = (i / 9) * Math.PI * 2;
-      const up = project(cam, view, x + Math.cos(a) * 1.45, y + Math.sin(a) * 1.45, RING_H);
+      const bx = x + Math.cos(a) * 1.45;
+      const by = y + Math.sin(a) * 1.45;
+      const isNear = toCam(cam, b, bx, by, 0)[2] < cd; // this chain is on the camera's side of the middle
+      if ((part === 'front') !== isNear && part !== 'all') continue;
+      const up = project(cam, view, bx, by, RING_H);
       const sway = jiggle * 0.5 * Math.sin(t / 38 + i * 1.9); // the chains rattle when something has gone through
       const dn = project(cam, view, x + Math.cos(a) * TRAY_R * 0.92 + sway, y + Math.sin(a) * TRAY_R * 0.92 - sway * 0.6, TRAY_H + 0.1);
       if (!up || !dn) continue;
@@ -308,11 +319,13 @@ function drawBasket(ctx, cam, b, view, hole, jiggle = 0, t = 0) {
       ctx.stroke();
     }
   }
-  ctx.strokeStyle = '#d35400';
-  ctx.lineWidth = Math.max(1.5, 0.3 * g.s);
-  ctx.beginPath();
-  ctx.ellipse(ring.x, ring.y, Math.max(3, 1.6 * g.s), Math.max(1.2, 0.5 * g.s), 0, 0, Math.PI * 2);
-  ctx.stroke();
+  if (part === 'all' || part === 'front') {
+    ctx.strokeStyle = '#d35400';
+    ctx.lineWidth = Math.max(1.5, 0.3 * g.s);
+    ctx.beginPath();
+    ctx.ellipse(ring.x, ring.y, Math.max(3, 1.6 * g.s), Math.max(1.2, 0.5 * g.s), 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
 }
 
 function drawDisc(ctx, cam, view, p, color, t, dz = ZS) {
@@ -397,8 +410,11 @@ export function drawScene(ctx, scene) {
     const c = toCam(cam, b, tr.x, tr.y, 0);
     if (c[2] >= NEAR && c[2] <= FAR) things.push({ d: c[2], draw: () => drawTree(ctx, cam, b, view, tr) });
   }
-  things.push({ d: toCam(cam, b, hole.basket.x, hole.basket.y, 0)[2], draw: () => drawBasket(ctx, cam, b, view, hole, scene.chain || 0, t) });
-  things.push({ d: toCam(cam, b, disc.x, disc.y, 0)[2] - 0.5, draw: () => drawDisc(ctx, cam, view, disc, color, t, dz) });
+  const dB = toCam(cam, b, hole.basket.x, hole.basket.y, 0)[2];
+  things.push({ d: dB + 1.6, draw: () => drawBasket(ctx, cam, b, view, hole, scene.chain || 0, t, 'base') });
+  things.push({ d: dB + 1.4, draw: () => drawBasket(ctx, cam, b, view, hole, scene.chain || 0, t, 'back') });
+  things.push({ d: dB - 1.4, draw: () => drawBasket(ctx, cam, b, view, hole, scene.chain || 0, t, 'front') });
+  things.push({ d: toCam(cam, b, disc.x, disc.y, 0)[2], draw: () => drawDisc(ctx, cam, view, disc, color, t, dz) });
   things.sort((p, q) => q.d - p.d);
   for (const th of things) th.draw();
   ctx.restore();

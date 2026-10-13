@@ -3,9 +3,13 @@
    when it does not, a long run away when it takes a nasty roll). Nothing here decides anything. Pure functions plus a drawing
    routine, so a test can walk a script frame by frame. Feet and milliseconds; x east, y north, h up. */
 
-import { project, ZS, RING_H, TRAY_H } from './cam3d.js?v=7';
+import { project, ZS, RING_H, TRAY_H } from './cam3d.js?v=8';
 
 const RING_R = 1.45; // how far the top band is from the middle
+const CHAIN_R = 1.2; // the curtain of chains, about halfway down
+const HIT_H = 3.7; // where a disc meets it: under the top band, above the tray
+const LIP_R = 1.12; // the tray's lip, which a disc can run round
+const LIP_H = 3.0;
 const REST_H = TRAY_H - 0.12; // where a disc that has gone in sits: in the tray, about three feet up
 const TAU = Math.PI * 2;
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -44,34 +48,45 @@ export function puttScript({ from, basket, lie, result }) {
   const mark = (name) => { marks[name] = t; };
   const push = (seg) => { segs.push(seg); };
 
+  // A disc does not go through a hoop. It flies in from the side, meets the chains (a curtain about 1.2 feet out from the middle,
+  // between the top band and the tray), stops dead, and drops into the tray.
+  const E = onRim(a0, CHAIN_R);
+  const fall = (a, r0, h0, ms, phase = 'drop') => ({ ms, phase, f: (u) => { const q = onRim(a, lerp(r0, 0.1, easeOut(u))); return { ...q, h: lerp(h0, REST_H, easeIn(u)) + (u > 0.85 ? 0.16 * Math.sin(((u - 0.85) / 0.15) * Math.PI) : 0) }; } });
   if (finish === 'tapin') {
-    flightTo({ x: basket.x, y: basket.y }, 3.8);
+    flightTo(E, HIT_H);
     t += flightMs; mark('dropAt');
-    push({ ms: 320, phase: 'drop', f: (u) => ({ x: basket.x, y: basket.y, h: lerp(3.8, REST_H, easeIn(u)) }) });
+    push({ ms: 110, phase: 'chains', f: (u) => ({ ...onRim(a0, lerp(CHAIN_R, 0.55, easeOut(u))), h: lerp(HIT_H, HIT_H - 0.1, u) }) });
+    t += 110;
+    push(fall(a0, 0.55, HIT_H - 0.1, 320));
     t += 320;
-  } else if (made && finish === 'swish') {
-    flightTo({ x: basket.x, y: basket.y }, RING_H + 0.2);
+  } else if (made && finish === 'swish') { // straight in: the chains stop it, and it drops
+    flightTo(E, HIT_H);
     t += flightMs; mark('dropAt');
-    push({ ms: 420, phase: 'drop', f: (u) => ({ x: basket.x, y: basket.y, h: lerp(RING_H, REST_H, easeIn(u)) + 0.25 * Math.sin(u * Math.PI * 2) * (1 - u) }) });
-    t += 420;
-  } else if (made) { // a rattle: it clips the cage, bounces round the rim, and drops
-    const e = onRim(a0, RING_R * 0.9);
-    flightTo(e, RING_H);
-    t += flightMs; mark('rimAt');
-    push({ ms: 420, phase: 'rattle', f: (u) => { const a = a0 + rimSide * easeOut(u) * TAU * 0.4; const r = lerp(RING_R * 0.9, 0.7, u); const q = onRim(a, r); return { ...q, h: RING_H - 0.9 * u + 0.5 * Math.sin(u * Math.PI * 3) * (1 - u) }; } });
-    t += 420; mark('dropAt');
-    push({ ms: 380, phase: 'drop', f: (u) => { const a = a0 + rimSide * TAU * 0.4; const q = onRim(a, 0.7); return { x: lerp(q.x, basket.x, u), y: lerp(q.y, basket.y, u), h: lerp(RING_H - 0.9, REST_H, easeIn(u)) }; } });
-    t += 380;
-  } else if (result.rim) { // a lap of the rim, and out
-    const e = onRim(a0);
-    flightTo(e, RING_H);
+    push({ ms: 170, phase: 'chains', f: (u) => ({ ...onRim(a0, lerp(CHAIN_R, 0.5, easeOut(u))), h: lerp(HIT_H, HIT_H - 0.15, u) }) });
+    t += 170;
+    push(fall(a0, 0.5, HIT_H - 0.15, 440));
+    t += 440;
+  } else if (made) { // a rattle: it hits the chains, kicks back out and sideways, comes in again, and drops
+    const a1 = a0 + rimSide * 0.7;
+    flightTo(E, HIT_H);
+    t += flightMs; mark('dropAt');
+    push({ ms: 150, phase: 'chains', f: (u) => ({ ...onRim(a0, lerp(CHAIN_R, 0.9, easeOut(u))), h: lerp(HIT_H, 3.55, u) }) });
+    t += 150;
+    push({ ms: 300, phase: 'rattle', f: (u) => ({ ...onRim(a0 + rimSide * 0.7 * easeOut(u), lerp(0.9, 0.8, u) + 0.28 * Math.sin(Math.PI * u)), h: lerp(3.55, 3.35, u) + 0.12 * Math.sin(Math.PI * u * 3) * (1 - u) }) });
+    t += 300;
+    push({ ms: 140, phase: 'chains', f: (u) => ({ ...onRim(a1, lerp(0.8, 0.45, easeOut(u))), h: 3.35 - 0.05 * u }) });
+    t += 140;
+    push(fall(a1, 0.45, 3.3, 440));
+    t += 440;
+  } else if (result.rim) { // it clips the chains and runs round the lip of the tray, and out
+    flightTo(onRim(a0, 1.25), 3.4);
     t += flightMs; mark('rimAt');
     const lapMs = 1500;
     const turn = rimSide * TAU * 1.3;
-    push({ ms: lapMs, phase: 'rim', f: (u) => { const q = onRim(a0 + turn * easeOut(u)); return { ...q, h: lerp(RING_H, 3.7, u) + 0.12 * Math.sin(u * Math.PI * 9) * (1 - u) }; } });
+    push({ ms: lapMs, phase: 'rim', f: (u) => ({ ...onRim(a0 + turn * easeOut(u), lerp(1.25, LIP_R, easeOut(Math.min(1, u * 4)))), h: lerp(3.4, LIP_H + 0.05, u) + 0.1 * Math.sin(u * Math.PI * 9) * (1 - u) }) });
     t += lapMs; mark('spitAt');
-    const exit = onRim(a0 + turn);
-    push({ ms: 520, phase: 'spit', f: (u) => ({ x: lerp(exit.x, touchdown.x, u), y: lerp(exit.y, touchdown.y, u), h: lerp(3.7, 0, u) + 2.4 * 4 * u * (1 - u) }) });
+    const exit = onRim(a0 + turn, LIP_R);
+    push({ ms: 520, phase: 'spit', f: (u) => ({ x: lerp(exit.x, touchdown.x, u), y: lerp(exit.y, touchdown.y, u), h: lerp(LIP_H + 0.05, 0, u) + 2.0 * 4 * u * (1 - u) }) });
     t += 520; mark('landAt');
   } else { // a miss: it lands, hops, and sits (or runs)
     flightTo(touchdown, 0);
@@ -231,4 +246,4 @@ export function drawPuttFx(ctx, scene, script, ms, result) {
   return camTweak;
 }
 
-export { RING_H, RING_R, REST_H, ZS };
+export { RING_H, RING_R, LIP_R, LIP_H, REST_H, ZS };

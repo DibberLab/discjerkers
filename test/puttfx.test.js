@@ -89,7 +89,7 @@ test('the film of a putt: continuous, the right length, and it ends where the ru
   const lap = [];
   for (let ms = rs.marks.rimAt + 100; ms < rs.marks.spitAt - 100; ms += 50) lap.push(rs.at(ms));
   assert.ok(lap.length > 20, 'a long lap');
-  assert.ok(lap.every((p) => Math.abs(Math.hypot(p.x - basket.x, p.y - basket.y) - F.RING_R) < 0.05 && p.h > 3.5 && p.h < 4.6), 'round the rim, at the cage');
+  assert.ok(lap.every((p) => Math.abs(Math.hypot(p.x - basket.x, p.y - basket.y) - F.LIP_R) < 0.2 && p.h > 2.9 && p.h < 3.6), 'round the lip of the tray');
   assert.ok(rs.marks.spitAt - rs.marks.rimAt > 1200, 'slowly');
   // a nasty roll has a run along the ground
   const ns = F.puttScript({ from, basket, lie: cases.nasty.lie, result: cases.nasty });
