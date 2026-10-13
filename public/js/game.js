@@ -5,7 +5,7 @@
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=2';
-import * as G from './gamecore.js?v=11';
+import * as G from './gamecore.js?v=12';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -301,10 +301,14 @@ function centeredBar(w, left, right) {
 const METER_STAGES = ['power', 'spin', 'angle', 'release'];
 
 // a bar with a marker that sweeps; power, spin and angle read out the value under the marker as it goes
+function sweetMarkup(kind) {
+  return (S.meter.sweet?.[kind] || []).map((b) => `<i class="gm-zone gm-zone--sweet" style="left:${b.from * 100}%;width:${Math.max(b.to - b.from, 0.008) * 100}%"></i>`).join('');
+}
+
 function valueBar(kind, left, right, tick) {
   const hard = kind === 'power' ? `<i class="gm-hard" style="left:${G.POWER_KNEE * 100}%"></i>` : ''; // the fast end of the power bar
   return `<output class="gm-read" id="gm-read" aria-live="off"><b>&nbsp;</b></output>
-    <div class="gm-bar" id="gm-bar">${hard}${tick == null ? '' : `<i class="gm-tick" style="left:${tick * 100}%"></i>`}<b class="gm-mark" id="gm-mark" style="left:0%"></b></div>
+    <div class="gm-bar" id="gm-bar">${sweetMarkup(kind)}${hard}${tick == null ? '' : `<i class="gm-tick" style="left:${tick * 100}%"></i>`}<b class="gm-mark" id="gm-mark" style="left:0%"></b></div>
     <div class="gm-ends"><span>${left}</span><span>${right}</span></div>`;
 }
 
@@ -328,9 +332,9 @@ function panelMeter() {
   const risk = kind === 'release' && d ? Math.round(G.slipChance(d, S.settings) * 100) : 0;
   const title = kind === 'putt' ? 'Putt' : `<span>${n} ·</span> ${names[kind]}`;
   const hints = {
-    power: 'Tap to set your arm speed: where the marker stops is how hard you throw. Harder is farther, but the marker speeds up toward the hatched end, and fast arms are harder to time on the release.',
-    spin: 'Tap to set the spin. The tick is the usual spin for your arm speed; more holds the line, less lets it turn over.',
-    angle: 'Tap to set the release angle. The middle is flat; right tips it onto hyzer, left onto anhyzer.',
+    power: 'Tap to set your arm speed. The lime band is the sweet spot: the speeds that put this disc closest to the basket from here. Past the hatched end the marker flies, and fast arms are harder to time.',
+    spin: 'Tap to set the spin. The lime band is the sweet spot for the speed you chose; the white tick is the usual spin. More spin holds the line, less lets it turn over.',
+    angle: 'Tap to set the release angle. The lime band is the sweet spot for your speed and spin. The middle is flat; right tips it onto hyzer, left onto anhyzer.',
     release: releaseHint(risk),
     putt: `Tap when the dot is inside the green circle. It never takes the same path twice, and a miss goes the way the dot was. ${d ? esc(d.name) : ''}, ${ft(toBasket())}.`,
   };
@@ -489,9 +493,18 @@ function startMeter() {
     setPhase('putt');
   } else {
     // four taps: power, spin and angle each choose a value of the throw, then the release is graded
-    S.meter = { kind: 'power', start: now(), mph: null, rel: null };
+    S.meter = { kind: 'power', start: now(), mph: null, rel: null, sweet: {} };
+    sweetFor('power');
     setPhase('power');
   }
+}
+
+// where a bar's sweet spot is, given what the earlier bars set: worked out as a bar begins, then drawn on it
+function sweetFor(stage) {
+  const d = curDisc();
+  if (!d || !S.meter) return;
+  const base = { hand: S.settings.hand, style: S.settings.style, mph: S.settings.mph, spin: S.settings.spin, angle: 0 };
+  S.meter.sweet[stage] = G.sweetBands(G.sweetSpots(S.hole, d, base, heading(), lieOf(), stage));
 }
 
 function tap() {
@@ -503,10 +516,12 @@ function tap() {
     m.mph = G.mphAt(G.powerAt(t));
     S.settings.mph = m.mph;
     m.rel = G.releaseSetup(m.mph);
+    sweetFor('spin');
     next('spin');
     toast(`${m.mph} mph`, '', 900);
   } else if (S.phase === 'spin') {
     S.settings.spin = G.spinAt(G.needleAt(t, G.METER.spin.period) / 2 + 0.5);
+    sweetFor('angle');
     next('angle');
     toast(`${S.settings.spin} rpm`, '', 900);
   } else if (S.phase === 'angle') {

@@ -104,7 +104,8 @@
 }
 .gm-zone { position: absolute; top: 0; bottom: 0; background: rgba(163, 230, 53, 0.28); border-inline: 2px solid var(--lime); }
 .gm-hard { position: absolute; top: 0; bottom: 0; right: 0; background: repeating-linear-gradient(135deg, rgba(211, 84, 0, 0.35) 0 6px, rgba(211, 84, 0, 0.12) 6px 12px); }
-.gm-tick { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--lime); opacity: 0.8; }
+.gm-tick { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--bone); opacity: 0.55; z-index: 1; }
+.gm-zone--sweet { background: rgba(163, 230, 53, 0.24); border-inline-width: 1px; }
 .gm-read { display: flex; justify-content: center; align-items: baseline; gap: 10px; height: 1.9rem; white-space: nowrap; overflow: hidden; color: var(--lime); }
 .gm-read b { flex: none; font: 400 1.7rem/1 var(--display); letter-spacing: 0.04em; text-transform: uppercase; }
 .gm-read small { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 0.62rem var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--bone-dim); }

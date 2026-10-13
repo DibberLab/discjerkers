@@ -490,3 +490,39 @@ test('the aim preview: a typical throw and a band either side of it', async () =
   const lefty = G.previewThrow(hole, DRIVER, { ...RIGHT, hand: 'left' }, 0, { x: 0, y: 0 });
   assert.notStrictEqual(Math.round(lefty.end.x), Math.round(pv.end.x), 'a left-hander finishes the other way');
 });
+
+test('the sweet spots: each bar shows where to stop to get closest to the basket, given the bars before it', async () => {
+  const G = await load();
+  const hole = await field({ basket: { x: 0, y: 330 } });
+  const from = { x: 0, y: 0 };
+  const base = { hand: 'right', style: 'backhand', mph: null, spin: null, angle: 0 };
+  const power = G.sweetSpots(hole, DRIVER, base, 0, from, 'power');
+  const okMph = power.values.filter((_, i) => power.ok[i]);
+  assert.ok(okMph.length > 0 && okMph.length < power.values.length / 2, 'a stretch of speeds, not all of them');
+  assert.ok(!okMph.includes(10) && !okMph.includes(90), 'neither a limp throw nor a full send reaches a basket 330 ft out');
+  assert.ok(power.best < 60, 'some arm speed gets within a putt of it');
+  const bands = G.sweetBands(power);
+  assert.ok(bands.length >= 1 && bands.every((b) => b.from >= 0 && b.to <= 1 && b.to > b.from));
+  // the bar position round-trips with what the bar reads
+  for (const mph of [10, 30, 50, 62, 78, 90]) assert.strictEqual(G.mphAt(G.powerPos(mph)), mph);
+
+  // later bars narrow it: with the arm speed chosen, the spin band depends on that speed
+  const mph = okMph[Math.floor(okMph.length / 2)];
+  const spin = G.sweetSpots(hole, DRIVER, { ...base, mph }, 0, from, 'spin');
+  assert.ok(spin.ok.some(Boolean) && spin.best <= power.best + 20);
+  const tooSoft = G.sweetSpots(hole, DRIVER, { ...base, mph: 30 }, 0, from, 'spin');
+  assert.ok(tooSoft.best > spin.best + 50, 'a speed that is wrong for the distance has no good spin');
+
+  // the angle bar: with speed and spin chosen, the best angle is a real one and the flat throw's miss shows up
+  const angle = G.sweetSpots(hole, DRIVER, { ...base, mph, spin: 900 }, 0, from, 'angle');
+  assert.strictEqual(angle.values.length, 13);
+  assert.ok(angle.ok.some(Boolean));
+  const ab = G.sweetBands(angle);
+  assert.ok(ab.every((b) => b.from >= 0 && b.to <= 1));
+
+  // on a hole too long to reach, the sweet spot is the fastest arm: as close as it gets
+  const far = await field({ basket: { x: 0, y: 900 } });
+  const farSweet = G.sweetSpots(far, DRIVER, base, 0, from, 'power');
+  assert.ok(farSweet.ok[farSweet.ok.length - 1], 'full speed is as close as you can get');
+  assert.ok(!farSweet.ok[0]);
+});

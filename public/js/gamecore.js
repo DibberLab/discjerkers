@@ -146,6 +146,58 @@ export function sanitizeExecution(raw = {}) {
 
 const PERFECT = { o: 0, pure: false, sloppy: 0, grade: 'Preview' };
 
+/* ---------- the sweet spots ---------- */
+
+// Each bar can show where its sweet spot is: the settings that put the disc closest to the basket from here, given the
+// aim and whatever the earlier bars already set. Power looks at every arm speed (with the usual spin, and the best angle
+// for each); spin looks at every spin at the arm speed you chose; angle looks at every angle at that speed and spin.
+// A value is in the sweet spot when it lands within SWEET_SLACK feet of the best landing there is, so on a long hole it
+// is "as close as this disc can get" and near the basket it is "a putt you can make". Trees and water count: it plays
+// each candidate through resolveThrow with a clean release.
+export const SWEET_SLACK = 20;
+const SWEET_RELEASE = { o: 0, pure: false, sloppy: 0, grade: 'Sweet' };
+export const ANGLES = Array.from({ length: ANGLE_MAX * 2 + 1 }, (_, i) => i - ANGLE_MAX);
+export function sweetSpots(hole, disc, base, aimDeg, from, stage) {
+  const away = (t) => distance(resolveThrow(hole, disc, t, aimDeg, SWEET_RELEASE, from).lie, hole.basket);
+  const bestAngle = (t) => Math.min(...ANGLES.filter((a) => a % 2 === 0).map((angle) => away({ ...t, angle }))); // every other angle: it is a guide, and this runs as a bar begins
+  let values;
+  let dist;
+  if (stage === 'power') {
+    values = Array.from({ length: (ARM.max - ARM.min) / ARM.step + 1 }, (_, i) => ARM.min + i * ARM.step);
+    dist = values.map((mph) => bestAngle({ ...base, mph, spin: null }));
+  } else if (stage === 'spin') {
+    values = Array.from({ length: (SPIN.max - SPIN.min) / SPIN.step + 1 }, (_, i) => SPIN.min + i * SPIN.step);
+    dist = values.map((spin) => bestAngle({ ...base, spin }));
+  } else {
+    values = ANGLES;
+    dist = values.map((angle) => away({ ...base, angle }));
+  }
+  const best = Math.min(...dist);
+  return { stage, values, dist, best, ok: dist.map((d) => d <= best + SWEET_SLACK) };
+}
+// where a value sits on its bar (0..1): the inverse of what each bar reads
+export function powerPos(mph) {
+  if (mph <= POWER_KNEE_MPH) return POWER_KNEE * clamp((mph - ARM.min) / (POWER_KNEE_MPH - ARM.min), 0, 1);
+  return POWER_KNEE + (1 - POWER_KNEE) * clamp((mph - POWER_KNEE_MPH) / (ARM.max - POWER_KNEE_MPH), 0, 1) ** (1 / POWER_CURVE);
+}
+export const spinBarPos = (rpm) => clamp((rpm - SPIN.min) / (SPIN.max - SPIN.min), 0, 1);
+export const angleBarPos = (a) => clamp((a / ANGLE_MAX + 1) / 2, 0, 1);
+// the runs of sweet values as stretches of their bar: [{ from, to }] in 0..1 (each value owns half a step either side)
+export function sweetBands(sweet) {
+  const { stage, values, ok } = sweet;
+  const half = stage === 'power' ? ARM.step / 2 : stage === 'spin' ? SPIN.step / 2 : 0.5;
+  const pos = stage === 'power' ? powerPos : stage === 'spin' ? spinBarPos : angleBarPos;
+  const bands = [];
+  for (let i = 0; i < values.length; i++) {
+    if (!ok[i]) continue;
+    const from = pos(values[i] - half);
+    const to = pos(values[i] + half);
+    const last = bands.at(-1);
+    if (last && ok[i - 1]) last.to = to; else bands.push({ from, to });
+  }
+  return bands;
+}
+
 /* ---------- the aim preview ---------- */
 
 // The arm speed a typical player throws this disc at: the slowest arm that gets it fully up to speed (30 mph and up).

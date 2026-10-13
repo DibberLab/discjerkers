@@ -112,6 +112,10 @@ that way; don't introduce React/Vite/Tailwind here.
   a putt is one tap on a swirling circular green (the dot's path is seeded and never repeats, and a miss goes the way
   the dot was). Only the release is a skill test (`sanitizeExecution` is what a server accepts back for it); the other
   three are choices, and `sanitizeSettings` range-checks them.
+- The power, spin and angle bars each show a **sweet spot** (`sweetSpots`/`sweetBands` in `gamecore.js`): the values that
+  land within 20 ft of the best landing there is, from here, for the aim and the bars already set (power assumes the best
+  angle and the usual spin). It plays candidates through `resolveThrow`, so trees and water count. It is only a guide
+  drawn on the bar: nothing about it is sent to or trusted by the server.
 - A slow arm can slip (`slipChance`/`rollSlip`/`applySlip` in `gamecore.js`): below 66 mph (Intermediate Plus) there is a
   growing chance of a **grip lock** (short, hooks to the fade side) or an **early release** (flat, to the turn side);
   more for fast discs, odd spin, extreme angles. The core never rolls: solo rolls in the browser, and in a match the
