@@ -209,6 +209,32 @@ test('a hole ends when both are done: cards, then the next hole, honor to the be
   if (a !== b) assert.strictEqual(m.round.turn, a < b ? 'u1' : 'u2', 'the best score throws first');
 });
 
+test('a match can be played on the second course: it starts on hole 101, plays through, and a bad course is turned away', async () => {
+  const gp = await gameplay();
+  const store = createMatchStore(tmp('matches.json'));
+  const made = store.create(ANA, { gp, holes: 9, course: 2, invite: null, bag: null });
+  assert.strictEqual(made.course, 2);
+  assert.strictEqual(store.create(ANA, { gp, holes: 9, invite: null, bag: null }).course, 1, 'no course picked: the first');
+  assert.throws(() => store.create(ANA, { gp, holes: 9, course: 3, invite: null, bag: null }), /course/i);
+  const started = begin(store, gp, made.id);
+  assert.strictEqual(started.round.holeId, 101, 'the second course starts on its first hole');
+  const users = { u1: ANA, u2: BEN };
+  const seen = new Set([101]);
+  let guard = 0;
+  while (store.get(made.id).status === 'active' && guard++ < 900) {
+    const m = store.get(made.id);
+    seen.add(m.round.holeId);
+    const who = m.round.turn;
+    const mv = plan(gp, store.view(m, who), who);
+    store.move(users[who], made.id, mv.kind, mv.body, gp);
+  }
+  const m = store.get(made.id);
+  assert.strictEqual(m.status, 'done');
+  assert.deepStrictEqual([...seen].sort((x, y) => x - y), Array.from({ length: 9 }, (_, i) => 101 + i), 'the nine holes of Quarry Ridge, in order');
+  assert.strictEqual(m.cards.u1.length, 9);
+  assert.strictEqual(store.view(m, 'u1').course, 2);
+});
+
 test('a whole nine-hole match plays out to a winner', async () => {
   const { gp, store, id } = await seated(9);
   begin(store, gp, id);

@@ -386,6 +386,38 @@ test('technical holes: trees reach into the fairway on alternating sides, basket
   assert.ok(sheds.length >= 8, `greens that run a miss off (raised, or dropping away behind): ${sheds.length}`);
 });
 
+test('Quarry Ridge: a second eighteen, each hole laid out sensibly and numbered 1 to 18 on the card', async () => {
+  const G = await load();
+  assert.strictEqual(G.HOLES2.length, 18);
+  assert.deepStrictEqual(G.HOLES2.map((h) => h.id), Array.from({ length: 18 }, (_, i) => 101 + i), 'ids 101 to 118');
+  assert.deepStrictEqual(G.HOLES2.map((h) => h.n), Array.from({ length: 18 }, (_, i) => i + 1));
+  assert.deepStrictEqual(G.HOLES.map((h) => h.n), Array.from({ length: 18 }, (_, i) => i + 1));
+  assert.ok(G.HOLES2.every((h) => h.course === 2) && G.HOLES.every((h) => h.course === 1));
+  const names = [...G.HOLES, ...G.HOLES2].map((h) => h.name);
+  assert.strictEqual(new Set(names).size, 36, 'every hole on both courses has its own name');
+  const par = G.HOLES2.reduce((n, h) => n + h.par, 0);
+  assert.ok(par >= 62 && par <= 76, `a believable par: ${par}`);
+  assert.ok([3, 4, 5].every((p) => G.HOLES2.filter((h) => h.par === p).length >= 3), 'a mix of par 3, 4 and 5');
+  for (const h of G.HOLES2) {
+    assert.strictEqual(G.surfaceAt(h, h.tee.x, h.tee.y), 'tee', `${h.id}: the tee is a tee`);
+    assert.strictEqual(G.surfaceAt(h, h.basket.x, h.basket.y), 'fairway', `${h.id}: the basket is on grass`);
+    assert.ok(G.distance(h.tee, h.basket) > 150 && G.distance(h.tee, h.basket) < 700, `${h.id}: length`);
+    for (const t of h.trees) {
+      assert.notStrictEqual(G.surfaceAt(h, t.x, t.y), 'water', `${h.id}: a tree in the water at ${t.x},${t.y}`);
+      assert.ok(Math.hypot(t.x - h.tee.x, t.y - h.tee.y) > t.r + 8 && Math.hypot(t.x - h.basket.x, t.y - h.basket.y) > t.r + 6, `${h.id}: a tree on the tee or basket`);
+    }
+  }
+  assert.strictEqual(G.holeById(105).name, 'Spillway');
+  assert.strictEqual(G.holeById(5).name, 'Water Carry');
+  assert.strictEqual(G.holesFor(18, 2).length, 18);
+  assert.strictEqual(G.holesFor(9, 2)[0].id, 101);
+  assert.deepStrictEqual(G.holesFor(3, 2).map((h) => h.id), [101, 102, 105]);
+  assert.strictEqual(G.holesFor(9)[0].id, 1, 'the first course is the default');
+  assert.strictEqual(G.courseById(2).name, 'Quarry Ridge');
+  assert.strictEqual(G.courseById(99).id, 1, 'an unknown course is the first');
+  assert.strictEqual(G.COURSES.length, 2);
+});
+
 test('every hole can be played: a careful player with a clean meter makes par or better', async () => {
   const G = await load();
   const FW = { id: 2, speed: 9, glide: 5, turn: -2, fade: 2 };
@@ -429,7 +461,7 @@ test('every hole can be played: a careful player with a clean meter makes par or
     }
     return strokes;
   };
-  for (const hole of G.HOLES) {
+  for (const hole of [...G.HOLES, ...G.HOLES2]) {
     let strokes = Infinity;
     for (const grain of [8, 4, 6, 3, 5]) {
       strokes = Math.min(strokes, play(hole, grain));
@@ -443,7 +475,7 @@ test('the woods are solid: you cannot just throw any way from the tee, the fairw
   const G = await load();
   let off = 0;
   let through = 0;
-  for (const hole of G.HOLES) {
+  for (const hole of [...G.HOLES, ...G.HOLES2]) {
     const first = G.headingTo(hole.tee, G.routeAhead(hole, hole.tee.x, hole.tee.y, 150)); // down the hole
     for (let aim = 0; aim < 360; aim += 6) {
       const away = Math.abs(((aim - first + 540) % 360) - 180);
@@ -763,7 +795,7 @@ test('hills: a ridge in the way stops the disc short, and a tree on a hill is hi
 test('hills: every hole of the course has relief, and none is a cliff you cannot play', async () => {
   const G = await load();
   let steep = 0;
-  for (const h of G.HOLES) {
+  for (const h of [...G.HOLES, ...G.HOLES2]) {
     assert.ok(h.field, `${h.id}: has ground`);
     const along = h.route.pts.map(([x, y]) => G.elevAt(h, x, y));
     const spread = Math.max(...along) - Math.min(...along);

@@ -511,6 +511,25 @@ const GROUNDS = {
   16: { rise: [[130, -6], [200, -8], [290, 4], [400, 9]], bowl: 0.08, mounds: [{ s: 430, o: 0, r: 22, h: -5 }] }, // a valley, then up to a green with nothing behind it
   17: { rise: [[110, 6], [225, 14]], bowl: 0.14 }, // the den is on the hill
   18: { rise: [[120, -8], [262, -14], [380, -6], [483, 4]], bowl: 0.08, mounds: [{ s: 483, o: 0, r: 30, h: 4.5 }] }, // down into the valley and home up the far side to a raised green
+  // ---- Quarry Ridge (the second course)
+  101: { rise: [[100, -4], [220, 3], [330, -2], [400, 0]], bowl: 0.06, mounds: [{ s: 430, o: 0, r: 22, h: -4 }] }, // a rolling meadow
+  102: { rise: [[60, -8], [130, -16], [240, -14]], bowl: 0.1, mounds: [{ s: 240, o: 0, r: 30, h: 4 }] }, // off a ledge, down into the pit
+  103: { rise: [[130, 3], [270, -3], [400, 2]], bowl: 0.05 }, // a swale between the hedgerows
+  104: { rise: [[150, -6], [340, -10], [520, 4], [650, 8]], bowl: 0.07 }, // down to the creek and up the ridge
+  105: { rise: [[40, -5], [110, -11], [230, -9]], bowl: 0.08 }, // a tee on the spillway wall
+  106: { rise: [[100, 2], [250, 5], [400, 0]], bowl: 0.12 },
+  107: { rise: [[70, -14], [200, -12], [320, -4], [410, 2]], bowl: 0.06, shelves: [{ side: 1, off: 44, drop: 26, width: 26, from: 30, to: 400 }] }, // the overlook: a high tee and a drop on the right
+  108: { rise: [[170, -4], [330, -8], [470, -2], [600, 4]], bowl: 0.06, mounds: [{ s: 610, o: 0, r: 30, h: 4 }] },
+  109: { rise: [[100, 3], [180, -3], [260, 0]], bowl: 0.03, mounds: [{ s: 260, o: 0, r: 30, h: 4.5 }] }, // open meadow, a raised green
+  110: { rise: [[100, 2], [250, -3], [410, 3]], bowl: 0.05 },
+  111: { rise: [[120, 10], [190, 18], [260, 8], [400, -6]], bowl: 0.06, mounds: [{ s: 430, o: 0, r: 22, h: -5 }] }, // a blind crest, and down the far side
+  112: { rise: [[110, 2], [240, 6], [380, 3]], bowl: 0.1 },
+  113: { rise: [[60, -3], [150, -6], [290, -2]], bowl: 0.06 },
+  114: { rise: [[160, 6], [300, 14], [460, 20], [600, 22]], bowl: 0.06, mounds: [{ s: 600, o: 0, r: 30, h: 4 }] }, // all the way up the ridge
+  115: { rise: [[100, -3], [220, -6], [330, -4], [420, 0]], bowl: 0.05 }, // low and wet
+  116: { rise: [[50, 8], [130, 12], [220, 8]], bowl: 0.05, shelves: [{ side: 1, off: 26, drop: 26, width: 26, from: 20, to: 230 }, { side: -1, off: 26, drop: 26, width: 26, from: 20, to: 230 }] }, // a ridge with a drop on both sides
+  117: { rise: [[130, 3], [260, 6], [400, 2]], bowl: 0.04 },
+  118: { rise: [[120, -6], [300, -12], [440, -4], [560, 6]], bowl: 0.07, mounds: [{ s: 560, o: 0, r: 30, h: 4.5 }] },
 };
 
 /* ---------- the eighteen ---------- */
@@ -597,7 +616,87 @@ const HOLE_SPECS = [
 
 // Holes 1-9 are the front nine, 10-18 the back; a nine-hole round is the front nine.
 export const HOLES = HOLE_SPECS.map(build);
-export const holeById = (id) => HOLES.find((h) => h.id === id);
+
+/* ---------- the second course: Quarry Ridge ---------- */
+// Ids 101-118 (a hole's id is its name everywhere: the ground, the day's conditions, the match), numbered 1-18 on the card (`hole.n`).
+// An old limestone quarry and the ridge meadows above it: bigger drops, pits of water, open meadow and tight alleys, and the technical
+// features (staggered trees, guarded and raised greens) throughout.
+const HOLE_SPECS2 = [
+  // 101: a wide meadow to open, a lone tree, a pit pond by the green
+  { id: 101, note: "A wide meadow to start. One lone tree in the fairway, a small pit pond right of the basket, and the ground drops away behind it.", name: 'Quarry Gate', par: 4, path: trail(20, 38, [[150, 0, 38], [130, 18, 34], [120, -8, 30]]), wind: { mph: 5, from: 250 },
+    woods: [{ side: -1, dense: 0.45 }, { side: 1, dense: 0.45 }], trees: [[170, 14, 4.6, 62]], shrubs: [[200, -38], [212, -42]], ponds: [{ s: 330, o: 52, rx: 22, ry: 28 }], front: 2 },
+  // 102: off the ledge, down into the pit: a pond short and left, a guard tree right
+  { id: 102, note: "Off the ledge and down into the pit. The pond is short and left, a tree guards the right, and the green is raised.", name: 'Limestone Steps', par: 3, path: trail(-30, 26, [[130, 6, 26], [110, -4, 24]]), wind: { mph: 8, from: 100 },
+    woods: [{ side: -1, dense: 0.6 }, { side: 1, dense: 0.6 }], ponds: [{ s: 150, o: -34, rx: 30, ry: 36 }], guards: [{ side: 1, back: 48, off: 14, n: 1 }], front: 1 },
+  // 103: two hedgerows across the meadow, the gaps on opposite sides: an S through the gates
+  { id: 103, note: "Two hedgerows cross the meadow. The first gate is on the left, the second on the right: a left-to-right S.", name: 'Hedgerow', par: 4, path: trail(60, 40, [[140, 0, 40], [140, -10, 36], [120, 12, 32]]), wind: { mph: 9, from: 300 },
+    woods: [{ side: -1, dense: 0.3 }, { side: 1, dense: 0.3 }], walls: [{ s: 130, from: -80, to: 80, gaps: [[-40, -14]], h: [60, 80] }, { s: 270, from: -80, to: 80, gaps: [[16, 44]], h: [60, 80] }], shrubs: [[330, 18], [340, -20]], front: 2 },
+  // 104: the long one: a cliff left, a creek with a dry ford, then trees reaching in
+  { id: 104, note: "The long hole. A drop on the left, a creek with one dry ford, and past it trees that reach in from both sides.", name: 'The Long Haul', par: 5, path: trail(-10, 36, [[180, 0, 36], [170, 14, 34], [160, -18, 32], [150, 10, 30]]), wind: { mph: 11, from: 20 },
+    woods: [{ side: 1, dense: 0.5 }, { side: -1, dense: 0.5, from: 200 }], creeks: [{ s: 340, w: 22, gap: [-30, -6] }], oob: [{ s0: 40, s1: 200, o0: -70, o1: -44 }],
+    staggers: [{ s0: 430, s1: 560, every: 65, reach: 0.4, sides: [1, -1] }], guards: [{ side: 1, back: 60, off: 14, n: 2 }], groves: [{ s: 260, o: 30, n: 5, spread: 16 }], front: 1 },
+  // 105: carry the spillway or bend it round the right
+  { id: 105, note: "A tee on the spillway wall. Carry the water, or bend it out round the right; a tree guards the left of the basket.", name: 'Spillway', par: 3, path: trail(-5, 28, [[110, 0, 28], [120, 30, 24]]), wind: { mph: 7, from: 160 },
+    woods: [{ side: -1, dense: 0.4 }, { side: 1, dense: 0.4 }], ponds: [{ s: 160, o: -30, rx: 44, ry: 40 }], guards: [{ side: -1, back: 40, off: 12, n: 1 }], front: 1 },
+  // 106: a birch alley: trees reach in from alternating sides
+  { id: 106, note: "A birch alley. The trees reach in from the left, then the right, then the left: shape every throw.", name: 'Birch Alley', par: 4, path: trail(10, 22, [[130, 0, 22], [150, 8, 20], [120, -12, 20]]), wind: { mph: 3, from: 270 },
+    woods: [{ side: -1, dense: 0.95, rows: 2, d: 5 }, { side: 1, dense: 0.95, rows: 2, d: 5 }], staggers: [{ s0: 80, s1: 320, every: 60, reach: 0.38, sides: [1, -1] }], guards: [{ side: -1, back: 50, off: 10, n: 1 }], front: 1 },
+  // 107: the overlook: a high tee, a long drop on the right
+  { id: 107, note: "The overlook: a high tee, and the drop on the right is out of bounds. The wind pushes you toward it.", name: 'Overlook', par: 4, path: trail(-50, 34, [[110, 0, 34], [150, -16, 32], [150, 10, 28]]), wind: { mph: 12, from: 80 },
+    woods: [{ side: -1, dense: 0.7, rows: 2 }], oob: [{ s0: 30, s1: 400, o0: 48, o1: 160 }], shrubs: [[230, 36]], trees: [[250, -8, 4.4, 62]], guards: [{ side: -1, back: 56, off: 14, n: 1 }] },
+  // 108: a double dogleg with a pond on each inside corner: bite them off or play the long way
+  { id: 108, note: "An S with a pond on the inside of each corner. Bite them off over the water, or play the long way round the outside.", name: 'Dogleg Dam', par: 5, path: trail(0, 34, [[180, 0, 34], [150, 48, 30], [170, -70, 30], [110, 30, 28]]), wind: { mph: 9, from: 140 },
+    woods: [{ side: -1, dense: 0.6 }, { side: 1, dense: 0.6 }], ponds: [{ s: 222, o: 50, rx: 40, ry: 46 }, { s: 385, o: -52, rx: 44, ry: 48 }], guards: [{ side: 1, back: 58, off: 15, n: 2 }], front: 1 },
+  // 109: open meadow into the wind: groves to play round and a raised green
+  { id: 109, note: "Open meadow in a stiff wind. Play round the groves; the green is raised and a tree guards its right.", name: 'Meadow Run', par: 3, path: trail(70, 46, [[260, 6, 44]]), wind: { mph: 14, from: 250 },
+    woods: [{ side: -1, d: 22, dense: 0.35 }, { side: 1, d: 22, dense: 0.35 }], groves: [{ s: 120, o: -30, n: 6, spread: 18 }, { s: 190, o: 28, n: 5, spread: 16 }], guards: [{ side: 1, back: 52, off: 16, n: 1 }] },
+  // 110: pits of water down both sides of a narrow strip
+  { id: 110, note: "Pits of water down both sides of a narrow strip. Keep it in the middle and do not be greedy.", name: 'Pit Boss', par: 4, path: trail(-20, 30, [[140, 0, 30], [140, 8, 28], [130, -6, 28]]), wind: { mph: 8, from: 330 },
+    woods: [{ side: -1, dense: 0.5 }, { side: 1, dense: 0.5 }], ponds: [{ s: 120, o: -50, rx: 24, ry: 40 }, { s: 150, o: 52, rx: 22, ry: 34 }, { s: 260, o: -46, rx: 26, ry: 42 }, { s: 290, o: 50, rx: 24, ry: 36 }], guards: [{ side: 1, back: 54, off: 14, n: 1 }], front: 1 },
+  // 111: a blind crest: throw over the hill and trust it; trees reach in on the way down
+  { id: 111, note: "A blind crest: throw over the hill and trust it. Past the top the trees reach in from both sides, and the green has nothing behind it.", name: 'Blind Crest', par: 4, path: trail(35, 32, [[200, 0, 32], [200, -12, 30]]), wind: { mph: 6, from: 190 },
+    woods: [{ side: -1, dense: 0.8 }, { side: 1, dense: 0.8 }], staggers: [{ s0: 290, s1: 350, every: 60, reach: 0.4, sides: [-1, 1] }], guards: [{ side: 1, back: 56, off: 14, n: 2 }], front: 1 },
+  // 112: a cathedral of pines: find the windows between the groves
+  { id: 112, note: "A cathedral of tall pines. Find the windows between the groves and shape through them.", name: 'Cathedral', par: 4, path: trail(-15, 36, [[150, 0, 36], [140, 10, 34], [110, -6, 30]]), wind: { mph: 4, from: 200 },
+    woods: [{ side: -1, dense: 0.7 }, { side: 1, dense: 0.7 }], groves: [{ s: 100, o: -20, n: 8, spread: 20, h: [70, 90] }, { s: 100, o: 24, n: 8, spread: 18, h: [70, 90] }, { s: 230, o: -8, n: 9, spread: 22, h: [70, 90] }, { s: 320, o: 22, n: 6, spread: 16, h: [70, 90] }], guards: [{ side: -1, back: 56, off: 14, n: 1 }], front: 1 },
+  // 113: stepping stones: ponds ring the green, the dry line is in the middle
+  { id: 113, note: "Stepping stones: ponds on both sides, and the dry line down the middle. Commit to it.", name: 'Stepping Stones', par: 3, path: trail(25, 32, [[140, 0, 30], [150, -10, 26]]), wind: { mph: 7, from: 60 },
+    woods: [{ side: -1, dense: 0.3 }, { side: 1, dense: 0.3 }], ponds: [{ s: 120, o: -40, rx: 36, ry: 46 }, { s: 190, o: 36, rx: 34, ry: 40 }, { s: 250, o: -30, rx: 28, ry: 28 }, { s: 250, o: 34, rx: 26, ry: 28 }] },
+  // 114: all the way up the ridge, with trees reaching in as you climb
+  { id: 114, note: "All the way up the ridge, into the wind. Throws come down short, and the trees reach in from both sides on the climb.", name: 'Ridgeback', par: 5, path: trail(-60, 34, [[160, 0, 34], [160, -14, 32], [150, 16, 30], [130, -8, 28]]), wind: { mph: 10, from: 240 },
+    woods: [{ side: -1, dense: 0.6 }, { side: 1, dense: 0.6 }], staggers: [{ s0: 220, s1: 440, every: 75, reach: 0.4, sides: [1, -1] }], guards: [{ side: -1, back: 60, off: 15, n: 2 }], front: 1 },
+  // 115: low and wet: two creeks, the fords on opposite sides
+  { id: 115, note: "Low and wet. Two creeks, and the dry fords are on opposite sides: cross left, then right.", name: 'Lowlands', par: 4, path: trail(80, 36, [[140, 0, 36], [130, -12, 34], [150, 8, 30]]), wind: { mph: 6, from: 350 },
+    woods: [{ side: -1, dense: 0.4 }, { side: 1, dense: 0.4 }], creeks: [{ s: 150, w: 20, gap: [-8, 22] }, { s: 290, w: 20, gap: [-30, -4] }], shrubs: [[330, 20]], front: 2 },
+  // 116: a ridge with a drop on both sides: short, narrow and unforgiving
+  { id: 116, note: "A narrow ridge with a drop on both sides: short, straight and unforgiving. Out of bounds both ways.", name: 'Cliffhanger', par: 3, path: trail(0, 20, [[220, 4, 20]]), wind: { mph: 6, from: 300 },
+    woods: [{ side: -1, dense: 0.4 }, { side: 1, dense: 0.4 }], oob: [{ s0: 30, s1: 230, o0: -90, o1: -30 }, { s0: 30, s1: 230, o0: 30, o1: 90 }] },
+  // 117: an old orchard: hedge lines and orchard rows make lanes, with trees reaching into them
+  { id: 117, note: "An old orchard. Hedge lines make a lane, the orchard rows outside it are open, and trees reach into the lane.", name: 'Orchard', par: 4, path: trail(100, 34, [[140, 0, 34], [140, 6, 34], [120, -6, 30]]), wind: { mph: 7, from: 320 },
+    woods: [], forest: false, rows: [{ s0: 70, s1: 380, o: -34, gap: 7 }, { s0: 70, s1: 380, o: 34, gap: 7 }, { s0: 60, s1: 390, o: -66, gap: 24 }, { s0: 60, s1: 390, o: 66, gap: 24 }],
+    staggers: [{ s0: 120, s1: 320, every: 65, reach: 0.3, sides: [1, -1] }], guards: [{ side: 1, back: 54, off: 14, n: 1 }], shrubs: [[40, 30]], front: 1 },
+  // 118: home: a big pond to carry or lay up short of, guard trees and a raised green
+  { id: 118, note: "Home. A big pond: carry it for the shortcut, or lay up short of it. Trees reach in on the last leg and guard the left of a raised green.", name: 'Quarry Home', par: 5, path: trail(0, 38, [[170, 0, 38], [160, -30, 34], [140, 40, 30], [130, -12, 26]]), wind: { mph: 12, from: 235 },
+    woods: [{ side: -1, dense: 0.6 }, { side: 1, dense: 0.5 }], ponds: [{ s: 300, o: 62, rx: 54, ry: 66, n: 14 }, { s: 430, o: -50, rx: 30, ry: 32 }], staggers: [{ s0: 440, s1: 500, every: 60, reach: 0.4, sides: [1, -1] }], guards: [{ side: -1, back: 56, off: 15, n: 2 }], front: 1 },
+];
+export const HOLES2 = HOLE_SPECS2.map(build);
+
+// Hole numbers on the card (1-18 within each course) and which course a hole belongs to
+HOLES.forEach((h, i) => { h.n = i + 1; h.course = 1; });
+HOLES2.forEach((h, i) => { h.n = i + 1; h.course = 2; });
+const ALL_HOLES = [...HOLES, ...HOLES2];
+
+/** The courses a player can pick. Each is eighteen holes; a round is a practice hole, the front nine, or all eighteen. */
+export const COURSES = [
+  { id: 1, name: 'Pinewood Park', blurb: 'Pines, ponds and hills. Eighteen holes of woods and wind, from a wide-open start to a pond-filled valley.', holes: HOLES },
+  { id: 2, name: 'Quarry Ridge', blurb: 'An old limestone quarry and the ridge above it: big drops, pits of water, blind crests and a lot of shaping.', holes: HOLES2 },
+];
+export const courseById = (id) => COURSES.find((c) => c.id === Number(id)) || COURSES[0];
+export const holeById = (id) => ALL_HOLES.find((h) => h.id === id);
 // a warm-up is three of the gentler holes: an open start, a short climb and the bluff over the pond
 export const WARMUP = [1, 2, 5];
-export const holesFor = (length) => (length === 3 ? WARMUP.map((id) => holeById(id)) : HOLES.slice(0, length === 9 ? 9 : length === 18 ? 18 : 1));
+export const WARMUP2 = [101, 102, 105];
+export const holesFor = (length, course = 1) => {
+  const c = courseById(course);
+  return length === 3 ? (c.id === 2 ? WARMUP2 : WARMUP).map((id) => holeById(id)) : c.holes.slice(0, length === 9 ? 9 : length === 18 ? 18 : 1);
+};

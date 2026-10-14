@@ -4,17 +4,17 @@
 
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
-import { HOLES, holeById, holesFor } from './course.js?v=12';
-import * as G from './gamecore.js?v=31';
+import { HOLES, COURSES, courseById, holeById, holesFor } from './course.js?v=13';
+import * as G from './gamecore.js?v=32';
 import * as T from './trash.js?v=11';
-import * as C3 from './cam3d.js?v=20';
+import * as C3 from './cam3d.js?v=21';
 import * as FO from './foliage.js?v=1';
 import * as PL from './player.js?v=1';
-import * as PF from './puttfx.js?v=16';
-import * as GR from './ground.js?v=6';
+import * as PF from './puttfx.js?v=17';
+import * as GR from './ground.js?v=7';
 import * as SND from './sound.js?v=4';
 import * as MB from './marebear.js?v=2';
-import * as K from './conditions.js?v=4';
+import * as K from './conditions.js?v=5';
 import * as DLY from './daily.js?v=1';
 import * as GP from './gamepanels.js?v=3';
 import * as PR from './progress.js?v=2';
@@ -81,6 +81,7 @@ function discChip(disc, item) {
 /* ---------- state ---------- */
 
 const S = {
+  courseId: (() => { try { return courseById(localStorage.getItem('dj_course')).id; } catch { return 1; } })(), // the course picked on the menu (remembered)
   hole: HOLES[0],
   round: null,
   mode: 'menu', // menu | solo | lobby | match
@@ -159,8 +160,15 @@ function loadSettings() {
 function saveSettings() {
   try { localStorage.setItem('dj_game_throw', JSON.stringify({ hand: S.settings.hand, style: S.settings.style })); } catch { /* not saved */ }
 }
-const bestKey = () => (S.course && S.course.length > 1 ? `dj_game_best_${S.course.length}` : `dj_game_best_h${S.hole.id}`);
+const bestKey = () => (S.course && S.course.length > 1 ? `dj_game_best_${S.course.length}${S.course.courseId === 2 ? '_c2' : ''}` : `dj_game_best_h${S.hole.id}`);
 const parTotal = (holes) => holes.reduce((n, h) => n + h.par, 0);
+// the course on the menu, and the holes of a course (a match carries its own)
+const courseHoles = (id = S.courseId) => courseById(id).holes;
+const holesOfView = (v) => courseHoles(v?.course ?? 1);
+function setCourse(id) {
+  S.courseId = courseById(id).id;
+  try { localStorage.setItem('dj_course', String(S.courseId)); } catch { /* not saved */ }
+}
 const vsPar = (n) => (n === 0 ? 'E' : n > 0 ? `+${n}` : String(n));
 
 const METER = ['power', 'nose', 'angle', 'release', 'putt']; // the phases that wait for a tap
@@ -219,7 +227,7 @@ function startHole() {
   if (!S.discId) { finishCourse(); return; }
   setPhase('pick');
   retarget(true);
-  if (S.course.holes.length > 1) toast(`Hole ${S.hole.id}: ${S.hole.name}`, '', 1700);
+  if (S.course.holes.length > 1) toast(`Hole ${S.hole.n ?? S.hole.id}: ${S.hole.name}`, '', 1700);
 }
 
 /* ----- Marebear Bucks and her bets ----- */
@@ -295,9 +303,9 @@ const tagBit = (h) => { const t = K.tags(h.variant); return t.length ? ` · ${t.
 
 // a round: one practice hole, the front nine, or all eighteen
 function startSolo(length, practiceId) {
-  const holes = length === 1 ? [holeById(practiceId) || HOLES[0]] : holesFor(length);
+  const holes = length === 1 ? [holeById(practiceId) || courseHoles()[0]] : holesFor(length, S.courseId);
   S.mode = 'solo';
-  S.course = { length, holes, idx: 0, card: [], eaten: [], seed: condOn() ? newSeed() : null, rain: condOn() && rainOn() };
+  S.course = { length, courseId: S.courseId, holes, idx: 0, card: [], eaten: [], seed: condOn() ? newSeed() : null, rain: condOn() && rainOn() };
   S.hole = holes[0];
   startHole();
 }
@@ -513,19 +521,26 @@ function panelPick() {
     </div>`;
 }
 
+// the courses, as a pair of cards to pick from (the menu and the match lobby share the choice)
+function courseChooser() {
+  return `<div class="gm-courses" role="group" aria-label="Course">${COURSES.map((c) => `<button class="gm-course" type="button" data-course="${c.id}" aria-pressed="${c.id === S.courseId}"><b>${esc(c.name)}</b><small>${esc(c.blurb)}</small><span>18 holes · par ${parTotal(c.holes)}</span></button>`).join('')}</div>`;
+}
 function panelMenu() {
-  const options = HOLES.map((h) => `<option value="${h.id}"${h.id === S.hole.id ? ' selected' : ''}>${h.id}. ${esc(h.name)} · par ${h.par}</option>`).join('');
+  const ch = courseHoles();
+  const course = courseById(S.courseId);
+  const options = ch.map((h) => `<option value="${h.id}"${h.id === S.hole.id ? ' selected' : ''}>${h.n}. ${esc(h.name)} · par ${h.par}</option>`).join('');
   return `${bagBar()}
     <div class="gm-card">
       <h2>Play the course</h2>
-      <p>Eighteen holes of woods, hills, water and wind. Pick a round, bring your bag, and try not to triple bogey: Marebear is watching, and she has a handbag.</p>
+      <p>Two courses of eighteen holes: woods, hills, water and wind. Pick yours, pick a round, bring your bag, and try not to triple bogey: Marebear is watching, and she has a handbag.</p>
+      ${courseChooser()}
       <button class="btn" type="button" data-daily>Daily course<small>nine holes, the same for everyone today · a leaderboard</small></button>
       <button class="btn btn--ghost" type="button" data-trophies>Trophies and skins<small>${S.game.unlocked.filter((id) => GOALS.some((a) => a.id === id)).length} of ${GOALS.length} goals · break-in · disc skins</small></button>
       <button class="btn" type="button" data-solo="3">Quick warm-up<small>3 holes, about 5 minutes</small></button>
       <button class="btn btn--ghost" type="button" data-quick-friend>Play a friend now<small>one tap: a 9-hole match and a link to send</small></button>
       <div class="gm-menu">
-        <button class="btn" type="button" data-solo="9">Front 9<small>par ${parTotal(HOLES.slice(0, 9))}</small></button>
-        <button class="btn" type="button" data-solo="18">Full 18<small>par ${parTotal(HOLES)}</small></button>
+        <button class="btn" type="button" data-solo="9">Front 9<small>${esc(course.name)} · par ${parTotal(ch.slice(0, 9))}</small></button>
+        <button class="btn" type="button" data-solo="18">Full 18<small>${esc(course.name)} · par ${parTotal(ch)}</small></button>
       </div>
       <button class="btn btn--ghost" type="button" data-versus>Play with friends <small>up to 8 players, turn by turn</small></button>
       ${BETTING_ON ? `<p class="gm-note">Marebear Bucks: <b>${bucks()}</b> · she bets on every hole.</p>` : ''}
@@ -708,7 +723,7 @@ function panelSummary() {
   const c = S.course;
   const total = c.card.reduce((n, h) => n + h.score, 0);
   const par = c.card.reduce((n, h) => n + h.par, 0);
-  const rows = c.card.map((h) => `<li class="${h.score < h.par ? 'is-under' : h.score > h.par ? 'is-over' : ''}"><span>${h.id}. ${esc(HOLES[h.id - 1].name)}</span><span>par ${h.par}</span><b>${h.holed ? h.strokes : `${h.score}*`}</b></li>`).join('');
+  const rows = c.card.map((h) => `<li class="${h.score < h.par ? 'is-under' : h.score > h.par ? 'is-over' : ''}"><span>${holeById(h.id).n}. ${esc(holeById(h.id).name)}</span><span>par ${h.par}</span><b>${h.holed ? h.strokes : `${h.score}*`}</b></li>`).join('');
   const unfinished = c.card.some((h) => !h.holed) || c.card.length < c.holes.length;
   const best = S.best;
   return `<div class="gm-card">
@@ -755,10 +770,10 @@ function updateHud() {
     const turn = v.status !== 'active' || !up ? '' : up.uid === S.mp.me ? 'Your throw' : `${esc(up.name)}'s throw`;
     const rivals = S.others.length === 1 ? ` · ${esc(S.others[0].name)} <b>${S.others[0].strokes}</b>` : '';
     $('#gm-hud').innerHTML = `<span>Hole ${v.holeIdx + 1}/${v.holes} · ${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}${tagBit(h)}</small><span>You <b>${r.strokes}</b>${rivals}</span><small>${turn}${turn ? ' · ' : ''}${ft(G.distance(r.lie, h.basket))} to the basket${slopeBit(h, r.lie)}</small>`;
-  } else if (!c && S.phase === 'menu' && h.id !== HOLES[0].id) { // the menu is previewing the hole picked for practice
+  } else if (!c && S.phase === 'menu' && h.id !== courseHoles()[0].id) { // the menu is previewing the hole picked for practice
     $('#gm-hud').innerHTML = `<span>${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}</small>`;
   } else if (!c) {
-    $('#gm-hud').innerHTML = `<span>Disc Jerkers Golf Club</span><small>Eighteen holes · par ${parTotal(HOLES)}</small>`;
+    $('#gm-hud').innerHTML = `<span>${esc(courseById(S.courseId).name)}</span><small>Eighteen holes · par ${parTotal(courseHoles())}</small>`;
   } else {
     const total = c.card.reduce((n, x) => n + x.score, 0);
     const par = c.card.reduce((n, x) => n + x.par, 0);
@@ -2832,6 +2847,10 @@ function onPanelClick(e) {
     quickFriend();
   } else if (t.closest('[data-versus]') || t.closest('[data-lobby]')) {
     openLobby();
+  } else if (t.closest('[data-course]')) {
+    setCourse(Number(t.closest('[data-course]').dataset.course));
+    if (S.phase === 'menu') { previewHole(courseHoles()[0].id); }
+    renderPanel(`[data-course="${S.courseId}"]`);
   } else if (t.closest('[data-lobby-holes]')) {
     S.lobby.holes = Number(t.closest('[data-lobby-holes]').dataset.lobbyHoles);
     renderPanel();
@@ -2898,7 +2917,7 @@ function onPanelChange(e) {
 // the menu shows whichever hole is picked for practice
 function previewHole(id) {
   GR.warm(holeById(id));
-  S.hole = holeById(id) || HOLES[0];
+  S.hole = holeById(id) || courseHoles()[0];
   S.round = G.newRound(S.hole);
   updateHud();
   retarget(true);
@@ -3118,7 +3137,7 @@ function resetStage() {
   S.mp = null;
   S.others = [];
   S.course = null;
-  S.hole = HOLES[0];
+  S.hole = courseHoles()[0];
   S.round = G.newRound(S.hole);
   S.trail = [];
   S.fx = [];
@@ -3263,7 +3282,7 @@ const matchLine = (m) => {
       : m.status === 'active' ? (m.yourTurn ? '<b>your throw</b>' : 'in play')
         : m.status === 'cancelled' ? 'cancelled'
           : m.won === true ? '<b>you won</b>' : m.won === false ? 'finished' : 'you tied';
-  return `<li><span>${who}<small>${m.holes} holes${m.status === 'active' ? ` · on hole ${m.holeIdx + 1}` : ''} · ${state}</small></span>${m.invitedYou
+  return `<li><span>${who}<small>${courseById(m.course ?? 1).name} · ${m.holes} holes${m.status === 'active' ? ` · on hole ${m.holeIdx + 1}` : ''} · ${state}</small></span>${m.invitedYou
     ? `<button class="chip" type="button" data-mp-accept="${esc(m.id)}">Accept</button>`
     : `<button class="chip" type="button" data-mp-open="${esc(m.id)}">${m.status === 'active' || m.status === 'waiting' ? 'Open' : 'Look'}</button>`}</li>`;
 };
@@ -3283,6 +3302,7 @@ function panelLobby() {
       <div class="gm-row" role="group" aria-label="Round length"><span class="fg-wind__l">Round</span>
         <div class="fg-seg"><button class="chip" type="button" data-lobby-holes="9" aria-pressed="${L.holes === 9}">Front 9</button><button class="chip" type="button" data-lobby-holes="18" aria-pressed="${L.holes === 18}">All 18</button></div>
       </div>
+      ${courseChooser()}
       <label class="gm-field"><span class="fg-wind__l">Invite a player (optional)</span><input data-lobby-invite value="${esc(L.invite)}" maxlength="24" placeholder="their username" autocomplete="off" autocapitalize="none" spellcheck="false"></label>
       <button class="btn" type="button" data-mp-create${L.busy ? ' disabled' : ''}>${L.busy ? 'Opening…' : 'Open a match'}</button>
       <p class="gm-note">You get a code and a link to send to anyone, up to eight players. Naming someone puts it in their lobby too.</p>
@@ -3304,7 +3324,7 @@ async function mpCreate() {
   S.lobby.msg = '';
   renderPanel();
   try {
-    const d = await gapi('/matches', { method: 'POST', body: { holes: S.lobby.holes, invite: S.lobby.invite.trim(), bagId: account.activeId } });
+    const d = await gapi('/matches', { method: 'POST', body: { holes: S.lobby.holes, course: S.courseId, invite: S.lobby.invite.trim(), bagId: account.activeId } });
     S.lobby.invite = '';
     enterMatch(d.match);
   } catch (err) {
@@ -3412,12 +3432,12 @@ function applyView(view) {
       return { uid: p.uid, name: p.name, color: colorOf(p.uid, view), lie: { ...o.lie }, strokes: o.strokes, done: o.done, holed: o.holed, trail: path(view.round.trails[p.uid] || []) };
     });
   } else {
-    S.hole = HOLES[0];
+    S.hole = holesOfView(view)[0];
     S.round = G.newRound(S.hole);
     S.trail = [];
     S.others = [];
   }
-  S.course = { length: view.holes, holes: HOLES.slice(0, view.holes), idx: view.holeIdx, card: (view.cards[me] || []).map((c) => ({ id: c.hole, par: c.par, strokes: c.strokes, score: c.score, holed: c.holed })), eaten: view.eaten[me] || [] };
+  S.course = { length: view.holes, courseId: view.course ?? 1, holes: holesOfView(view).slice(0, view.holes), idx: view.holeIdx, card: (view.cards[me] || []).map((c) => ({ id: c.hole, par: c.par, strokes: c.strokes, score: c.score, holed: c.holed })), eaten: view.eaten[me] || [] };
   const mine = myself(view);
   S.bag = {
     starter: false,
@@ -3524,7 +3544,7 @@ function replayBest() {
   if (S.mode === 'match' && S.mp?.view.best) {
     const v = S.mp.view;
     const b = v.best.last;
-    replayMove(b, K.holeOn(v.seed, holeById(b.holeId), { idx: b.holeId - 1, n: v.holes, rain: !!v.rain }));
+    replayMove(b, K.holeOn(v.seed, holeById(b.holeId), { idx: Math.max(0, holesOfView(v).findIndex((x) => x.id === b.holeId)), n: v.holes, rain: !!v.rain }));
   } else if (S.course?.best) {
     replayMove(S.course.best.move, S.course.best.hole);
   }
@@ -3722,7 +3742,7 @@ function panelMhole() {
     const p = playerOf(r.uid, v);
     return `<li class="${r.uid === S.mp.me ? 'is-me' : ''}"><span>${esc(p.name)}${r.uid === S.mp.me ? ' (you)' : ''}</span><span>${r.holed ? G.scoreName(r.strokes, hole.par) : 'no discs'}</span><b>${r.holed ? r.strokes : `${r.score}*`}</b></li>`;
   }).join('');
-  const next = HOLES[v.holeIdx];
+  const next = holesOfView(v)[v.holeIdx];
   const best = sorted[0].score;
   const winners = sorted.filter((r) => r.score === best);
   const title = winners.length > 1 ? (winners.some((w) => w.uid === S.mp.me) ? 'You share the hole' : 'Shared hole') : winners[0].uid === S.mp.me ? 'You take the hole' : `${esc(playerOf(winners[0].uid, v).name)} takes the hole`;
@@ -3770,7 +3790,7 @@ function panelMdone() {
   const rival = rivals.sort((a, b) => total(a.uid) - total(b.uid))[0];
   const rows = (v.cards[me] || []).map((c, i) => {
     const o = rival ? (v.cards[rival.uid] || [])[i] : null;
-    return `<li><span>${c.hole}. ${esc(HOLES[c.hole - 1].name)}</span><span>par ${c.par}</span><b class="${c.score < (o?.score ?? 99) ? 'is-under' : ''}">${c.holed ? c.strokes : `${c.score}*`}</b><b class="${o && o.score < c.score ? 'is-under' : ''}">${o ? (o.holed ? o.strokes : `${o.score}*`) : '–'}</b></li>`;
+    return `<li><span>${holeById(c.hole).n}. ${esc(holeById(c.hole).name)}</span><span>par ${c.par}</span><b class="${c.score < (o?.score ?? 99) ? 'is-under' : ''}">${c.holed ? c.strokes : `${c.score}*`}</b><b class="${o && o.score < c.score ? 'is-under' : ''}">${o ? (o.holed ? o.strokes : `${o.score}*`) : '–'}</b></li>`;
   }).join('');
   const rematch = finished && v.players.length === 2 ? `Play ${esc(rivals[0]?.name || 'them')} again` : 'Open a new match';
   return `<div class="gm-card">
@@ -3910,7 +3930,7 @@ async function boot() {
   // a link to a match (?match=CODE): read it before the page tidies its own address
   const code = (new URLSearchParams(location.search).get('match') || '').toUpperCase();
   await loadAccount();
-  GR.warm(HOLES[0]);
+  GR.warm(courseHoles()[0]);
   FO.start(() => { still.trees = null; }); // the drawn trees are made in the background; the map's cached picture of them is redone once they are
   showMenu();
   if (code) {

@@ -49,7 +49,7 @@ async function loadGameplay() {
   const guide = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'public', 'data', 'flightguide.json'), 'utf8'));
   const discs = new Map(guide.discs.map((r) => [r[0], { id: r[0], name: r[1], speed: r[4], glide: r[5], turn: r[6], fade: r[7], col: r[8] }]));
   const starter = STARTER.map((n) => [...discs.values()].find((d) => d.name === n)?.id).filter(Boolean);
-  const base = (id) => course.HOLES.find((h) => h.id === id);
+  const base = (id) => course.holeById(id); // either course
   // the hole as this match plays it today: its seed gives each hole its wind, weather, pin and mando (a match with no seed is the classic course)
   const days = new Map();
   const holeFor = (m, id) => {
@@ -86,7 +86,7 @@ const freshRound = (hole, eaten) => ({ lie: { x: hole.tee.x, y: hole.tee.y }, st
 const inPlay = (m) => m.players.filter((p) => !p.left);
 
 function startHole(gp, m) {
-  const hole = gp.hole(gp.G.HOLES[m.holeIdx].id);
+  const hole = gp.hole(gp.G.courseById(m.course ?? 1).holes[m.holeIdx].id); // the course this match is on (older matches have none: the first)
   const players = inPlay(m);
   const rounds = {};
   for (const p of players) {
@@ -363,6 +363,7 @@ function createMatchStore(file, { now = () => Date.now(), seed = () => crypto.ra
       id: m.id,
       status: m.status,
       holes: m.holes,
+      course: m.course ?? 1,
       holeIdx: m.holeIdx,
       seed: m.seed,
       rain: !!m.rain,
@@ -404,6 +405,7 @@ function createMatchStore(file, { now = () => Date.now(), seed = () => crypto.ra
             id: m.id,
             status: m.status,
             holes: m.holes,
+            course: m.course ?? 1,
             holeIdx: m.holeIdx,
             others,
             players: m.players.length,
@@ -417,9 +419,10 @@ function createMatchStore(file, { now = () => Date.now(), seed = () => crypto.ra
         });
     },
 
-    create(user, { gp, holes, invite, bag }) {
+    create(user, { gp, holes, course = 1, invite, bag }) {
       writable();
       if (![9, 18].includes(holes)) throw new MatchError('Pick a nine or eighteen hole round.');
+      if (!gp.G.COURSES.some((c) => c.id === course)) throw new MatchError('Pick a course that exists.');
       if (db.matches.length >= LIMITS.maxMatches && !prune()) throw new MatchError('Matches are full right now. Try later.', 503);
       if (open(user.id).length >= LIMITS.openMatchesPerUser) throw new MatchError(`You already have ${LIMITS.openMatchesPerUser} matches going. Finish or leave one first.`, 409);
       const t = now();
@@ -429,6 +432,7 @@ function createMatchStore(file, { now = () => Date.now(), seed = () => crypto.ra
         id,
         status: 'waiting',
         holes,
+        course,
         holeIdx: 0,
         invite: invite ? invite.toLowerCase() : null,
         createdAt: t,

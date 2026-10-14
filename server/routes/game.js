@@ -13,7 +13,7 @@ const KEEPALIVE_MS = 15_000;
 /**
  * Head-to-head matches. Mounted at /api/game. Everything needs a signed-in player.
  *   GET  /matches               my matches, and invitations to me
- *   POST /matches               start one: { holes: 9|18, invite?: username, bagId? }
+ *   POST /matches               start one: { holes: 9|18, course?: 1|2, invite?: username, bagId? }
  *   POST /matches/:id/join      sit down at a match by its code: { bagId? }  (two to eight players)
  *   POST /matches/:id/start     the host starts it once two or more are seated
  *   GET  /matches/:id           where it stands
@@ -105,7 +105,7 @@ function createGameRouter({
       if (invite.toLowerCase() === user.name.toLowerCase()) throw new MatchError('You cannot challenge yourself.');
       if (!accounts.hasUser(invite)) throw new MatchError('No player has that username.', 404);
     }
-    res.status(201).json({ match: matches.create(user, { gp, holes: Number(body.holes), invite: invite || null, bag: bagFor(user, body.bagId) }) });
+    res.status(201).json({ match: matches.create(user, { gp, holes: Number(body.holes), course: body.course === undefined ? 1 : Number(body.course), invite: invite || null, bag: bagFor(user, body.bagId) }) });
   }));
 
   router.post('/matches/:id/join', wrap(async (req, res, user, gp) => {
