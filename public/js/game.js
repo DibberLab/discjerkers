@@ -173,6 +173,7 @@ const slopeBit = (hole, lie) => { const t = slopeText(hole, lie); return t ? ` �
 function slopeNote() {
   const t = slopeText(S.hole, lieOf());
   if (!t) return '';
+  if (isPhone()) return `<p class="gm-note">${t}.</p>`;
   return `<p class="gm-note">${t}. ${inPutt() ? (G.riseTo(S.hole, lieOf()) > 0 ? 'Uphill putts are easier, but swipe a little harder.' : 'Downhill putts are harder and run away: swipe softer.') : (G.riseTo(S.hole, lieOf()) > 0 ? 'The basket is above you: throws come down short.' : 'The basket is below you: throws run on.')}</p>`;
 }
 const slopeText = (hole, lie) => { const r = G.riseTo(hole, lie); return Math.abs(r) < 1 ? '' : `${r > 0 ? '▲' : '▼'} ${Math.round(Math.abs(r))} ft ${r > 0 ? 'uphill' : 'downhill'}`; };
@@ -236,6 +237,9 @@ function betHtml() {
   const b = betNow();
   if (!b || b.status === 'declined') return '';
   const t = T.BETS[b.kind];
+  if (b.status === 'offer' && isPhone()) { // on a phone it is a single line, so the hole stays in view
+    return `<div class="gm-bet gm-bet--tight"><p><b>Marebear:</b> you ${t.text}? <small>+${t.win} / −${t.lose}</small></p><div class="gm-bet__go"><button class="chip" type="button" data-bet="take">Bet</button><button class="chip" type="button" data-bet="no">No</button></div></div>`;
+  }
   if (b.status === 'taken') return `<p class="gm-note gm-bet-on">Bet on with Marebear: you ${t.text}. Win +${t.win}, lose −${t.lose}.</p>`;
   return `<div class="gm-bet"><p><b>Marebear's bet:</b> “${esc(b.text)}”<small>You ${t.text}: win +${t.win}, lose −${t.lose} (you have ${bucks()} Marebear Bucks).</small></p><div class="gm-bet__go"><button class="chip" type="button" data-bet="take">Take it</button><button class="chip" type="button" data-bet="no">No thanks</button></div></div>`;
 }
@@ -297,13 +301,35 @@ function showMenu() {
 
 function setPhase(phase, focusSel) {
   S.phase = phase;
+  keepAwake(PLAYING.has(phase) || phase === 'mwait'); // a phone should not dim in the middle of a throw, or while you wait for a friend
+  document.body.classList.toggle('gm-playing', PLAYING.has(phase)); // on a phone the site's header steps aside while you play
+  syncTop();
   renderPanel(focusSel);
   updateHud();
 }
 
 /* ---------- the panel ---------- */
 
+// keep the screen on while playing (where the browser allows it)
+let wakeLock = null;
+let wantAwake = false;
+async function keepAwake(on) {
+  wantAwake = on;
+  try {
+    if (on && !wakeLock && navigator.wakeLock && document.visibilityState === 'visible') {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } else if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+  } catch { wakeLock = null; /* not allowed: the screen may dim, that is all */ }
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && wantAwake) keepAwake(true); });
 const panel = () => $('#gm-panel');
+// where the game starts below the site's header: nowhere, on a phone mid-round (the header is hidden then)
+function syncTop() {
+  const mast = $('.masthead');
+  const h = !mast ? 66 : S.mastH || (S.mastH = mast.offsetHeight || 66);
+  document.documentElement.style.setProperty('--gm-top', `${isPhone() && PLAYING.has(S.phase) ? 0 : h}px`);
+}
 
 function bagBar() {
   if (S.mode === 'match') return '';
@@ -378,16 +404,22 @@ const GOOD_EVENTS = new Set(['pure', 'ace', 'chains', 'sunk']);
 const holeMood = (strokes, par, holed) => (!holed || strokes > par ? 'bad' : strokes === par ? 'sly' : 'good');
 const phoneQuery = window.matchMedia('(max-width: 900px)');
 const isPhone = () => phoneQuery.matches;
+// a phone held sideways: the controls are a column beside the hole, not a dock under it
+const landscapeQuery = window.matchMedia('(max-width: 900px) and (max-height: 520px)');
+const isDock = () => phoneQuery.matches && !landscapeQuery.matches;
+const PLAYING = new Set(['pick', 'power', 'nose', 'angle', 'release', 'putt', 'swipe', 'flight', 'result', 'bear', 'done', 'mturn', 'mhole']);
 const quipHtml = () => (S.quip && !isPhone() ? `<p class="gm-quip">“${esc(S.quip)}”<small>Marebear${S.quipTo ? ` to ${esc(S.quipTo)}` : ''}</small></p>` : '');
 
 /* ----- a phone: the hole fills the screen and the shot is set up a step at a time along the bottom ----- */
 
 // how much of the screen the controls cover, so the camera frames the hole in what is left
 function measureDock() {
-  const d = isPhone() ? Math.round(panel().getBoundingClientRect().height) : 0;
+  const d = isDock() ? Math.round(panel().getBoundingClientRect().height) : 0;
+  const stage = $('#gm-stage');
+  stage.classList.toggle('is-tight', isDock() && stage.clientHeight - d < 300); // so little hole is left that the zoom buttons would sit on the scoreboard
   if (d === S.dock) return;
   S.dock = d;
-  $('#gm-stage').style.setProperty('--dock', `${d}px`);
+  stage.style.setProperty('--dock', `${d}px`);
   if (S.round) retarget(false);
 }
 
@@ -399,7 +431,7 @@ function updateBubble() {
   let key = '';
   if (isPhone() && !isMeter() && S.round) {
     if (S.phase === 'pick' && S.round.strokes === 0 && S.hole.note) { key = `c${S.hole.id}`; html = `<b>${esc(S.hole.name)}.</b> ${esc(S.hole.note)}${K.briefing(S.hole.variant, S.hole) ? ` <b>Today:</b> ${esc(K.briefing(S.hole.variant, S.hole))}` : ''}`; }
-    else if (S.quip) { key = `q${S.quip}`; html = `“${esc(S.quip)}”<small>Marebear${S.quipTo ? ` to ${esc(S.quipTo)}` : ''}</small>`; }
+    // (her remarks come up as Marebear herself, in a balloon: no second copy here)
   }
   if (key === S.bubbleKey) return;
   S.bubbleKey = key;
@@ -424,7 +456,7 @@ function panelPickPhone() {
   const leave = S.mode === 'match' ? '<button class="chip" type="button" data-mp-leave>Forfeit</button>' : '<button class="chip" type="button" data-quit>Quit</button>';
   let body;
   if (S.step === 'disc') {
-    body = `${betHtml()}${bagBar()}${discRow()}${pickInfo(d, { wind: G.windFor(S.hole, heading()) }, putting)}${putting && puttDd() > G.LONG_PUTT ? '<p class="gm-note">Past 30 feet the target is a pinprick.</p>' : ''}${slopeNote()}`;
+    body = `${betHtml()}${discRow()}${pickInfo(d, { wind: G.windFor(S.hole, heading()) }, putting)}${putting && puttDd() > G.LONG_PUTT ? '<p class="gm-note">Past 30 feet the target is a pinprick.</p>' : ''}${slopeNote()}`;
   } else if (S.step === 'grip') {
     body = `${gripChips()}<p class="gm-note">Backhand or forehand, and which hand. The flight bends the other way for a lefty.</p>`;
   } else {
@@ -449,14 +481,13 @@ function panelPick() {
   const dist = toBasket();
   const strokes = S.round.strokes;
   const caddy = S.round.strokes === 0 && S.hole.note ? `<p class="gm-caddy"><b>${esc(S.hole.name)}.</b> ${esc(S.hole.note)}${K.briefing(S.hole.variant, S.hole) ? ` <b>Today:</b> ${esc(K.briefing(S.hole.variant, S.hole))}` : ''}</p>` : '';
-  return `${roundBar()}${caddy || quipHtml()}${S.mode === 'match' ? boardHtml() : tipHtml()}${bagBar()}
+  return `${roundBar()}${caddy || quipHtml()}${betHtml()}${S.mode === 'match' ? boardHtml() : tipHtml()}${bagBar()}
     <div class="gm-block">
       <p class="gm-h">Your disc <span>· ${available().length} left in the bag</span></p>
       ${discRow()}
       ${pickInfo(d, plan, putting)}
       ${slopeNote()}
     </div>
-    ${betHtml()}
     ${putting
       ? `<p class="gm-sub"><b>${ft(dist)}</b> from the basket. One tap: catch the dot inside the green circle as it swirls past. Short putts get a big target and a slow dot; a faster disc shrinks it.${dist > G.LONG_PUTT ? ' <b>Past 30 feet it is a long shot: the target is a pinprick and the dot flies.</b>' : ''}</p>`
       : settingsBlock()}
@@ -559,7 +590,8 @@ function panelMeter() {
     release: releaseHint(risk),
     putt: `Tap when the dot is in the green circle; a miss goes the way the dot was.${puttDd() > G.LONG_PUTT ? ' Past 30 ft the target is a pinprick.' : ''} ${d ? esc(d.name) : ''}, ${ft(toBasket())}.`,
   };
-  const hint = `<div class="gm-meter__h">${Object.entries(hints).filter(([k]) => (k === 'putt') === (kind === 'putt')).map(([k, h]) => `<p${k === kind ? '' : ' aria-hidden="true"'}${k === kind ? '' : ' class="is-off"'}>${h}</p>`).join('')}<p class="is-off" aria-hidden="true">${releaseHint(40)}</p></div>`;
+  const brief = (h) => (isPhone() && tipSeen() ? `${String(h).split('. ')[0].replace(/\.$/, '')}.` : h); // once you know the game, a phone gets the first sentence and keeps its screen
+  const hint = `<div class="gm-meter__h">${Object.entries(hints).filter(([k]) => (k === 'putt') === (kind === 'putt')).map(([k, h]) => `<p${k === kind ? '' : ' aria-hidden="true"'}${k === kind ? '' : ' class="is-off"'}>${brief(h)}</p>`).join('')}<p class="is-off" aria-hidden="true">${brief(releaseHint(40))}</p></div>`;
   // a putt shows the whole green and the Tap button first; its hint waits underneath, where it cannot cover anything
   if (kind === 'putt') {
     return `<div class="gm-meter gm-meter--putt">
@@ -755,6 +787,7 @@ function tap() {
   const m = S.meter;
   if (!m) return;
   SND.play('tap');
+  if (navigator.vibrate) navigator.vibrate(8); // a small click under the thumb
   const t = (now() - m.start) / 1000;
   const next = (phase) => { m.start = now(); setPhase(phase); };
   if (S.phase === 'power') {
@@ -867,11 +900,15 @@ function startSwipe(shot = null, throwEx = null) {
 }
 function panelSwipe() {
   const drive = !!S.meter?.throwEx;
+  const brief = isPhone() && tipSeen(); // once you know it, a phone gets one line, so the hole (and your swipe) has the room
+  const text = brief
+    ? 'Draw back, then swipe up in one motion. Stay in the lime lines and stop in the band.'
+    : drive
+      ? 'Draw back down the screen, then swipe forward up it, in one smooth motion, from anywhere. The forward swipe is the throw: stay inside the lime lines and stop in the lime band. A short draw back costs power; off line steers the throw, too soft loses distance, too hard makes it loose.'
+      : 'Draw back down the screen, then swipe forward up it, in one smooth motion, from anywhere. The forward swipe is the putt: stay inside the lime lines and stop in the lime band. A short draw back costs power; too soft dies short, too hard runs long, and off line misses.';
   return `<div class="gm-meter ${drive ? '' : 'gm-meter--putt'}">
       <p class="gm-meter__t"><span>${drive ? 5 : 2} ·</span> Draw back, swipe</p>
-      <div class="gm-meter__h"><p>${drive
-    ? 'Draw back down the screen, then swipe forward up it, in one smooth motion, from anywhere. The forward swipe is the throw: stay inside the lime lines and stop in the lime band. A short draw back costs power; off line steers the throw, too soft loses distance, too hard makes it loose.'
-    : 'Draw back down the screen, then swipe forward up it, in one smooth motion, from anywhere. The forward swipe is the putt: stay inside the lime lines and stop in the lime band. A short draw back costs power; too soft dies short, too hard runs long, and off line misses.'}</p></div>
+      <div class="gm-meter__h"><p>${text}</p></div>
     </div>`;
 }
 function swipePoint(e) {
@@ -1834,8 +1871,8 @@ function drawPop(t) {
     const lines = MB.wrap(ctx, p.text, bw - 24);
     const bh = lines.length * (fs + 5) + 20 + (p.to ? 14 : 0);
     const headY = waist - 150 * sc;
-    const bx = clamp(p.side > 0 ? x - bw - 70 * sc : x + 70 * sc, 8, W - bw - 8);
-    const by = clamp(headY - bh * 0.55, 8, bottom - bh - 8);
+    const bx = clamp(p.side > 0 ? x - bw - 70 * sc : x + 70 * sc, isDock() ? 58 : 8, W - bw - 8); // (on a phone, clear of the zoom buttons)
+    const by = isDock() ? Math.max(8, bottom - bh - 8) : clamp(headY - bh * 0.55, 8, bottom - bh - 8); // on a phone the scoreboard owns the top, so it sits low
     ctx.globalAlpha = clamp((rise - 0.8) / 0.2, 0, 1) * (ms > p.dur - 260 ? clamp((p.dur - ms) / 260, 0, 1) : 1);
     ctx.fillStyle = '#fffaf0';
     ctx.strokeStyle = '#d4122a';
@@ -3093,8 +3130,8 @@ function copyLink() {
 /* ---------- boot ---------- */
 
 async function boot() {
-  const top = $('.masthead')?.offsetHeight || 66;
-  document.documentElement.style.setProperty('--gm-top', `${top}px`);
+  S.mastH = $('.masthead')?.offsetHeight || 66;
+  syncTop();
   const res = await fetch('/data/flightguide.json?v=1');
   DATA = await res.json();
   try { T.useHeckles(await (await fetch('/data/heckles.json?v=2')).json()); } catch { /* her own lines are enough */ }
@@ -3127,7 +3164,8 @@ async function boot() {
   $('#gm-zout').addEventListener('click', () => zoomBy(1 / ZOOM.step));
   $('#gm-zout').disabled = true;
   new ResizeObserver(measureDock).observe(p);
-  phoneQuery.addEventListener('change', () => { renderPanel(); measureDock(); });
+  phoneQuery.addEventListener('change', () => { syncTop(); renderPanel(); measureDock(); });
+  landscapeQuery.addEventListener('change', () => { syncTop(); renderPanel(); measureDock(); });
   p.addEventListener('input', onPanelInput);
   // the meter answers the moment a finger lands, not when it lifts
   p.addEventListener('pointerdown', (e) => { if (e.target.closest('[data-tap], .gm-bar, #gm-putt') && isMeter()) { e.preventDefault(); tap(); } });

@@ -310,3 +310,70 @@
 .gm-board li small, .gm-standings li small { display: block; font: 0.6rem/1.3 var(--mono); letter-spacing: 0.06em; color: var(--bone-faint); }
 
 .gm-swatch { display: inline-block; width: 12px; height: 12px; margin-right: 8px; border-radius: 50%; background: var(--c); border: 1px solid rgba(255,255,255,0.5); vertical-align: -1px; }
+
+/* ---------- on a phone: touch, targets, room ---------- */
+.gm-page { overscroll-behavior: none; }
+.gm-panel { touch-action: manipulation; overscroll-behavior: contain; }
+.gm-stage, .gm-panel button, .gm-panel .gm-bar { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.gm-hud { left: max(12px, env(safe-area-inset-left)); }
+.gm-wind { right: max(12px, env(safe-area-inset-right)); }
+.gm-bet--tight { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; }
+.gm-bet--tight p { font-size: 0.84rem; }
+.gm-bet--tight small { display: inline; margin: 0 0 0 6px; font-size: 0.7rem; }
+
+@media (max-width: 900px) {
+  .gm-panel { padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); }
+  /* fingers: every control at least 40px tall */
+  .gm-dock .chip, .gm-dock__top .chip, .gm-bet .chip, .gm-roundbar .chip, .gm-matches .chip, .gm-replay .chip, .gm-card .chip { min-height: 40px; padding: 8px 14px; font-size: 0.7rem; }
+  .gm-tab { min-height: 40px; padding: 8px 14px; font-size: 0.72rem; }
+  .gm-aimrow .chip { min-height: 40px; min-width: 40px; }
+  /* words you have to read: not tiny */
+  .gm-note, .gm-dock .gm-note { font-size: 0.72rem; line-height: 1.45; }
+  .gm-card .btn small, .gm-dock .btn small { line-height: 1.4; }
+  .gm-dock .gm-go__line { font-size: 0.66rem; }
+  /* the site's header steps aside while you play, and the floating notes move up with it */
+  .gm-page.gm-playing .masthead { display: none; }
+  .gm-page.gm-playing .gm-bubble { top: 80px; }
+  .gm-stage.is-tight .gm-zoom { display: none; }
+  .gm-hud { max-width: calc(100% - 124px); }
+  /* the 3D and sound chips ride at the top right, under the wind, out of the hole's way */
+  .gm-cambtn { bottom: auto; top: 58px; right: max(10px, env(safe-area-inset-right)); }
+  .gm-cambtn--sound { top: 94px; right: max(10px, env(safe-area-inset-right)); }
+  /* screens you read rather than play on: tall, with a peek of the hole above */
+  .gm-panel[data-phase="menu"], .gm-panel[data-phase="lobby"], .gm-panel[data-phase="daily"], .gm-panel[data-phase="standings"], .gm-panel[data-phase="trophies"],
+  .gm-panel[data-phase="summary"], .gm-panel[data-phase="mdone"], .gm-panel[data-phase="mwait"], .gm-panel[data-phase="mhole"], .gm-panel[data-phase="done"] { max-height: calc(100% - 56px); }
+}
+
+/* a phone held sideways: the hole on the left, the controls in a column on the right */
+@media (max-width: 900px) and (max-height: 520px) {
+  .gm-page .masthead { display: none; }
+  .gm { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 46%); height: 100dvh; min-height: 0; }
+  .gm-stage { position: relative; inset: auto; }
+  .gm-panel, .gm-panel[data-phase] {
+    position: relative; max-height: none; height: 100%; border-radius: 0; border-top: 0; border-left: 1px solid var(--hair); box-shadow: none;
+    padding: 8px max(12px, env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) 12px;
+  }
+  .gm-zoom { bottom: 10px; }
+  .gm-cambtn { top: 50px; }
+  .gm-cambtn--sound { top: 84px; }
+  .gm-hud { font-size: 0.6rem; gap: 2px; }
+  .gm-page.gm-playing .gm-bubble { top: 58px; }
+  .gm-tap { min-height: 52px; font-size: 1.4rem; }
+  .gm-bar { height: 38px; }
+  .gm-meter { gap: 6px; }
+  .gm-meter .gm-putt { width: min(100%, 170px, 44dvh); }
+  .gm-card h2 { font-size: 1.4rem; }
+}
+
+@media (max-width: 900px) {
+  .gm-panel { overflow-x: hidden; }
+  .gm-dock, .gm-dock__body, .gm-dock__top { min-width: 0; }
+  .gm-dock__top { gap: 6px; }
+  .gm-tabs { gap: 4px; min-width: 0; }
+}
+@media (max-width: 380px) {
+  .gm-tab { padding: 8px 9px; font-size: 0.64rem; letter-spacing: 0.08em; }
+  .gm-tab b { margin-right: 4px; }
+  .gm-dock .chip, .gm-dock__top .chip { padding: 8px 10px; }
+  .gm-bet--tight p { font-size: 0.78rem; }
+}

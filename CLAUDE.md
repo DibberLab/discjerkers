@@ -226,7 +226,12 @@ that way; don't introduce React/Vite/Tailwind here.
   throw they are shown "to" that player by name. Everything else (shanks, slips, out of bounds, match results) still uses the
   built-in lines in trash.js. To change her mind about a category, edit the JSON (`test/trash.test.js` checks its shape).
 - **Aim goes any way** (`AIM_MAX` 180 in game.js, ±180 on the server): some holes turn away from the basket.
-- **Phone layout** (≤900px): the hole fills the screen and the controls are a dock along the bottom (`.gm-panel` is an
+- **Phone layout** (≤900px; audited at 320, 360, 390, 430 px and sideways): the site header steps aside while you play (`gm-playing`, `syncTop`), reading screens
+  (menu, daily, trophies, summary...) get a tall panel, controls are at least 40px, the meter and swipe hints shrink to one line once the tip has been seen, the
+  bet is a single line, the 3D and sound chips ride at the top right, the zoom buttons hide when under 300px of hole is left (`is-tight`), and Marebear's balloon sits low.
+  **Sideways** (`max-height: 520px`) the panel is a column beside the hole, not a dock (`isDock()` is false, `S.dock` is 0). The screen is kept awake while playing
+  (wake lock), taps give a small buzz, and the page cannot be pulled to refresh mid-throw.
+- **Phone layout, the original notes** (≤900px): the hole fills the screen and the controls are a dock along the bottom (`.gm-panel` is an
   overlay; `S.dock` is its height and `midY()` centers the camera in what is left). A throw is set up in steps (Disc, Grip,
   Aim, then the four meters); caddy notes and Marebear's remarks float over the hole (`#gm-bubble`) instead of sitting in
   the panel. Desktop keeps the one side panel.
