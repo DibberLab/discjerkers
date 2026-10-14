@@ -38,15 +38,17 @@ test('the smoothness of a swing: a clean one is smooth, and a stall, a wobble or
   const q = (o) => G.gestureQuality(swing(o), 18);
   const clean = q({ downMs: 350, upMs: 450 });
   assert.ok(clean.rough < 0.05, `a clean swing: ${clean.rough}`);
+  assert.ok(q({ downMs: 350, upMs: 450, wob: 8 }).rough < 0.05 && q({ downMs: 350, upMs: 450, jx: 6, jy: 6 }).rough < 0.1, 'an ordinary hand (a little wander, a little noise) is free');
+  assert.ok(q({ downMs: 350, upMs: 450, stall: 200 }).rough < 0.1, 'a short pause at the bottom is free');
   assert.ok(q({ downMs: 350, upMs: 450, jy: 4 }).rough < 0.1, 'a touch of hand noise is free');
-  assert.ok(q({ downMs: 350, upMs: 450, stall: 450 }).rough > 0.2, 'a stall at the bottom is rough');
-  assert.ok(q({ downMs: 350, upMs: 450, wob: 22 }).rough > 0.35, 'a wobbly stroke is rough');
-  assert.ok(q({ downMs: 350, upMs: 450, jy: 12 }).rough > 0.3, 'a stuttering stroke is rough');
-  assert.ok(q({ downMs: 350, upMs: 450, jx: 14, jy: 14 }).rough > 0.3, 'jerking about is rough');
+  assert.ok(q({ downMs: 350, upMs: 450, stall: 450 }).rough > 0.15, 'a long stall at the bottom costs');
+  assert.ok(q({ downMs: 350, upMs: 450, wob: 30 }).rough > 0.2, 'a really wobbly stroke costs');
+  assert.ok(q({ downMs: 350, upMs: 450, jy: 14 }).rough > 0.2, 'a stuttering stroke costs');
+  assert.ok(q({ downMs: 350, upMs: 450, jx: 16, jy: 16 }).rough > 0.2, 'jerking about costs');
   // hesitating part way up, or a start-stop way up, is rough too
   const stages = (list) => { const pts = []; let t = 0; let y = 300; for (const [ms, dy] of list) { const y0 = y; for (let k = 0; k <= ms / 8; k++) { pts.push({ x: 200, y: y0 + dy * smooth(k / (ms / 8)), t }); t += 8; } y = y0 + dy; } return pts; };
-  assert.ok(G.gestureQuality(stages([[350, 150], [200, -70], [200, 0], [200, -80]]), 18).rough > 0.3, 'a hesitation on the way up');
-  assert.ok(G.gestureQuality(stages([[350, 150], [150, -50], [150, 10], [150, -50], [150, 10], [150, -60]]), 18).rough > 0.4, 'a start-stop way up');
+  assert.ok(G.gestureQuality(stages([[350, 150], [200, -70], [200, 0], [200, -80]]), 18).rough > 0.2, 'a hesitation on the way up');
+  assert.ok(G.gestureQuality(stages([[350, 150], [150, -50], [150, 10], [150, -50], [150, 10], [150, -60]]), 18).rough > 0.3, 'a start-stop way up');
   assert.ok(G.gestureQuality(stages([[350, 150], [450, -150]]), 18).rough < 0.05, 'one rise and fall is clean');
   for (const o of [{ downMs: 300, upMs: 200 }, { downMs: 600, upMs: 1200, wob: 5 }]) {
     const r = q(o).rough;

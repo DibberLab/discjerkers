@@ -16,8 +16,8 @@ export function peakSpeed(pts, from = 0) {
 
 /** How smooth a whole gesture was (points from the press to the end; it goes down, then comes back up): wobble off a straight line, a speed that stutters
  * instead of rising and falling once, and a stall at the turn all make it rough. `hw` is how far off straight still counts as straight (px). Returns { rough (0..1), bias (which way it bowed), ... }. */
-export function gestureQuality(pts, hw = 18) {
-  if (!pts || pts.length < 6) return { rough: 0.35, bias: 1, wobble: 0, jitter: 0, dwell: 0 };
+export function gestureQuality(pts, hw = 30) {
+  if (!pts || pts.length < 6) return { rough: 0.2, bias: 1, wobble: 0, jitter: 0, dwell: 0, reason: null };
   let bi = 0;
   for (let i = 1; i < pts.length; i++) if (pts[i].y > pts[bi].y) bi = i;
   const stroke = (a, b) => pts.slice(a, b + 1);
@@ -61,6 +61,13 @@ export function gestureQuality(pts, hw = 18) {
     const sp = (Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y) / Math.max(1, dt)) * 1000;
     if (sp < 60) dwell += dt;
   }
-  const rough = clamp(0.5 * clamp((wobble - 0.2) / 0.8, 0, 1) + 0.45 * clamp((jf - 0.1) / 0.5, 0, 1) + 0.1 * clamp((jb - 0.1) / 0.7, 0, 1) + 0.3 * clamp((dwell - 80) / 300, 0, 1), 0, 1);
-  return { rough, bias: lf.bias >= 0 ? 1 : -1, wobble, jitter: jf, dwell };
+  // each part is free up to what a normal hand does (a trackpad or a mouse wanders a little and pauses a little), then costs
+  const parts = {
+    wobble: 0.5 * clamp((wobble - 0.45) / 0.9, 0, 1),
+    stutter: 0.45 * clamp((jf - 0.3) / 0.7, 0, 1) + 0.1 * clamp((jb - 0.4) / 0.9, 0, 1),
+    stall: 0.3 * clamp((dwell - 170) / 350, 0, 1),
+  };
+  const rough = clamp(parts.wobble + parts.stutter + parts.stall, 0, 1);
+  const worst = Object.entries(parts).sort((a, b) => b[1] - a[1])[0];
+  return { rough, bias: lf.bias >= 0 ? 1 : -1, wobble, jitter: jf, dwell, reason: rough > 0.12 ? worst[0] : null };
 }
