@@ -582,6 +582,21 @@ test('the aim preview: a typical throw and a band either side of it', async () =
   assert.notStrictEqual(Math.round(lefty.end.x), Math.round(pv.end.x), 'a left-hander finishes the other way');
 });
 
+test('the aim preview can show a planned throw: the arm speed, the nose and the hyzer change where it goes', async () => {
+  const G = await load();
+  const hole = await field();
+  const disc = { id: 3, speed: 7, glide: 5, turn: -1, fade: 2 };
+  const from = { x: 0, y: 0 };
+  const typical = G.previewThrow(hole, disc, RIGHT, 0, from);
+  const same = G.previewThrow(hole, disc, RIGHT, 0, from, 40, { mph: G.typicalArm(disc), nose: 0, angle: 0 });
+  assert.deepStrictEqual(same.line.at(-1), typical.line.at(-1), 'no change from the plan is the typical throw');
+  const far = (plan) => G.distance(from, G.previewThrow(hole, disc, RIGHT, 0, from, 40, plan).end);
+  assert.ok(far({ mph: 80, nose: 0, angle: 0 }) > far({ mph: 40, nose: 0, angle: 0 }) + 40, 'a harder arm goes farther');
+  assert.ok(far({ mph: 60, nose: -5, angle: 0 }) < far({ mph: 60, nose: 0, angle: 0 }), 'nose down is shorter');
+  const sideways = (plan) => G.previewThrow(hole, disc, RIGHT, 0, from, 40, plan).end.x;
+  assert.ok(Math.abs(sideways({ mph: 60, nose: 0, angle: 4 }) - sideways({ mph: 60, nose: 0, angle: -4 })) > 15, 'hyzer and anhyzer end up in different places');
+});
+
 test('the sweet spots: each bar shows where to stop to get closest to the basket, given the bars before it', async () => {
   const G = await load();
   const hole = await field({ basket: { x: 0, y: 330 } });

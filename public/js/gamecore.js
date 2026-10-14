@@ -255,9 +255,10 @@ export function typicalArm(disc) {
 }
 // What the aim line shows before the meters: a typical throw (not perfect, not terrible) as a line, and the ground a
 // mistimed release can reach as a shaded band either side of it. Trees and water are not considered: it is a guide.
-export function previewThrow(hole, disc, settings, aimDeg, from, n = 40) {
-  const mph = typicalArm(disc);
-  const base = { hand: settings.hand, style: settings.style, mph, spin: null, angle: 0, nose: 0 };
+// With `plan` ({ mph, nose, angle }) it is the throw the player has planned instead: the line they will get from a clean release, and the band either side.
+export function previewThrow(hole, disc, settings, aimDeg, from, n = 40, plan = null) {
+  const mph = plan?.mph ?? typicalArm(disc);
+  const base = { hand: settings.hand, style: settings.style, mph, spin: null, angle: plan?.angle ?? 0, nose: plan?.nose ?? 0 };
   const path = (o) => samplePath(planThrow(hole, disc, base, aimDeg, { o, pure: false, sloppy: Math.abs(o), grade: 'Preview' }), from, n, hole);
   const line = path(0.1);
   const early = path(-0.4);

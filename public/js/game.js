@@ -5,11 +5,12 @@
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, COURSES, courseById, holeById, holesFor } from './course.js?v=13';
-import * as G from './gamecore.js?v=32';
+import * as G from './gamecore.js?v=33';
 import * as T from './trash.js?v=11';
 import * as C3 from './cam3d.js?v=21';
 import * as FO from './foliage.js?v=1';
 import * as PL from './player.js?v=1';
+import { ANGLE_MAX } from './flightmodel.js?v=1';
 import * as PF from './puttfx.js?v=17';
 import * as GR from './ground.js?v=7';
 import * as SND from './sound.js?v=4';
@@ -222,7 +223,7 @@ function startHole() {
   S.meter = null;
   S.aimOff = 0;
   S.bag = buildBag();
-  S.discId = suggest();
+  setDisc(suggest());
   try { S.best = Number(localStorage.getItem(bestKey())) || null; } catch { S.best = null; }
   if (!S.discId) { finishCourse(); return; }
   setPhase('pick');
@@ -387,6 +388,35 @@ function rangeRow({ key, label, text, value, min, max, step, aria = label, dec =
     </div>`;
 }
 
+// Planning a throw: the arm speed, the nose and the hyzer or anhyzer are set directly, and the flight over the ground (3D, or the map) shows what they will do
+const PLAN = {
+  mph: { min: G.ARM.min, max: G.ARM.max, step: G.ARM.step },
+  nose: { min: -G.NOSE_MAX, max: G.NOSE_MAX, step: 1 },
+  angle: { min: -ANGLE_MAX, max: ANGLE_MAX, step: 1 },
+};
+const planText = (key) => {
+  const t = S.settings;
+  if (key === 'angle') return angleName(t);
+  if (key === 'nose') return G.noseName(t.nose || 0);
+  const d = curDisc();
+  const slip = d ? Math.round(G.slipChance(d, t) * 100) : 0;
+  return `${t.mph} mph${slip ? ` · ${slip}% slip` : ''}`;
+};
+function planRows() {
+  const t = S.settings;
+  return `<div class="gm-plan">${[
+    rangeRow({ key: 'angle', label: 'Hyzer', text: planText('angle'), value: t.angle, ...PLAN.angle, aria: 'release angle', dec: '‹', inc: '›' }),
+    rangeRow({ key: 'nose', label: 'Nose', text: planText('nose'), value: t.nose || 0, ...PLAN.nose, aria: 'nose angle', dec: '‹', inc: '›' }),
+    rangeRow({ key: 'mph', label: 'Arm speed', text: planText('mph'), value: t.mph, ...PLAN.mph, aria: 'arm speed', dec: '−', inc: '+' }),
+  ].join('')}</div>`;
+}
+// a new disc brings the arm that gets it fully up to speed (the player can change it)
+function setDisc(id) {
+  S.discId = id;
+  const d = DISCS.get(id);
+  if (d) { S.settings.mph = G.typicalArm(d); S.settings.spin = null; }
+}
+
 const AIM_MAX = 180; // some holes turn away from the basket, so you can aim any way at all
 const aimText = (off) => (off === 0 ? 'At the basket' : Math.abs(off) === 180 ? 'Straight back' : `${Math.abs(off)}° ${off > 0 ? 'right' : 'left'}${Math.abs(off) > 90 ? ' (backwards)' : ''}`);
 
@@ -405,12 +435,12 @@ function settingsBlock() {
       <p class="gm-h">Your throw <span>· hand and aim</span></p>
       ${gripChips()}
       ${aimRow()}
-      <p class="gm-note">The dotted line is a typical throw with this disc; the shaded band is where a mistimed release can land. Your meters decide the real one.</p>
+      <p class="gm-note">Plan the flight below (hyzer or anhyzer, nose, arm speed) and watch the dashed line over the ground: it is the throw you have planned from a clean release, and the shaded band is where a mistimed release can land. A faster arm is harder to release on time.</p>
     </div>`;
 }
 
 const tipSeen = () => { try { return localStorage.getItem('dj_game_tip') === '1'; } catch { return false; } };
-const tipHtml = () => (tipSeen() ? '' : `<div class="gm-tip"><p><b>How to play:</b> pick a disc, choose forehand or backhand, and aim (drag or tap where you want it to go; Find pin lifts the camera to see the basket). Then <b>Throw</b> and tap four times: where you stop the power, nose and angle bars is your arm speed, how high the nose is tipped and your hyzer; the last tap is the release. A slow arm can grip lock or let go early, so watch the slip percentage. Trees stop low throws, water costs a stroke, and a triple bogey brings Marebear, who takes a disc.</p><button type="button" data-tip-close aria-label="Got it">×</button></div>`);
+const tipHtml = () => (tipSeen() ? '' : `<div class="gm-tip"><p><b>How to play:</b> pick a disc, choose forehand or backhand, and aim (drag or tap where you want it to go; Find pin lifts the camera to see the basket). Plan the flight with the sliders (arm speed, nose, hyzer or anhyzer) and watch the dashed line over the ground change. Then <b>Throw</b>: one tap on the release, then the swipe. A slow arm can grip lock or let go early, so watch the slip percentage. Trees stop low throws, water costs a stroke, and a triple bogey brings Marebear, who takes a disc.</p><button type="button" data-tip-close aria-label="Got it">×</button></div>`);
 
 // Marebear's remark, in a card of its own under whatever it is about
 // Marebear can be switched off (a chip over the hole, remembered): no pop-ups, no remarks, no scene, and in your own round she takes no disc
@@ -470,9 +500,9 @@ function panelPickPhone() {
   const putting = inPutt();
   const key = `${S.mode}:${S.hole.id}:${S.round.strokes}`;
   if (S.stepKey !== key) { S.stepKey = key; S.step = 'disc'; } // each throw starts with the disc
-  const steps = putting ? ['disc'] : ['disc', 'grip', 'aim'];
+  const steps = putting ? ['disc'] : ['disc', 'grip', 'aim', 'flight'];
   if (!steps.includes(S.step)) S.step = steps[0];
-  const names = { disc: 'Disc', grip: 'Grip', aim: 'Aim' };
+  const names = { disc: 'Disc', grip: 'Grip', aim: 'Aim', flight: 'Flight' };
   const i = steps.indexOf(S.step);
   const tabs = steps.length > 1
     ? `<div class="gm-tabs" role="tablist" aria-label="Set up the shot">${steps.map((k, n) => `<button class="gm-tab" type="button" role="tab" data-step="${k}" aria-selected="${k === S.step}"><b>${n + 1}</b>${names[k]}</button>`).join('')}</div>`
@@ -483,8 +513,10 @@ function panelPickPhone() {
     body = `${betHtml()}${discRow()}${pickInfo(d, { wind: G.windFor(S.hole, heading()) }, putting)}${putting && puttDd() > G.LONG_PUTT ? '<p class="gm-note">Past 30 feet the target is a pinprick.</p>' : ''}${slopeNote()}`;
   } else if (S.step === 'grip') {
     body = `${gripChips()}<p class="gm-note">Backhand or forehand, and which hand. The flight bends the other way for a lefty.</p>`;
+  } else if (S.step === 'aim') {
+    body = `${aimRow()}<p class="gm-note">Drag on the hole to aim, or use the slider.</p>`;
   } else {
-    body = `${aimRow()}<p class="gm-note">Drag on the hole to aim, or use the slider. The dotted line is a typical throw; the band is where a mistimed release can land.</p>`;
+    body = `${planRows()}<p class="gm-note">The dashed line is the flight you have planned; the band is where a mistimed release can land.</p>`;
   }
   const last = i === steps.length - 1;
   const go = last ? `<button class="btn" type="button" data-go>${putting ? 'Putt' : 'Throw'}</button>` : `<button class="btn" type="button" data-next-step>${names[steps[i + 1]]} <small>next</small></button>`;
@@ -515,7 +547,8 @@ function panelPick() {
     ${putting
       ? `<p class="gm-sub"><b>${ft(dist)}</b> from the basket. One tap: catch the dot inside the green circle as it swirls past. Short putts get a big target and a slow dot; a faster disc shrinks it.${dist > G.LONG_PUTT ? ' <b>Past 30 feet it is a long shot: the target is a pinprick and the dot flies.</b>' : ''}</p>`
       : settingsBlock()}
-    <div class="gm-go">
+    <div class="gm-go${putting ? '' : ' gm-go--plan'}">
+      ${putting ? '' : planRows()}
       <button class="btn" type="button" data-go>${putting ? 'Putt' : 'Throw'}</button>
       <p class="gm-go__line">Stroke <b>${strokes + 1}</b> · Par <b>${S.hole.par}</b> · ${putting ? `${ft(dist)} out` : `${ft(dist)} to the basket`}${slopeBit(S.hole, lieOf())}</p>
     </div>`;
@@ -610,11 +643,11 @@ const releaseHint = (risk) => `Tap when the needle crosses the middle. Early goe
 function panelMeter() {
   const kind = S.phase;
   const d = curDisc();
-  const stages = kind === 'putt' ? [] : METER_STAGES;
+  const stages = kind === 'putt' ? [] : S.meter?.plan ? ['release'] : METER_STAGES;
   const n = stages.indexOf(kind) + 1;
   const names = { power: 'Power', nose: 'Nose', angle: 'Angle', release: 'Release', putt: 'Putt' };
   const risk = kind === 'release' && d ? Math.round(G.slipChance(d, S.settings) * 100) : 0;
-  const title = kind === 'putt' ? 'Putt' : `<span>${n} ·</span> ${names[kind]}`;
+  const title = kind === 'putt' ? 'Putt' : S.meter?.plan ? 'Release' : `<span>${n} ·</span> ${names[kind]}`;
   const hints = {
     power: 'Tap to set your arm speed. The lime band is the sweet spot: the speeds that put this disc closest to the basket from here. Past the hatched end the marker flies, and fast arms are harder to time.',
     nose: 'Tap to set the nose angle. The lime band is the sweet spot for the speed you chose; the white tick is level. Nose up lifts the disc (over a shrub or a low tree) but spends distance; nose down keeps it low and flat, and shorter.',
@@ -816,10 +849,10 @@ function startMeter() {
     S.meter = { kind: 'putt', before: { ...S.settings }, start: now(), radius: G.puttRadius(puttDd(), d) * G.puttGrip(S.hole), speed: G.puttSpeed(puttDd()), params: G.makePuttSeed(Math.random) };
     setPhase('putt');
   } else {
-    // four taps: power, nose and angle each choose a value of the throw, then the release is graded
-    S.meter = { kind: 'power', before: { ...S.settings }, start: now(), mph: null, rel: null, sweet: {} };
-    sweetFor('power');
-    setPhase('power');
+    // the arm speed, nose and hyzer were planned (and shown) before this: one tap is left, the release, and then the swipe
+    S.settings.spin = null;
+    S.meter = { kind: 'release', plan: true, before: { ...S.settings }, start: now(), mph: S.settings.mph, rel: G.releaseSetup(S.settings.mph), sweet: {} };
+    setPhase('release');
   }
 }
 
@@ -1541,7 +1574,7 @@ function finishCourse() {
 
 function next() {
   if (S.round.done) { finishHole(); return; }
-  S.discId = suggest(); // a driver from the tee, a putter on the green: you can change it
+  setDisc(suggest()); // a driver from the tee, a putter on the green: you can change it
   S.aimOff = 0;
   S.view3 = 'behind';
   setPhase('pick');
@@ -1982,10 +2015,11 @@ function drawTrail() {
 // the aim line and its band only change when something about the throw does, not every frame
 function previewNow(lie) {
   const d = curDisc();
-  const key = [S.hole.id, S.hole.wind.mph, S.hole.wind.from, S.hole.basket.x, S.hole.basket.y, d.id, d.turn, S.settings.hand, S.settings.style, heading(), lie.x, lie.y].join('|');
+  const plan = { mph: S.settings.mph, nose: S.settings.nose || 0, angle: S.settings.angle || 0 }; // the throw as planned: it is the line you will get from a clean release
+  const key = [S.hole.id, S.hole.wind.mph, S.hole.wind.from, S.hole.basket.x, S.hole.basket.y, d.id, d.turn, S.settings.hand, S.settings.style, heading(), lie.x, lie.y, plan.mph, plan.nose, plan.angle].join('|');
   if (S.previewKey !== key) {
     S.previewKey = key;
-    S.preview = { pv: G.previewThrow(S.hole, d, S.settings, heading(), lie), end: G.previewThrow(S.hole, d, S.settings, heading(), lie, 8).end };
+    S.preview = { pv: G.previewThrow(S.hole, d, S.settings, heading(), lie, 40, plan), end: G.previewThrow(S.hole, d, S.settings, heading(), lie, 8, plan).end };
   }
   return S.preview;
 }
@@ -2498,12 +2532,21 @@ function aimOverlay(c, view, lie) {
     stroke(pv.line, ground, 'rgba(238,241,232,0.28)', 1.6, [2, 6]); // where it passes over the ground
     stroke(pv.line, air, 'rgba(163,230,53,0.92)', 2.6, [8, 6]); // and the flight itself
     const e = ground(end);
-    if (e) { // where it comes down
+    if (e) { // where it comes down, and how far that is
       g.beginPath();
       g.ellipse(e.x, e.y, Math.max(6, 9 * e.s), Math.max(3, 4.5 * e.s), 0, 0, Math.PI * 2);
       g.strokeStyle = 'rgba(163,230,53,0.95)';
       g.lineWidth = 2;
       g.stroke();
+      const label = `${Math.round(G.distance(lie, end))} ft`;
+      g.font = '700 12px "Space Mono", monospace';
+      g.textAlign = 'center';
+      g.textBaseline = 'bottom';
+      g.lineWidth = 3;
+      g.strokeStyle = 'rgba(6,11,7,0.8)';
+      g.strokeText(label, e.x, e.y - Math.max(8, 10 * e.s));
+      g.fillStyle = '#d9f99d';
+      g.fillText(label, e.x, e.y - Math.max(8, 10 * e.s));
     }
   };
 }
@@ -2797,6 +2840,15 @@ function rangeEvent(e) {
   const input = e.type === 'change' ? e.target.closest('[data-gr]') : null;
   const src = stepBtn || input;
   if (!src) return false;
+  const key = stepBtn ? stepBtn.dataset.gstep : input.dataset.gr;
+  if (PLAN[key]) { // a part of the planned flight: arm speed, nose or hyzer
+    const sp = PLAN[key];
+    const next = stepBtn ? (S.settings[key] || 0) + Number(stepBtn.dataset.dir) * sp.step : Number(input.value);
+    S.settings[key] = clamp(Math.round(next / sp.step) * sp.step, sp.min, sp.max);
+    S.settings.spin = null;
+    renderPanel(`[data-gr="${key}"]`);
+    return true;
+  }
   const next = stepBtn ? S.aimOff + Number(stepBtn.dataset.dir) : Number(input.value);
   S.aimOff = clamp(Math.round(next), -AIM_MAX, AIM_MAX);
   renderPanel('[data-gr="aim"]');
@@ -2818,7 +2870,7 @@ function onPanelClick(e) {
     backOut();
   } else if (t.closest('[data-disc]')) {
     const id = Number(t.closest('[data-disc]').dataset.disc);
-    if (!S.round.eaten.includes(id)) { S.discId = id; renderPanel(`[data-disc="${id}"]`); retarget(false); }
+    if (!S.round.eaten.includes(id)) { setDisc(id); renderPanel(`[data-disc="${id}"]`); retarget(false); }
   } else if (t.closest('[data-step]')) {
     S.step = t.closest('[data-step]').dataset.step;
     renderPanel();
@@ -2932,6 +2984,7 @@ function onPanelInput(e) {
   const out = r.closest('.fg-rng').querySelector('output');
   const key = r.dataset.gr;
   if (key === 'aim') { S.aimOff = v; out.textContent = aimText(v); retarget(false); }
+  else if (PLAN[key]) { S.settings[key] = v; S.settings.spin = null; out.textContent = planText(key); } // the line over the ground follows as you slide
 }
 
 /* ----- keyboard and controller: the same few actions, whichever made them ----- */
@@ -2957,7 +3010,7 @@ function selectKind(step) {
   const kindOf = (d) => (d.speed <= 4 ? 'p' : d.speed <= 6 ? 'm' : d.speed <= 9 ? 'f' : 'd');
   const i = kinds.indexOf(kindOf(cur));
   const k = kinds[(i + step + kinds.length) % kinds.length];
-  S.discId = list.find((d) => kindOf(d) === k).id;
+  setDisc(list.find((d) => kindOf(d) === k).id);
   renderPanel(`[data-disc="${S.discId}"]`);
   retarget(false);
 }
@@ -2965,7 +3018,7 @@ function selectDisc(step) {
   const list = available();
   if (!list.length) return;
   const i = list.findIndex((x) => x.disc.id === S.discId);
-  S.discId = list[(i + step + list.length) % list.length].disc.id;
+  setDisc(list[(i + step + list.length) % list.length].disc.id);
   renderPanel(`[data-disc="${S.discId}"]`);
   retarget(false);
 }
@@ -3446,7 +3499,7 @@ function applyView(view) {
       return { disc: DISCS.get(d.id), item: own || (d.color ? { color: d.color } : null) };
     }).filter((x) => x.disc),
   };
-  if (!S.bag.discs.some((x) => x.disc.id === S.discId && !S.round.eaten.includes(x.disc.id))) S.discId = suggest();
+  if (!S.bag.discs.some((x) => x.disc.id === S.discId && !S.round.eaten.includes(x.disc.id))) setDisc(suggest());
   S.aimOff = 0;
   setPhase(matchPhase());
   retarget(true);
@@ -3924,7 +3977,7 @@ async function boot() {
     if (!account.user && (S.mode === 'match' || S.mode === 'lobby')) { showMenu(); return; }
     if (S.mode === 'match') return; // a match keeps the bag it started with
     S.bag = buildBag();
-    if (!S.bag.discs.some((x) => x.disc.id === S.discId)) S.discId = suggest();
+    if (!S.bag.discs.some((x) => x.disc.id === S.discId)) setDisc(suggest());
     if (S.phase === 'pick' || S.phase === 'menu' || S.phase === 'lobby') renderPanel();
   });
   // a link to a match (?match=CODE): read it before the page tidies its own address

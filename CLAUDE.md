@@ -114,7 +114,13 @@ that way; don't introduce React/Vite/Tailwind here.
   the route: **a new or changed hole must stay solvable in par**, and a short way across must not exist where the hole
   is meant to turn (the bot finds it). A round is a practice hole, the front nine, or all eighteen, with a scorecard;
   discs Marebear eats stay eaten for the round.
-- The throw meter is four taps for every full throw, in order: **power, nose, angle, release**. Arm speed, nose angle and hyzer are NOT settings: where the marker stops on each of the first three bars is the value (spin just follows the arm speed). The **nose angle** (-5..5 steps of 2.5 degrees, `settings.nose`) tips the front of the disc: up lifts the arc (over a shrub or low branch) and spends distance, down keeps it low and short. Woods are 68+ ft tall, above the highest lob. Hand, style and aim are set first;
+- **Planning the flight** (replaces the power, nose and angle meters for every non-putt throw; `PLAN`, `planRows`, `planText`, `setDisc` in `game.js`): three slim sliders beside the Throw
+  button (a fourth tab, Flight, on a phone) set the **hyzer or anhyzer**, the **nose** and the **arm speed** directly (the same `settings.angle`, `nose`, `mph` the meters used, so the server
+  and its range checks are unchanged), and the aim line over the ground (3D, or the map) is the throw as planned from a clean release (`previewThrow(..., plan)`), with a label for how far
+  it goes, and the shaded band is where a mistimed release lands. A new disc brings the arm that gets it fully up to speed (`typicalArm`). Throw then goes straight to the **release** tap
+  (`S.meter.plan`; a faster arm still has a faster needle and a narrower zone, and a slow one can slip: the slip % is on the arm speed row), then the swipe. The old power/nose/angle meter
+  code is still there but nothing reaches it. Putts are unchanged (the radar and the swipe).
+- (The old throw meter, kept for reference.) The throw meter was four taps for every full throw, in order: **power, nose, angle, release**. Arm speed, nose angle and hyzer are NOT settings: where the marker stops on each of the first three bars is the value (spin just follows the arm speed). The **nose angle** (-5..5 steps of 2.5 degrees, `settings.nose`) tips the front of the disc: up lifts the arc (over a shrub or low branch) and spends distance, down keeps it low and short. Woods are 68+ ft tall, above the highest lob. Hand, style and aim are set first;
   a putt is one tap on a swirling circular green (the dot's path is seeded and never repeats, and a miss goes the way
   the dot was). Only the release is a skill test (`sanitizeExecution` is what a server accepts back for it); the other
   three are choices, and `sanitizeSettings` range-checks them.
@@ -339,7 +345,7 @@ that way; don't introduce React/Vite/Tailwind here.
   the server rolls them in a match; into water it costs a stroke). `puttScript` turns that into a film (where the disc is every
   millisecond, with marks for the drop, the rim lap, the spit and the roll) and `drawPuttFx` draws the reaction: CHAINS! with
   rings and confetti, a cold-washed RIMMED OUT, NASTY ROLL with the camera following the disc.
-- Modules import each other with `?v=N` (now `course.js` 13, `gamecore.js` 32, `cam3d.js` 21, `puttfx.js` 17, `player.js` 1, `foliage.js` 1, `ground.js` 7, `sound.js` 4, `marebear.js` 2, `conditions.js` 5, `daily.js` 1, `gamepanels.js` 3, `progress.js` 2, `trash.js` 11, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
+- Modules import each other with `?v=N` (now `course.js` 13, `gamecore.js` 33, `cam3d.js` 21, `puttfx.js` 17, `player.js` 1, `foliage.js` 1, `ground.js` 7, `sound.js` 4, `marebear.js` 2, `conditions.js` 5, `daily.js` 1, `gamepanels.js` 3, `progress.js` 2, `trash.js` 11, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 
 ## Deploy

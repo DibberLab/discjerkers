@@ -334,7 +334,7 @@
   .gm-panel { padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); }
   /* fingers: every control at least 40px tall */
   .gm-dock .chip, .gm-dock__top .chip, .gm-bet .chip, .gm-roundbar .chip, .gm-matches .chip, .gm-replay .chip, .gm-card .chip { min-height: 40px; padding: 8px 14px; font-size: 0.7rem; }
-  .gm-tab { min-height: 40px; padding: 8px 14px; font-size: 0.72rem; }
+  .gm-tab { min-height: 40px; padding: 8px 9px; font-size: 0.66rem; letter-spacing: 0.05em; }
   .gm-aimrow .chip { min-height: 40px; min-width: 40px; }
   /* words you have to read: not tiny */
   .gm-note, .gm-dock .gm-note { font-size: 0.72rem; line-height: 1.45; }
@@ -383,8 +383,8 @@
   .gm-tabs { gap: 4px; min-width: 0; }
 }
 @media (max-width: 380px) {
-  .gm-tab { padding: 8px 9px; font-size: 0.64rem; letter-spacing: 0.08em; }
-  .gm-tab b { margin-right: 4px; }
+  .gm-tab { padding: 8px 7px; font-size: 0.6rem; letter-spacing: 0.04em; }
+  .gm-tab b { margin-right: 3px; }
   .gm-dock .chip, .gm-dock__top .chip { padding: 8px 10px; }
   .gm-bet--tight p { font-size: 0.78rem; }
 }
@@ -416,3 +416,19 @@
 .gm-course[aria-pressed="true"] { border-color: var(--lime); background: rgba(163, 230, 53, 0.08); }
 .gm-course[aria-pressed="true"] b { color: var(--lime); }
 .gm-course:focus-visible { outline: 3px solid var(--lime); outline-offset: 2px; }
+
+/* the planned flight: three slim rows (label, slider, value), kept in the always-visible block beside the Throw button */
+.gm-plan { display: grid; gap: 2px; }
+.gm-plan .fg-rng { display: grid; grid-template-columns: 74px 1fr auto; align-items: center; gap: 6px; margin: 0; padding: 2px 0; border-top: 0; }
+.gm-plan .fg-rng__top { display: contents; }
+.gm-plan .fg-rng__top .fg-wind__l { order: 1; font-size: 0.6rem; }
+.gm-plan .fg-rng__bar { order: 2; margin: 0; min-width: 0; }
+.gm-plan .fg-rng__top output { order: 3; margin: 0; min-width: 96px; font-size: 0.72rem; text-align: right; white-space: nowrap; }
+.gm-plan .fg-rng__bar button { min-width: 34px; min-height: 34px; }
+.gm-go .gm-plan { margin-bottom: 8px; }
+.gm-go--plan { background: var(--panel); border-top: 1px solid var(--hair); }
+@media (max-width: 900px) {
+  .gm-plan .fg-rng { grid-template-columns: 62px 1fr auto; }
+  .gm-plan .fg-rng__top output { min-width: 84px; font-size: 0.68rem; }
+  .gm-plan .fg-rng__bar button { min-width: 40px; min-height: 40px; }
+}
