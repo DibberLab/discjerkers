@@ -217,6 +217,12 @@ that way; don't introduce React/Vite/Tailwind here.
   `mergeGame`, saved a few seconds after a change). Honor system, like the meters. In a **match** the server freezes each disc's wear into the bag
   snapshot (`w`) and plays it that way (`playDisc`), and the page does the same from the seat, so both agree. Goals fire from `trackThrow`/`trackHole` and
   the round/daily/bet hooks in `game.js`; Marebear grudgingly congratulates (`announce`). "Trophies and skins" in the menu shows it all.
+- **Frame cost** (no freezes, no flicker): anything that takes more than a few ms is done in slices. `warm(hole)` in `ground.js` makes a hole's colours and
+  map picture in the background, 6 ms at a time, when the hole begins (the map overlay fades in when ready); the sweet-spot bands are a job (`sweetJob`,
+  `next(n)`) the page pumps between frames; the aim preview is cached until something about the throw changes (`previewNow`); and the map's still parts
+  (ground, then trees) are drawn once into pictures of their own when the camera settles (`drawStill`), so only the water ripples, the trail and the throw
+  are drawn each frame. A day's hole (`Object.create(hole)`) shares its ground cache with the real hole (`baseOf`). A 3D view that first meets a hole whose
+  colours are not ready builds them on the spot, which is the one long frame left: warm early.
 - **Quick start**: "Quick warm-up" is three holes (`WARMUP` in `course.js`: 1, 2, 5); "Play a friend now" signs in if need be, makes a 9-hole match
   and opens the share sheet (or copies the link).
 - **Slow motion**: an ace (drive) or a long putt going in is slowed (flight 1.5x, the putt's film 1.4x) with letterbox bars (`drawCine`); a landing
@@ -281,7 +287,7 @@ that way; don't introduce React/Vite/Tailwind here.
   the server rolls them in a match; into water it costs a stroke). `puttScript` turns that into a film (where the disc is every
   millisecond, with marks for the drop, the rim lap, the spit and the roll) and `drawPuttFx` draws the reaction: CHAINS! with
   rings and confetti, a cold-washed RIMMED OUT, NASTY ROLL with the camera following the disc.
-- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 25, `cam3d.js` 15, `puttfx.js` 11, `ground.js` 4, `sound.js` 2, `marebear.js` 1, `conditions.js` 2, `daily.js` 1, `gamepanels.js` 2, `progress.js` 1, `trash.js` 8, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
+- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 26, `cam3d.js` 16, `puttfx.js` 12, `ground.js` 5, `sound.js` 2, `marebear.js` 1, `conditions.js` 2, `daily.js` 1, `gamepanels.js` 2, `progress.js` 1, `trash.js` 8, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 
 ## Deploy

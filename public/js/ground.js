@@ -23,37 +23,56 @@ const hash = (a, b, c = 0) => { const n = Math.sin(a * 127.1 + b * 311.7 + c * 7
 
 /* ---------- the colour of each cell of the grid ---------- */
 
+/* Both of these are made in slices, a few milliseconds at a time, in the background when a hole begins (`warm`), so that no single frame has to
+   do the whole job: building a hole's colours or its map picture in one go took a fifth of a second on a laptop, and much more on a phone,
+   which showed as a freeze the first time a hole was seen in 3D. */
+// a day's version of a hole (conditions.js) shares its land, trees and water with the real one, so it shares these too
+const baseOf = (hole) => (hole.variant ? Object.getPrototypeOf(hole) : hole);
+let deadline = Infinity;
+const late = () => performance.now() > deadline;
+
 const cache = new WeakMap();
 // For a hole with ground: { cols, cls, nx, ny } where cols is r, g, b (0..255) of each cell of the field (a cell is the square between four
 // grid points) with its kind of ground, its slope's light, its mown stripe and a little noise already in; cls is the kind of ground
-// it mostly is (index into KINDS). Made once per hole, on first use.
-export function groundCells(hole) {
+// it mostly is (index into KINDS). Made once per hole; here, all at once, if nobody has `warm`ed it yet.
+export function groundCells(day) {
+  const hole = baseOf(day);
   const hit = cache.get(hole);
   if (hit) return hit;
+  deadline = Infinity;
+  const g = newCells(hole);
+  for (const _ of cellsGen(hole, g)) void _;
+  cache.set(hole, g);
+  return g;
+}
+function newCells(hole) {
   const f = hole.field;
   const nx = f.nx - 1;
   const ny = f.ny - 1;
-  const cols = new Uint8ClampedArray(nx * ny * 3);
-  const cls = new Uint8Array(nx * ny);
-  const subs = [0.17, 0.5, 0.83];
+  return { cols: new Uint8ClampedArray(nx * ny * 3), cls: new Uint8Array(nx * ny), nx, ny };
+}
+const SUBS = [0.25, 0.75];
+function* cellsGen(hole, g) {
+  const f = hole.field;
+  const { nx, ny, cols, cls } = g;
   for (let j = 0; j < ny; j++) {
     for (let i = 0; i < nx; i++) {
       const x0 = f.x0 + i * f.step;
       const y0 = f.y0 + j * f.step;
       const count = [0, 0, 0, 0, 0];
-      for (const u of subs) for (const v of subs) count[KINDS.indexOf(surfaceAt(hole, x0 + u * f.step, y0 + v * f.step))]++;
+      for (const u of SUBS) for (const v of SUBS) count[KINDS.indexOf(surfaceAt(hole, x0 + u * f.step, y0 + v * f.step))]++;
       let top = 0;
       let r = 0;
-      let g = 0;
+      let gg = 0;
       let b = 0;
       for (let k = 0; k < 5; k++) {
         if (count[k] > count[top]) top = k;
         const c = PALETTE[KINDS[k]];
         r += c[0] * count[k];
-        g += c[1] * count[k];
+        gg += c[1] * count[k];
         b += c[2] * count[k];
       }
-      r /= 9; g /= 9; b /= 9;
+      r /= 4; gg /= 4; b /= 4;
       // the slope: where the four corners are
       const z00 = f.z[j * f.nx + i];
       const z10 = f.z[j * f.nx + i + 1];
@@ -69,14 +88,12 @@ export function groundCells(hole) {
       if (top !== 3) light *= 1 + (hash(i, j) - 0.5) * 0.1; // a little unevenness
       const o = (j * nx + i) * 3;
       cols[o] = r * light;
-      cols[o + 1] = g * light;
+      cols[o + 1] = gg * light;
       cols[o + 2] = b * light;
       cls[o / 3] = top;
     }
+    if (late()) yield;
   }
-  const out = { cols, cls, nx, ny };
-  cache.set(hole, out);
-  return out;
 }
 export const KIND = { rough: 0, fairway: 1, tee: 2, water: 3, oob: 4 };
 
@@ -129,14 +146,10 @@ export function contours(hole, every = 4) {
 }
 
 const layers = new WeakMap();
-/**
- * The picture laid over the map's flat colours: hill shading (light from the north-west), mown stripes, grass flecks and contour lines.
- * Returns { canvas, minX, maxY, w, h } (feet), or null where there is no screen to draw on (or the hole is flat).
- */
-export function mapLayer(hole) {
-  if (!hole.field || typeof document === 'undefined') return null;
-  const hit = layers.get(hole);
-  if (hit) return hit;
+const warming = new WeakSet();
+
+// the picture, built a slice at a time (see `warm`); `out` is filled in as it goes and is only handed out when it is finished
+function* layerGen(hole, g, out) {
   const b = hole.bounds;
   const f = hole.field;
   const wFt = b.maxX - b.minX;
@@ -170,6 +183,7 @@ export function mapLayer(hole) {
       const o = (py * sw + px) * 4;
       if (l >= 0) { img.data[o] = 255; img.data[o + 1] = 250; img.data[o + 2] = 205; img.data[o + 3] = Math.min(70, l * 230); } else { img.data[o] = 3; img.data[o + 1] = 10; img.data[o + 2] = 6; img.data[o + 3] = Math.min(130, -l * 360); }
     }
+    if (late()) yield;
   }
   sx.putImageData(img, 0, 0);
   cx.imageSmoothingEnabled = true;
@@ -186,19 +200,22 @@ export function mapLayer(hole) {
     cx.closePath();
     cx.fill();
   }
-  // grass: flecks, thicker and darker in the rough, a few light ones on the fairway
+  yield;
+  // grass: flecks, thicker and darker in the rough, a few light ones on the fairway (what kind of ground a spot is comes from the cells)
   const rnd = seeded((hole.id || 1) * 977);
   const cnt = Math.floor((wFt * hFt) / 7);
   for (let a = 0; a < cnt; a++) {
     const x = b.minX + rnd() * wFt;
     const y = b.minY + rnd() * hFt;
-    const kind = surfaceAt(hole, x, y);
-    if (kind === 'water' || kind === 'oob') continue;
+    const ci = Math.floor((y - f.y0) / f.step) * g.nx + Math.floor((x - f.x0) / f.step);
+    const kind = g.cls[ci];
     const u = rnd();
-    if (kind === 'rough') cx.fillStyle = u < 0.55 ? 'rgba(6,20,10,0.3)' : u < 0.9 ? 'rgba(96,150,70,0.16)' : 'rgba(220,200,90,0.2)';
-    else cx.fillStyle = u < 0.7 ? 'rgba(255,255,255,0.07)' : 'rgba(0,16,4,0.13)';
     const s = (0.5 + rnd() * 0.9) * k;
+    if (kind === undefined || kind === 3 || kind === 4) continue;
+    if (kind === 0) cx.fillStyle = u < 0.55 ? 'rgba(6,20,10,0.3)' : u < 0.9 ? 'rgba(96,150,70,0.16)' : 'rgba(220,200,90,0.2)';
+    else cx.fillStyle = u < 0.7 ? 'rgba(255,255,255,0.07)' : 'rgba(0,16,4,0.13)';
     cx.fillRect(U(x), V(y), s * 1.3, s * 0.8);
+    if ((a & 1023) === 0 && late()) yield;
   }
   // contour lines: every 4 ft, and a heavier one every 12
   const lines = contours(hole, 4);
@@ -213,7 +230,38 @@ export function mapLayer(hole) {
     cx.lineWidth = heavy ? 1.7 : 1.1;
     cx.stroke();
   }
-  const out = { canvas, minX: b.minX, maxY: b.maxY, w: wFt, h: hFt };
-  layers.set(hole, out);
-  return out;
+  Object.assign(out, { canvas, minX: b.minX, maxY: b.maxY, w: wFt, h: hFt, readyAt: performance.now() });
+}
+
+/**
+ * Start making a hole's colours and map picture in the background, a few milliseconds at a time (so no frame has to do it all).
+ * Call it when a hole begins; the map and the 3D view use what is ready, and `mapLayer` returns null until the picture is.
+ */
+export function warm(day) {
+  if (!day) return;
+  const hole = baseOf(day);
+  if (!hole.field || typeof document === 'undefined' || warming.has(hole)) return;
+  warming.add(hole);
+  const g = cache.get(hole) || newCells(hole);
+  const out = {};
+  const job = (function* all() {
+    if (!cache.has(hole)) { yield* cellsGen(hole, g); cache.set(hole, g); }
+    yield* layerGen(hole, g, out);
+    layers.set(hole, out);
+  }());
+  const slice = () => {
+    deadline = performance.now() + 6;
+    let r;
+    try { r = job.next(); } catch (err) { console.error('ground: could not prepare a hole', err); deadline = Infinity; return; }
+    deadline = Infinity;
+    if (!r.done) setTimeout(slice, 0);
+  };
+  setTimeout(slice, 0);
+}
+
+/** The picture laid over the map (hill shading, mown stripes, grass flecks, contour lines), or null if it is not finished yet (or there is no screen). */
+export function mapLayer(day) {
+  const hole = baseOf(day);
+  if (!hole.field || typeof document === 'undefined') return null;
+  return layers.get(hole) || null;
 }

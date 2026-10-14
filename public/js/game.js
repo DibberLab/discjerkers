@@ -5,11 +5,11 @@
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=11';
-import * as G from './gamecore.js?v=25';
+import * as G from './gamecore.js?v=26';
 import * as T from './trash.js?v=8';
-import * as C3 from './cam3d.js?v=15';
-import * as PF from './puttfx.js?v=11';
-import * as GR from './ground.js?v=4';
+import * as C3 from './cam3d.js?v=16';
+import * as PF from './puttfx.js?v=12';
+import * as GR from './ground.js?v=5';
 import * as SND from './sound.js?v=2';
 import * as MB from './marebear.js?v=1';
 import * as K from './conditions.js?v=2';
@@ -198,6 +198,7 @@ function suggest() {
 function startHole() {
   S.hole = holeNow(S.course.holes[S.course.idx]); // the day's conditions on this hole
   S.bet = null;
+  GR.warm(S.hole); // the ground's colours and the map's picture, made in the background
   S.quip = '';
   S.round = G.newRound(S.hole);
   S.round.eaten = [...(S.course?.eaten || [])];
@@ -779,11 +780,25 @@ function startMeter() {
 }
 
 // where a bar's sweet spot is, given what the earlier bars set: worked out as a bar begins, then drawn on it
+// The sweet spots take hundreds of trial throws to find, so they are worked out a few milliseconds at a time between frames (the meter
+// is on screen at once, and the lime bands appear when they are ready) instead of freezing the game for a moment at each stage.
 function sweetFor(stage) {
   const d = curDisc();
-  if (!d || !S.meter) return;
+  const meter = S.meter;
+  if (!d || !meter) return;
   const base = { hand: S.settings.hand, style: S.settings.style, mph: S.settings.mph, spin: null, nose: stage === 'angle' ? S.settings.nose : 0, angle: 0 };
-  S.meter.sweet[stage] = G.sweetBands(G.sweetSpots(S.hole, d, base, heading(), lieOf(), stage));
+  const job = G.sweetJob(S.hole, d, base, heading(), lieOf(), stage);
+  meter.sweet[stage] = [];
+  const pump = () => {
+    if (S.meter !== meter) return; // the throw moved on
+    const t0 = performance.now();
+    while (!job.done() && performance.now() - t0 < 5) job.next(2);
+    if (!job.done()) { setTimeout(pump, 0); return; }
+    meter.sweet[stage] = G.sweetBands(job.result());
+    const bar = $('#gm-bar');
+    if (bar && S.phase === stage) { bar.querySelectorAll('.gm-zone--sweet').forEach((e) => e.remove()); bar.insertAdjacentHTML('afterbegin', sweetMarkup(stage)); }
+  };
+  setTimeout(pump, 0);
 }
 
 function tap() {
@@ -1290,7 +1305,7 @@ function endBear() {
 /* ---------- the camera ---------- */
 
 const cv = $('#gm-canvas');
-const ctx = cv.getContext('2d');
+let ctx = cv.getContext('2d'); // (let: the still parts of the picture are drawn into a picture of their own, see drawStill)
 let W = 0;
 let H = 0;
 let dpr = 1;
@@ -1374,7 +1389,7 @@ function poly(points, close = true) {
   if (close) ctx.closePath();
 }
 
-function drawCourse(t) {
+function drawCourse() {
   const h = S.hole;
   ctx.fillStyle = '#060d08';
   ctx.fillRect(0, 0, W, H);
@@ -1459,30 +1474,79 @@ function drawCourse(t) {
     ctx.strokeStyle = '#4a93b4';
     ctx.lineWidth = 2;
     ctx.stroke();
-    ctx.save();
-    poly(w);
-    ctx.clip();
-    ctx.strokeStyle = 'rgba(190,230,245,0.18)';
-    ctx.lineWidth = 1;
-    const xs = w.map((q) => q[0]);
-    const ys = w.map((q) => q[1]);
-    for (let y = Math.min(...ys); y < Math.max(...ys); y += 14) {
-      ctx.beginPath();
-      for (let x = Math.min(...xs); x <= Math.max(...xs); x += 6) {
-        const [sx, sy] = P(x, y + Math.sin(x * 0.12 + t / 700 + y) * 2);
-        if (x === Math.min(...xs)) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
-      }
-      ctx.stroke();
-    }
-    ctx.restore();
   }
   ctx.restore();
   // the lay of the land over all of it: hill shading, mown stripes, grass flecks and contour lines
   const layer = GR.mapLayer(h);
   if (layer) {
     const [lx, ly] = P(layer.minX, layer.maxY);
+    ctx.save();
+    ctx.globalAlpha = clamp((performance.now() - layer.readyAt) / 500, 0, 1); // it fades in when it is ready, instead of popping
     ctx.drawImage(layer.canvas, lx, ly, layer.w * cam.s, layer.h * cam.s);
+    ctx.restore();
   }
+}
+
+// the ripples on the water, which are the one part of the ground that moves: drawn on top of the still picture, only where they can be seen
+function drawWaves(t) {
+  const h = S.hole;
+  if (!h.water.length) return;
+  const lo = toWorld(0, H);
+  const hi = toWorld(W, 0);
+  const bb = h.bounds;
+  const [bx0, by0] = P(bb.minX, bb.maxY);
+  const [bx1, by1] = P(bb.maxX, bb.minY);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(bx0, by0, bx1 - bx0, by1 - by0); // a creek runs on past the edge of the course, so it is cut off there
+  ctx.clip();
+  ctx.strokeStyle = 'rgba(190,230,245,0.18)';
+  ctx.lineWidth = 1;
+  for (const w of h.water) {
+    let x0 = Infinity; let x1 = -Infinity; let y0 = Infinity; let y1 = -Infinity;
+    for (const q of w) { x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]); y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1]); }
+    if (x1 < lo.x || x0 > hi.x || y1 < lo.y || y0 > hi.y) continue; // off the screen
+    ctx.save();
+    poly(w);
+    ctx.clip();
+    for (let y = Math.max(y0, Math.floor(lo.y / 14) * 14); y < Math.min(y1, hi.y); y += 14) {
+      ctx.beginPath();
+      let first = true;
+      for (let x = Math.max(x0, lo.x - 6); x <= Math.min(x1, hi.x + 6); x += 6) {
+        const [sx, sy] = P(x, y + Math.sin(x * 0.12 + t / 700 + y) * 2);
+        if (first) { ctx.moveTo(sx, sy); first = false; } else ctx.lineTo(sx, sy);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+/* ----- the parts of the picture that do not move are drawn once ----- */
+
+// The ground and the trees (a thousand of them on some holes) are the same picture frame after frame while the camera is still, which is
+// most of the time. So once the camera has settled they are drawn into pictures of their own, and each frame just lays those down.
+const still = { key: '', n: 0, ground: null, trees: null };
+const stillKey = () => [S.hole.id, S.hole.variant?.seed ?? '', S.hole.basket.x, S.hole.basket.y, W, H, dpr, cam.x.toFixed(2), cam.y.toFixed(2), cam.s.toFixed(4), GR.mapLayer(S.hole) ? 1 : 0].join('|');
+function drawStill(which, draw) {
+  const key = stillKey();
+  if (still.key !== key) { still.key = key; still.n = 0; still.ground = still.trees = null; } else still.n += which === 'ground' ? 1 : 0;
+  if (still[which]) { ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(still[which], 0, 0); ctx.restore(); return; }
+  const layer = GR.mapLayer(S.hole);
+  const fading = !!layer && performance.now() - layer.readyAt < 520; // the map's shading is fading in: wait until it has
+  if (still.n >= 3 && !fading) { // the camera has settled: draw this part into a picture, once
+    const off = document.createElement('canvas');
+    off.width = cv.width;
+    off.height = cv.height;
+    const main = ctx;
+    ctx = off.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    try { draw(); still[which] = off; } finally { ctx = main; }
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(off, 0, 0); ctx.restore();
+    return;
+  }
+  draw();
 }
 
 // the trees, seen from above: white pine (dark, spiky), maple (round, some turning), oak (broad and olive), and low shrubs and bushes
@@ -1614,6 +1678,16 @@ function drawTrail() {
   });
 }
 
+// the aim line and its band only change when something about the throw does, not every frame
+function previewNow(lie) {
+  const d = curDisc();
+  const key = [S.hole.id, S.hole.wind.mph, S.hole.wind.from, S.hole.basket.x, S.hole.basket.y, d.id, d.turn, S.settings.hand, S.settings.style, heading(), lie.x, lie.y].join('|');
+  if (S.previewKey !== key) {
+    S.previewKey = key;
+    S.preview = { pv: G.previewThrow(S.hole, d, S.settings, heading(), lie), end: G.previewThrow(S.hole, d, S.settings, heading(), lie, 8).end };
+  }
+  return S.preview;
+}
 function drawPreview() {
   if (S.phase !== 'pick' || !S.showLine || !curDisc()) return;
   const lie = lieOf();
@@ -1621,7 +1695,7 @@ function drawPreview() {
     poly([lie, S.hole.basket].map((p) => [p.x, p.y]), false);
   } else {
     // a typical throw with this disc, and the shaded ground a mistimed release can reach; the meters decide the real one
-    const pv = G.previewThrow(S.hole, curDisc(), S.settings, heading(), lie);
+    const { pv, end } = previewNow(lie);
     poly(pv.band.map((p) => [p.x, p.y]));
     ctx.fillStyle = 'rgba(163,230,53,0.13)';
     ctx.fill();
@@ -1636,7 +1710,7 @@ function drawPreview() {
   ctx.stroke();
   ctx.setLineDash([]);
   if (!inPutt()) {
-    const end = G.previewThrow(S.hole, curDisc(), S.settings, heading(), lie, 8).end;
+    const { end } = previewNow(lie);
     const [x, y] = P(end.x, end.y);
     ctx.beginPath();
     ctx.arc(x, y, 8, 0, Math.PI * 2);
@@ -1912,11 +1986,8 @@ function drawWeather(t) {
   if (!w) return;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (w.dusk > 0) {
-    ctx.save();
-    ctx.globalCompositeOperation = 'multiply';
-    ctx.fillStyle = `rgb(${Math.round(255 - 105 * w.dusk)},${Math.round(255 - 140 * w.dusk)},${Math.round(255 - 75 * w.dusk)})`;
+    ctx.fillStyle = `rgba(44,22,76,${0.5 * w.dusk})`; // a plain tint (a multiply blend is slow on a phone)
     ctx.fillRect(0, 0, W, H);
-    ctx.restore();
     const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.75);
     g.addColorStop(0, 'rgba(8,4,24,0)');
     g.addColorStop(1, `rgba(8,4,24,${0.5 * w.dusk})`);
@@ -1930,7 +2001,7 @@ function drawWeather(t) {
     ctx.strokeStyle = 'rgba(200,220,240,0.38)';
     ctx.lineWidth = 1.2;
     ctx.beginPath();
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < 70; i++) {
       const sp = 0.7 + ((i * 37) % 10) / 14;
       const x = (((i * 97.3) % W) + (t * 0.02 * slant)) % W;
       const y = (((i * 61.7) % H) + t * 0.55 * sp) % H;
@@ -2090,9 +2161,10 @@ function drawWorld(t) {
   } else {
     S.pcam = null;
   }
-  drawCourse(t);
+  drawStill('ground', drawCourse);
+  drawWaves(t);
   drawTrail();
-  drawTrees();
+  drawStill('trees', drawTrees);
   drawMandoMap();
   drawBasket();
   drawPreview();
@@ -2356,6 +2428,7 @@ function onPanelChange(e) {
 
 // the menu shows whichever hole is picked for practice
 function previewHole(id) {
+  GR.warm(holeById(id));
   S.hole = holeById(id) || HOLES[0];
   S.round = G.newRound(S.hole);
   updateHud();
@@ -2701,6 +2774,7 @@ function applyView(view) {
   const me = mp.me;
   if (view.round) {
     S.hole = matchHole(view.round.holeId, view);
+    GR.warm(S.hole);
     const r = view.round.rounds[me] || { lie: { ...S.hole.tee }, strokes: 0, throws: [], eaten: [], bearCame: false, done: true, holed: false }; // someone who left has no place on this hole
     S.round = { hole: S.hole, lie: { ...r.lie }, strokes: r.strokes, throws: r.throws, eaten: [...r.eaten], bearCame: r.bearCame, done: r.done, holed: r.holed };
     const path = (tr) => tr.map((t) => ({ pts: t.pts.map(([x, y]) => ({ x, y })), kind: t.kind, n: t.n }));
@@ -3203,6 +3277,7 @@ async function boot() {
   // a link to a match (?match=CODE): read it before the page tidies its own address
   const code = (new URLSearchParams(location.search).get('match') || '').toUpperCase();
   await loadAccount();
+  GR.warm(HOLES[0]);
   showMenu();
   if (code) {
     if (account.user) {

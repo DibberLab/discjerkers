@@ -183,23 +183,45 @@ const PERFECT = { o: 0, pure: false, sloppy: 0, grade: 'Preview' };
 export const SWEET_SLACK = 20;
 const SWEET_RELEASE = { o: 0, pure: false, sloppy: 0, grade: 'Sweet' };
 export const ANGLES = Array.from({ length: ANGLE_MAX * 2 + 1 }, (_, i) => i - ANGLE_MAX);
-export function sweetSpots(hole, disc, base, aimDeg, from, stage) {
-  const away = (t) => distance(resolveThrow(hole, disc, t, aimDeg, SWEET_RELEASE, from).lie, hole.basket);
-  const bestAngle = (t) => Math.min(...ANGLES.filter((a) => a % 2 === 0).map((angle) => away({ ...t, angle }))); // every other angle: it is a guide, and this runs as a bar begins
+// The sweet spots are worked out by playing candidates through resolveThrow, which is a lot of throws (hundreds), so it is a job that can be done
+// a few at a time (`next(n)`), and the page does it between frames instead of in one go. A guide does not need a fine path: 36 samples.
+const SWEET_SAMPLES = 36;
+export function sweetJob(hole, disc, base, aimDeg, from, stage) {
+  const away = (t) => distance(resolveThrow(hole, disc, t, aimDeg, SWEET_RELEASE, from, SWEET_SAMPLES).lie, hole.basket);
+  const angles = ANGLES.filter((a) => a % 2 === 0); // every other angle: it is a guide
   let values;
-  let dist;
+  let tasks; // [value index, settings to try]
   if (stage === 'power') {
     values = Array.from({ length: (ARM.max - ARM.min) / ARM.step + 1 }, (_, i) => ARM.min + i * ARM.step);
-    dist = values.map((mph) => bestAngle({ ...base, mph, nose: 0 }));
+    tasks = values.flatMap((mph, vi) => angles.map((angle) => [vi, { ...base, mph, nose: 0, angle }]));
   } else if (stage === 'nose') {
     values = Array.from({ length: NOSE_MAX * 2 + 1 }, (_, i) => i - NOSE_MAX);
-    dist = values.map((nose) => bestAngle({ ...base, nose }));
+    tasks = values.flatMap((nose, vi) => angles.map((angle) => [vi, { ...base, nose, angle }]));
   } else {
     values = ANGLES;
-    dist = values.map((angle) => away({ ...base, angle }));
+    tasks = values.map((angle, vi) => [vi, { ...base, angle }]);
   }
-  const best = Math.min(...dist);
-  return { stage, values, dist, best, ok: dist.map((d) => d <= best + SWEET_SLACK) };
+  const dist = values.map(() => Infinity);
+  let at = 0;
+  return {
+    total: tasks.length,
+    done: () => at >= tasks.length,
+    next(count = 1) {
+      for (let k = 0; k < count && at < tasks.length; k++, at++) {
+        const [vi, t] = tasks[at];
+        dist[vi] = Math.min(dist[vi], away(t));
+      }
+    },
+    result() {
+      const best = Math.min(...dist);
+      return { stage, values, dist: [...dist], best, ok: dist.map((d) => d <= best + SWEET_SLACK) };
+    },
+  };
+}
+export function sweetSpots(hole, disc, base, aimDeg, from, stage) {
+  const job = sweetJob(hole, disc, base, aimDeg, from, stage);
+  job.next(Infinity);
+  return job.result();
 }
 // where a value sits on its bar (0..1): the inverse of what each bar reads
 export function powerPos(mph) {
@@ -375,9 +397,9 @@ function rollOut(hole, disc, plan, from, tangent, surface) {
  *   pts: the flight up to the landing (or the hit); roll: the slide after it
  *   lie: where you play from next; strokes: what the throw costs (a penalty makes it 2)
  */
-export function resolveThrow(hole, disc, settings, aimDeg, ex, from) {
+export function resolveThrow(hole, disc, settings, aimDeg, ex, from, samples = 72) {
   const plan = planThrow(hole, disc, settings, aimDeg, ex);
-  const all = samplePath(plan, from, 72, hole);
+  const all = samplePath(plan, from, samples, hole);
   const zBasket = elevAt(hole, hole.basket.x, hole.basket.y);
   // the trees that could matter: not the one you just bounced off (a lie remembers it as `t`), nor one touching you, and only those near the path
   const skip = from.t !== undefined ? hole.trees[from.t] : null;

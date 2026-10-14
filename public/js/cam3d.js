@@ -5,7 +5,7 @@
    state: callers hand it a hole, a camera and a disc. */
 
 import { fieldAt } from './terrain.js?v=1';
-import { groundCells, PALETTE } from './ground.js?v=4';
+import { groundCells, PALETTE } from './ground.js?v=5';
 
 export const ZS = 0.72; // heights are drawn a little squashed: a real arc looks like a rocket when you ride it
 const NEAR = 1; // nothing nearer than this (feet) is drawn
@@ -716,18 +716,29 @@ export function drawScene(ctx, scene) {
   ctx.restore();
 }
 
+// a point along a path at a fractional index, on a smooth curve through the points (Catmull-Rom), so the disc and the camera that follows
+// it do not jerk at every one of the path's 70-odd corners: those jerks were what made the whole picture shimmer
+function curveAt(pts, idx) {
+  const n = pts.length;
+  const i = Math.max(0, Math.min(n - 2, Math.floor(idx)));
+  const f = Math.max(0, Math.min(1, idx - i));
+  const P0 = pts[Math.max(0, i - 1)];
+  const P1 = pts[i];
+  const P2 = pts[i + 1];
+  const P3 = pts[Math.min(n - 1, i + 2)];
+  const cr = (a, b, c, d) => 0.5 * (2 * b + (-a + c) * f + (2 * a - 5 * b + 4 * c - d) * f * f + (-a + 3 * b - 3 * c + d) * f * f * f);
+  return { x: cr(P0.x, P1.x, P2.x, P3.x), y: cr(P0.y, P1.y, P2.y, P3.y), h: Math.max(0, cr(P0.h, P1.h, P2.h, P3.h)) };
+}
+
 /** What to draw at a moment of a flight: the disc's place along its path (with the same easing the map uses). */
 export function discAt(pts, p) {
   const eased = 1 - (1 - p) ** 2.2;
   const idx = eased * (pts.length - 1);
   const i = Math.min(pts.length - 2, Math.floor(idx));
-  const f = idx - i;
-  const A = pts[i];
-  const B = pts[i + 1] || A;
-  const pos = { x: A.x + (B.x - A.x) * f, y: A.y + (B.y - A.y) * f, h: A.h + (B.h - A.h) * f };
-  const len = Math.hypot(B.x - A.x, B.y - A.y) || 1;
-  // which way it is going (looking a little ahead, so it does not twitch)
-  const C = pts[Math.min(pts.length - 1, i + 4)];
-  const dl = Math.hypot(C.x - A.x, C.y - A.y) || len;
-  return { pos, i, dir: { x: (C.x - A.x) / dl || 0, y: (C.y - A.y) / dl || 1 } };
+  const pos = curveAt(pts, idx);
+  // which way it is going: across a stretch of the path either side, so the heading eases instead of changing at every corner
+  const A = curveAt(pts, Math.max(0, idx - 3));
+  const B = curveAt(pts, Math.min(pts.length - 1, idx + 5));
+  const dl = Math.hypot(B.x - A.x, B.y - A.y) || 1;
+  return { pos, i, dir: { x: (B.x - A.x) / dl || 0, y: (B.y - A.y) / dl || 1 } };
 }
