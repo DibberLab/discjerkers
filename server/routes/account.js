@@ -1,6 +1,8 @@
 'use strict';
 
 const fs = require('node:fs');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 const express = require('express');
 const { AccountError, LIMITS } = require('../lib/accounts');
 const { createLimiter } = require('../lib/ratelimit');
@@ -8,6 +10,8 @@ const { SESSION_COOKIE, who, cookieOf, sameOrigin } = require('../lib/http');
 
 const HOUR = 60 * 60 * 1000;
 const COOKIE = SESSION_COOKIE;
+let progressModule = null; // the game's progress rules are a browser module too: loaded once, to check what a page sends
+const progress = () => (progressModule ||= import(pathToFileURL(path.join(__dirname, '..', '..', 'public', 'js', 'progress.js')).href));
 
 /**
  * Accounts and bags. Mounted at /api/account.
@@ -20,6 +24,7 @@ const COOKIE = SESSION_COOKIE;
  *   DELETE /bags/:id/discs/:disc        take it out
  *   PATCH  /bags/:id/discs/:disc        that disc's color, plastic and weight, in this bag
  *   PUT    /bags/:id/discs/:disc/photo  a JPEG (the page makes it small); DELETE removes it
+ *   GET    /game  PUT /game             my progress in the game (stats, goals, skins): { game }
  *   GET    /photos/:name                a photo, to its owner only
  * Every response is no-store: it is about one person.
  */
@@ -98,6 +103,18 @@ function createAccountRouter({
   router.get('/me', wrap(async (req, res) => {
     const user = store.userForSession(cookieOf(req, COOKIE));
     res.json(user ? { user: { name: user.name }, bags: user.bags } : { user: null, bags: [] });
+  }));
+
+  router.get('/game', wrap(async (req, res) => {
+    const user = needUser(req);
+    res.json({ game: user.game || null });
+  }));
+
+  router.put('/game', writing(async (req, res, user) => {
+    const g = (await progress()).sanitizeGame((req.body || {}).game);
+    if (!g) throw new AccountError('That is not a game record.');
+    store.setGame(user.id, g);
+    res.json({ game: g });
   }));
 
   router.post('/signup', wrap(async (req, res) => {

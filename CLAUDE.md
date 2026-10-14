@@ -209,6 +209,12 @@ that way; don't introduce React/Vite/Tailwind here.
 - **Marebear's bets** (`BETS`, `betKind`, `betWon` in `trash.js`): before your first throw on a hole she bets you cannot make par (+3/-2),
   cannot make bogey (+1/-3) or cannot birdie (+8/-1) and you can take it or not. The stake is Marebear Bucks (`dj_bucks`, in this browser only,
   never negative). It is a game of its own: it does not change the match or the score.
+- **Progress** (`progress.js`, shared): stats, goals (`ACHIEVEMENTS`), disc skins (`SKINS`: a colour for your own discs in flight; won by a goal or bought with
+  Marebear Bucks) and **break-in**: `brokenIn(disc, throws)` makes a disc you have thrown a lot turn up to 1 more and fade 0.25 less (full at 160 throws).
+  Kept in `localStorage` (`dj_progress`) and, signed in, on the account (`GET/PUT /api/account/game`, shape-checked by `sanitizeGame`, merged with
+  `mergeGame`, saved a few seconds after a change). Honor system, like the meters. In a **match** the server freezes each disc's wear into the bag
+  snapshot (`w`) and plays it that way (`playDisc`), and the page does the same from the seat, so both agree. Goals fire from `trackThrow`/`trackHole` and
+  the round/daily/bet hooks in `game.js`; Marebear grudgingly congratulates (`announce`). "Trophies and skins" in the menu shows it all.
 - **Quick start**: "Quick warm-up" is three holes (`WARMUP` in `course.js`: 1, 2, 5); "Play a friend now" signs in if need be, makes a 9-hole match
   and opens the share sheet (or copies the link).
 - **Slow motion**: an ace (drive) or a long putt going in is slowed (flight 1.5x, the putt's film 1.4x) with letterbox bars (`drawCine`); a landing
@@ -268,7 +274,7 @@ that way; don't introduce React/Vite/Tailwind here.
   the server rolls them in a match; into water it costs a stroke). `puttScript` turns that into a film (where the disc is every
   millisecond, with marks for the drop, the rim lap, the spit and the roll) and `drawPuttFx` draws the reaction: CHAINS! with
   rings and confetti, a cold-washed RIMMED OUT, NASTY ROLL with the camera following the disc.
-- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 24, `cam3d.js` 15, `puttfx.js` 11, `ground.js` 4, `sound.js` 2, `marebear.js` 1, `conditions.js` 2, `daily.js` 1, `gamepanels.js` 1, `trash.js` 6, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
+- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 24, `cam3d.js` 15, `puttfx.js` 11, `ground.js` 4, `sound.js` 2, `marebear.js` 1, `conditions.js` 2, `daily.js` 1, `gamepanels.js` 2, `progress.js` 1, `trash.js` 6, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 
 ## Deploy

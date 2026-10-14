@@ -259,7 +259,7 @@ function createAccountStore(file, { now = () => Date.now(), photoDir = path.join
       const s = db.sessions.find((x) => x.t === h);
       if (!s || s.exp <= now()) return null;
       const u = db.users.find((x) => x.id === s.uid);
-      return u ? { id: u.id, ...view(u) } : null;
+      return u ? { id: u.id, ...view(u), game: u.game || null } : null;
     },
 
     endSession(token) {
@@ -417,6 +417,12 @@ function createAccountStore(file, { now = () => Date.now(), photoDir = path.join
     },
 
     photoPath,
+
+    // a player's progress in the game (stats, goals, skins), as the page keeps it; the route has already checked its shape
+    setGame(userId, game) {
+      changeUser(userId, (u) => { u.game = game; });
+      return game;
+    },
   };
 }
 

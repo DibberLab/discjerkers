@@ -79,3 +79,36 @@ export function closestToPin(results, nameOf) {
   if (clean.filter((r) => Math.abs(r.kp - best.kp) < 0.05).length > 1) return null; // a dead heat is nobody's
   return { uid: best.uid, name: nameOf(best.uid), feet: best.kp };
 }
+
+/**
+ * Trophies: goals reached, skins to wear or buy, and how worn in each disc is.
+ *   game: the player's progress   bucks: Marebear Bucks   goals: ACHIEVEMENTS   skins: SKINS   discName(id) -> string   breakIn: throws for fully broken in
+ */
+export function trophiesHtml({ game, bucks, goals, skins, discName, breakIn, msg }) {
+  const done = new Set(game.unlocked);
+  const goalRows = goals.map((a) => `<li class="${done.has(a.id) ? 'is-me' : ''}"><span>${done.has(a.id) ? '✓ ' : ''}${esc(a.title)}<small>${esc(a.desc)}</small></span><b>${done.has(a.id) ? 'done' : ''}</b></li>`).join('');
+  const skinRows = skins.map((s) => {
+    const own = game.owned.includes(s.id);
+    const worn = game.skin === s.id;
+    const swatch = `<i class="gm-swatch" style="--c:${s.color || '#8a9a86'}"></i>`;
+    const action = worn ? '<b>worn</b>' : own ? `<button class="chip" type="button" data-skin="${s.id}">Wear</button>` : `<button class="chip" type="button" data-skin="${s.id}"${bucks < s.cost ? ' disabled' : ''}>Buy ${s.cost}</button>`;
+    return `<li class="${worn ? 'is-me' : ''}"><span>${swatch}${esc(s.name)}<small>${own ? 'yours' : `${esc(s.how)}, or ${s.cost} Marebear Bucks`}</small></span>${action}</li>`;
+  }).join('');
+  const discs = Object.entries(game.stats.discs).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const wearRows = discs.length
+    ? discs.map(([id, n]) => `<li><span>${esc(discName(id))}<small>${n} ${n === 1 ? 'throw' : 'throws'}</small></span><b>${Math.min(100, Math.round((n / breakIn) * 100))}%</b></li>`).join('')
+    : '<li><span>No throws yet<small>A disc you throw a lot turns a little more.</small></span><b></b></li>';
+  const s = game.stats;
+  return `<div class="gm-card">
+      <h2>Trophies</h2>
+      <p>${s.throws} throws · ${s.holes} holes · ${s.aces} ${s.aces === 1 ? 'ace' : 'aces'} · best putt ${s.bestPutt} ft · best drive ${s.bestDrive} ft. You have <b>${bucks}</b> Marebear Bucks.</p>
+      ${msg ? `<p class="gm-note" role="status">${esc(msg)}</p>` : ''}
+      <p class="gm-h">Goals</p>
+      <ol class="gm-vs-list gm-board">${goalRows}</ol>
+      <p class="gm-h">Disc skins <span>· for your own discs in flight</span></p>
+      <ol class="gm-vs-list gm-board">${skinRows}</ol>
+      <p class="gm-h">Broken in</p>
+      <ol class="gm-vs-list gm-board">${wearRows}</ol>
+    </div>
+    <button class="btn btn--ghost" type="button" data-menu>Back</button>`;
+}

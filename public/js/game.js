@@ -14,7 +14,8 @@ import * as SND from './sound.js?v=2';
 import * as MB from './marebear.js?v=1';
 import * as K from './conditions.js?v=2';
 import * as DLY from './daily.js?v=1';
-import * as GP from './gamepanels.js?v=1';
+import * as GP from './gamepanels.js?v=2';
+import * as PR from './progress.js?v=1';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -105,6 +106,8 @@ const S = {
   trail: [],
   fx: [],
   bear: null,
+  game: loadGame(), // what playing has left behind: stats, goals, skins (progress.js)
+  trophyMsg: '',
   daily: { data: null, loading: false, msg: '' }, // the daily course screen
   standings: { data: null, loading: false, msg: '' },
   dailyPost: null, // what happened when a finished daily run was posted
@@ -116,6 +119,31 @@ const S = {
   zoom: 1,
 };
 
+// the player's progress: kept in this browser, and (signed in) on their account too
+function loadGame() {
+  try { return PR.sanitizeGame(JSON.parse(localStorage.getItem('dj_progress'))) || PR.emptyGame(); } catch { return PR.emptyGame(); }
+}
+let gameSaveTimer = null;
+function saveGame() {
+  try { localStorage.setItem('dj_progress', JSON.stringify(S.game)); } catch { /* not saved */ }
+  if (!account.user) return;
+  clearTimeout(gameSaveTimer);
+  gameSaveTimer = setTimeout(() => { // a few seconds after the last change, so a round of throws is one save
+    fetch('/api/account/game', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ game: S.game }) }).catch(() => {});
+  }, 4000);
+}
+// signed in: take what the account has, merge it with what this browser has, and keep both
+async function syncGame() {
+  if (!account.user) return;
+  try {
+    const res = await fetch('/api/account/game', { credentials: 'same-origin', cache: 'no-store' });
+    if (!res.ok) return;
+    const { game } = await res.json();
+    S.game = PR.mergeGame(S.game, game);
+    saveGame();
+    if (S.phase === 'trophies') renderPanel();
+  } catch { /* offline: the local copy is fine */ }
+}
 function loadSettings() {
   // arm speed, nose and angle are not settings: each throw's meters set them (spin follows the arm speed)
   const base = { hand: 'right', style: 'backhand', mph: 56, spin: null, angle: 0, nose: 0 };
@@ -150,7 +178,9 @@ function slopeNote() {
 const slopeText = (hole, lie) => { const r = G.riseTo(hole, lie); return Math.abs(r) < 1 ? '' : `${r > 0 ? '▲' : '▼'} ${Math.round(Math.abs(r))} ft ${r > 0 ? 'uphill' : 'downhill'}`; };
 const baseHeading = () => G.headingTo(lieOf(), S.hole.basket);
 const heading = () => baseHeading() + S.aimOff;
-const curDisc = () => DISCS.get(S.discId);
+// the disc as you play it: one you have thrown a lot has broken in (progress.js), in a match by the wear the server froze with your bag
+const wearFor = (id) => (S.mode === 'match' && S.mp ? myself(S.mp.view)?.discs.find((d) => d.id === id)?.w || 0 : PR.wearOf(S.game, id));
+const curDisc = () => { const d = DISCS.get(S.discId); return d ? PR.brokenIn(d, wearFor(d.id)) : d; };
 const itemOf = (id) => S.bag.discs.find((x) => x.disc.id === id)?.item || null;
 const available = () => S.bag.discs.filter((x) => !S.round.eaten.includes(x.disc.id));
 
@@ -224,6 +254,7 @@ function settleBet(strokes, par, holed, holeId) {
   const t = T.BETS[b.kind];
   const won = T.betWon(b.kind, strokes, par, holed);
   const before = bucks();
+  if (won) announce(PR.recordBetWon(S.game));
   const delta = won ? t.win : -Math.min(t.lose, before);
   setBucks(before + delta);
   toast(won ? `Bet won: +${t.win} Marebear Bucks` : `Bet lost: −${-delta} Marebear Bucks`, won ? 'good' : 'bad', 2600);
@@ -292,7 +323,8 @@ function discRow() {
 
 function pickInfo(d, plan, putting) { // plan: { wind }
   const brand = DATA.brands[d.b].n;
-  const nums = `${d.speed} / ${d.glide} / ${d.turn > 0 ? `+${d.turn}` : d.turn} / ${d.fade}`;
+  const r1 = (n) => Math.round(n * 10) / 10;
+  const nums = `${d.speed} / ${d.glide} / ${d.turn > 0 ? `+${r1(d.turn)}` : r1(d.turn)} / ${r1(d.fade)}${d.worn ? ` · broken in ${d.worn}%` : ''}`;
   const out = putting
     ? `${Math.round(G.puttRadius(puttDd(), d) * G.puttGrip(S.hole) * 100)}%<small>target size</small>`
     : plan.wind.mph ? `${Math.round(plan.wind.mph)} mph<small>${plan.wind.head > 1 ? 'headwind' : plan.wind.head < -1 ? 'tailwind' : 'crosswind'}</small>` : 'Calm<small>no wind</small>';
@@ -441,6 +473,7 @@ function panelMenu() {
       <h2>Play the course</h2>
       <p>Eighteen holes of woods, hills, water and wind. Pick a round, bring your bag, and try not to triple bogey: Marebear is watching, and she has a handbag.</p>
       <button class="btn" type="button" data-daily>Daily course<small>nine holes, the same for everyone today · a leaderboard</small></button>
+      <button class="btn btn--ghost" type="button" data-trophies>Trophies and skins<small>${S.game.unlocked.length} of ${PR.ACHIEVEMENTS.length} goals · break-in · disc skins</small></button>
       <button class="btn" type="button" data-solo="3">Quick warm-up<small>3 holes, about 5 minutes</small></button>
       <button class="btn btn--ghost" type="button" data-quick-friend>Play a friend now<small>one tap: a 9-hole match and a link to send</small></button>
       <div class="gm-menu">
@@ -647,7 +680,7 @@ function renderPanel(focusSel) {
   const p = panel();
   if (!p) return;
   const keepScroll = p.dataset.phase === S.phase ? p.scrollTop : 0;
-  const views = { menu: panelMenu, pick: panelPick, power: panelMeter, nose: panelMeter, angle: panelMeter, release: panelMeter, putt: panelMeter, swipe: panelSwipe, flight: panelFlight, result: panelResult, bear: panelBear, done: panelDone, summary: panelSummary, lobby: panelLobby, mwait: panelMwait, mturn: panelMturn, mhole: panelMhole, mdone: panelMdone, daily: panelDaily, standings: panelStandings };
+  const views = { menu: panelMenu, pick: panelPick, power: panelMeter, nose: panelMeter, angle: panelMeter, release: panelMeter, putt: panelMeter, swipe: panelSwipe, flight: panelFlight, result: panelResult, bear: panelBear, done: panelDone, summary: panelSummary, lobby: panelLobby, mwait: panelMwait, mturn: panelMturn, mhole: panelMhole, mdone: panelMdone, daily: panelDaily, standings: panelStandings, trophies: panelTrophies };
   p.innerHTML = (views[S.phase] || (() => ''))();
   p.dataset.phase = S.phase;
   p.scrollTop = keepScroll;
@@ -1117,6 +1150,8 @@ function finishThrow() {
   const out = G.applyResult(S.round, disc, result);
   const ev = T.eventFor({ kind: result.kind, putt: !result.plan, made: result.made, gimme: result.gimme, ex: S.last.ex, strokes: S.round.strokes, dist: result.dist, surface: result.surface, rim: result.rim, nasty: result.nasty, why: result.why });
   landSounds(result, ev);
+  trackThrow({ discId: disc.id, putt: !result.plan, made: result.made, gimme: result.gimme, dist: result.dist, kind: result.kind, feet: result.plan?.feet });
+  if (S.course && result.strokes > 1) S.course.penalties = (S.course.penalties || 0) + 1;
   if (S.course) { // keep the best throw of the round, to watch again
     const mv = moveOf(result, disc, from, S.last.ex);
     const sc = G.highlightScore(mv);
@@ -1152,6 +1187,7 @@ function finishHole() {
   if (r.holed) toast(G.scoreName(r.strokes, S.hole.par), r.strokes <= S.hole.par ? 'good' : 'bad', 2400);
   say(T.holeRemark(r.strokes, S.hole.par, r.holed, Math.random, S.lastQuip), holeMood(r.strokes, S.hole.par, r.holed));
   settleBet(r.strokes, S.hole.par, r.holed, S.hole.id);
+  trackHole({ strokes: r.strokes, par: S.hole.par, holed: r.holed, rain: !!S.hole.weather?.rain });
   if (r.holed && r.strokes <= S.hole.par - 2) SND.play('fanfare'); else if (r.holed && r.strokes < S.hole.par) SND.play('ding');
   setPhase('done');
   retarget(false);
@@ -1162,6 +1198,7 @@ function finishCourse() {
   const c = S.course;
   const total = c.card.reduce((n, h) => n + h.score, 0);
   const complete = c.card.length === c.holes.length && c.card.every((h) => h.holed);
+  announce(PR.recordRound(S.game, { holes: c.card.length, penalties: c.penalties || 0 }));
   if (c.daily) { postDaily(); S.best = null; setPhase('summary'); retarget(false); return; } // the daily has a board, not a personal best
   try {
     const prev = Number(localStorage.getItem(bestKey())) || null;
@@ -1612,7 +1649,8 @@ function discLook(id, owner = 'me') {
     return { color: them?.discs.find((x) => x.id === id)?.color || gradeColor(d.col), photo: '' };
   }
   const it = itemOf(id);
-  return { color: it?.color || gradeColor(d.col), photo: it?.photo ? photoUrl(it.photo) : '' };
+  const skin = PR.skinOf(S.game.skin); // a skin overrides the colour of your own discs in flight
+  return { color: skin.color || it?.color || gradeColor(d.col), photo: skin.color ? '' : it?.photo ? photoUrl(it.photo) : '' };
 }
 
 function drawLie(t) {
@@ -2191,6 +2229,10 @@ function onPanelClick(e) {
     startMeter();
   } else if (t.closest('[data-next]')) {
     next();
+  } else if (t.closest('[data-trophies]')) {
+    openTrophies();
+  } else if (t.closest('[data-skin]')) {
+    chooseSkin(t.closest('[data-skin]').dataset.skin);
   } else if (t.closest('[data-daily-play]')) {
     playDaily();
   } else if (t.closest('[data-daily]')) {
@@ -2343,6 +2385,40 @@ function resetStage() {
   try { history.replaceState(null, '', '/game'); } catch { /* fine */ }
 }
 
+/* ----- goals, skins, and discs that break in ----- */
+
+function announce(ids) {
+  for (const id of ids) {
+    const a = PR.ACHIEVEMENTS.find((x) => x.id === id);
+    if (!a) continue;
+    const skin = a.skin ? PR.skinOf(a.skin) : null;
+    toast(`Goal reached: ${a.title}${skin ? `. New skin: ${skin.name}` : ''}`, 'good', 3200);
+    SND.play('fanfare');
+    setTimeout(() => { if (S.round) popUp(skin ? `Hmph. ${a.title}. Fine, have a ${skin.name} disc. Do not get used to it.` : `${a.title}? Do not let it go to your head.`, '', 'good'); }, 1600);
+  }
+  if (ids.length) saveGame();
+}
+const trackThrow = (t) => { announce(PR.recordThrow(S.game, t)); saveGame(); };
+const trackHole = (h) => { announce(PR.recordHole(S.game, h)); saveGame(); };
+function openTrophies() {
+  resetStage();
+  S.mode = 'lobby';
+  S.trophyMsg = '';
+  setPhase('trophies');
+  retarget(true);
+  syncGame();
+}
+const panelTrophies = () => GP.trophiesHtml({ game: S.game, bucks: bucks(), goals: PR.ACHIEVEMENTS, skins: PR.SKINS, discName: (id) => splitName(DISCS.get(Number(id))?.name || `Disc ${id}`), breakIn: PR.BREAK_IN_THROWS, msg: S.trophyMsg });
+function chooseSkin(id) {
+  const skin = PR.skinOf(id);
+  if (S.game.owned.includes(id)) { PR.equipSkin(S.game, id); S.trophyMsg = `${skin.name} is on your discs.`; } else {
+    const r = PR.buySkin(S.game, id, bucks());
+    if (r.ok) { setBucks(bucks() - r.cost); PR.equipSkin(S.game, id); S.trophyMsg = `Bought ${skin.name} for ${r.cost} Marebear Bucks. It is on your discs.`; SND.play('ding'); } else S.trophyMsg = `${skin.name} costs ${skin.cost} Marebear Bucks and you have ${bucks()}.`;
+  }
+  saveGame();
+  renderPanel();
+}
+
 /* ----- the daily course, and the season ----- */
 
 const dailyPlanNow = () => { const plan = DLY.dailyPlan(DLY.dayKey()); return { ...plan, holes: plan.holeIds.map((id) => holeById(id)) }; };
@@ -2382,6 +2458,7 @@ async function postDaily() {
   try {
     const r = await gapi('/daily/score', { method: 'POST', body: { day: c.daily, card } });
     S.dailyPost = { state: 'done', ...r };
+    announce(PR.recordDaily(S.game));
   } catch (err) {
     S.dailyPost = { state: err.status === 409 ? 'already' : 'error', msg: err.message };
   }
@@ -2751,6 +2828,10 @@ function finishMove() {
   const total = mp.view.round?.rounds[mover.uid]?.strokes ?? 0;
   const ev = T.eventFor({ kind: last.kind, putt: last.putt, made: last.made, gimme: last.gimme, ex: last.ex, strokes: total, dist: G.distance(last.from, S.hole.basket), surface: S.last.result.surface, rim: last.rim, nasty: last.nasty, why: last.why });
   landSounds(result, ev);
+  if (L.who === 'me') {
+    trackThrow({ discId: last.discId, putt: last.putt, made: last.made, gimme: last.gimme, dist: last.dist, kind: last.kind, feet: last.feet });
+    if (last.strokes > 1) mp.penalties = (mp.penalties || 0) + 1;
+  }
   say(T.remark(ev, { who: L.who === 'me' ? 'me' : 'them', name: mover.name }, Math.random, S.lastQuip), L.who === 'me' ? (GOOD_EVENTS.has(ev) ? 'good' : 'bad') : (GOOD_EVENTS.has(ev) ? 'sly' : 'bad'));
   if (last.bear) { startBear({ discId: last.bear.discId, at: last.bear.at, owner: L.who }); return; }
   afterMove();
@@ -2766,7 +2847,8 @@ function afterMove() {
     const kp = he.par === 3 ? GP.closestToPin(he.results, (u) => playerOf(u, mp.view)?.name || '') : null;
     if (kp) { mp.kps = mp.kps || {}; mp.kps[kp.uid] = (mp.kps[kp.uid] || 0) + 1; }
     const mineHole = he.results.find((r) => r.uid === mp.me);
-    if (mineHole) settleBet(mineHole.strokes, he.par, mineHole.holed, he.holeId);
+    if (mineHole) { settleBet(mineHole.strokes, he.par, mineHole.holed, he.holeId); trackHole({ strokes: mineHole.strokes, par: he.par, holed: mineHole.holed, rain: !!matchHole(he.holeId, mp.view).weather?.rain }); }
+    if (he.matchDone && myself(mp.view) && !myself(mp.view).left) announce(PR.recordRound(S.game, { holes: mp.view.holes, penalties: mp.penalties || 0 }));
     say(matchHoleRemark(last.holeEnd, mp.view), 'sly');
     setPhase('mhole');
     return;
@@ -3062,6 +3144,7 @@ async function boot() {
   cv.addEventListener('pointercancel', () => { if (S.meter) S.meter.drag = null; });
 
   onAccountChange(() => {
+    syncGame();
     if (S.phase === 'daily') { if (account.user) { S.daily.loading = true; refreshDaily(); } renderPanel(); return; }
     if (!S.round) return;
     if (!account.user && (S.mode === 'match' || S.mode === 'lobby')) { showMenu(); return; }

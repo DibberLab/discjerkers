@@ -45,6 +45,7 @@ async function loadGameplay() {
   const course = await import(pathToFileURL(path.join(dir, 'course.js')).href);
   const cond = await import(pathToFileURL(path.join(dir, 'conditions.js')).href);
   const daily = await import(pathToFileURL(path.join(dir, 'daily.js')).href);
+  const progress = await import(pathToFileURL(path.join(dir, 'progress.js')).href);
   const guide = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'public', 'data', 'flightguide.json'), 'utf8'));
   const discs = new Map(guide.discs.map((r) => [r[0], { id: r[0], name: r[1], speed: r[4], glide: r[5], turn: r[6], fade: r[7], col: r[8] }]));
   const starter = STARTER.map((n) => [...discs.values()].find((d) => d.name === n)?.id).filter(Boolean);
@@ -60,7 +61,7 @@ async function loadGameplay() {
     }
     return days.get(key);
   };
-  return { G: { ...core, ...course, ...cond }, discs, starter, hole: base, holeFor, daily };
+  return { G: { ...core, ...course, ...cond }, discs, starter, hole: base, holeFor, daily, progress };
 }
 
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I/L
@@ -68,12 +69,14 @@ const newCode = () => Array.from({ length: 6 }, () => ALPHABET[crypto.randomInt(
 const r1 = (n) => Math.round(n * 10) / 10;
 
 // the bag a player brings, frozen when they sit down: disc ids, and the color they gave each (photos stay private)
-function snapshot(gp, bag) {
+function snapshot(gp, bag, game = null) {
   const ids = bag ? bag.discs.filter((id) => gp.discs.has(id)).slice(0, LIMITS.discsInBag) : [];
   const list = ids.length ? ids : gp.starter;
+  const worn = game?.stats?.discs || {}; // how many times they have thrown each disc: it breaks in
   return list.map((id) => {
     const color = ids.length ? bag.items?.[id]?.color : null;
-    return color ? { id, color } : { id };
+    const w = Math.min(1000, Math.max(0, Math.round(Number(worn[id]) || 0)));
+    return { id, ...(color ? { color } : {}), ...(w ? { w } : {}) };
   });
 }
 
@@ -133,6 +136,12 @@ function chooseTurn(gp, m) {
   const waited = (p) => m.round.lastSeq[p.uid] ?? -1;
   tied.sort((x, y) => waited(x) - waited(y) || m.round.order.indexOf(x.uid) - m.round.order.indexOf(y.uid));
   m.round.turn = tied[0].uid;
+}
+
+// the disc as this player's copy plays: one they have thrown a lot has broken in
+function playDisc(gp, m, uid, discId) {
+  const entry = m.players.find((x) => x.uid === uid)?.discs.find((d) => d.id === discId);
+  return gp.progress.brokenIn(gp.discs.get(discId), entry?.w);
 }
 
 function discFor(m, uid, discId) {
@@ -268,7 +277,7 @@ function throwMove(gp, m, uid, body) {
   const settings = G.sanitizeSettings(body.settings);
   if (!settings) throw new MatchError('Those throw settings are not allowed.');
   const aimOff = Math.max(-180, Math.min(180, Math.round(Number(body.aimOff) || 0))); // any way at all: some holes turn away from the basket
-  const disc = gp.discs.get(discId);
+  const disc = playDisc(gp, m, uid, discId);
   const ex = G.applySlip(G.sanitizeExecution(body.ex), G.rollSlip(disc, settings, Math.random())); // the server rolls: a slip cannot be dodged
   const result = G.resolveThrow(hole, disc, settings, G.headingTo(r.lie, hole.basket) + aimOff, ex, r.lie);
   return record(gp, m, uid, disc, result, { ex: { o: ex.o, pure: ex.pure, grade: ex.grade, slip: ex.slip, swipe: ex.swipe, swipeAim: ex.swipeAim, swipeSpeed: ex.swipeSpeed }, putt: false });
@@ -284,7 +293,7 @@ function puttMove(gp, m, uid, body) {
   const x = Number(body.x);
   const y = body.y === undefined ? 0 : Number(body.y);
   if (!Number.isFinite(x) || !Number.isFinite(y) || Math.hypot(x, y) > 1.02) throw new MatchError('That is not a putt.');
-  const disc = gp.discs.get(discId);
+  const disc = playDisc(gp, m, uid, discId);
   const result = G.resolvePutt(hole, r.lie, disc, { x, y }, Math.random(), G.sanitizeSwipe(body.swipe)); // the server rolls the dice for a nasty roll
   return record(gp, m, uid, disc, result, { putt: true });
 }
@@ -438,7 +447,7 @@ function createMatchStore(file, { now = () => Date.now() } = {}) {
         invite: invite ? invite.toLowerCase() : null,
         createdAt: t,
         updatedAt: t,
-        players: [{ uid: user.id, name: user.name, discs: snapshot(gp, bag) }],
+        players: [{ uid: user.id, name: user.name, discs: snapshot(gp, bag, user.game) }],
         cards: { [user.id]: [] },
         eaten: { [user.id]: [] },
         round: null,
@@ -467,7 +476,7 @@ function createMatchStore(file, { now = () => Date.now() } = {}) {
       if (m.players.length >= LIMITS.maxPlayers) throw new MatchError(`That match is full: ${LIMITS.maxPlayers} players.`, 409);
       if (open(user.id).length >= LIMITS.openMatchesPerUser) throw new MatchError(`You already have ${LIMITS.openMatchesPerUser} matches going. Finish or leave one first.`, 409);
       return view(change(id, (d) => {
-        d.players.push({ uid: user.id, name: user.name, discs: snapshot(gp, bag) });
+        d.players.push({ uid: user.id, name: user.name, discs: snapshot(gp, bag, user.game) });
         d.cards[user.id] = [];
         d.eaten[user.id] = [];
         d.seq += 1;

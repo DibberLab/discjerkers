@@ -109,3 +109,21 @@ test('her bets: three kinds, each with a price, and a clear rule for who won', a
   assert.strictEqual(T.betWon('par', 3, 4, false), false, 'a hole not holed out never wins');
   for (const w of ['taken', 'declined', 'won', 'lost']) assert.ok(T.betRemark(w, () => 0.2).length > 5, w);
 });
+
+test('trophies: goals, skins you can wear or buy, and how worn in your discs are', async () => {
+  const P = await import('../public/js/gamepanels.js');
+  const R = await import('../public/js/progress.js');
+  const game = R.emptyGame();
+  game.stats.throws = 40; game.stats.discs[7] = 80; game.stats.discs[9] = 3; game.unlocked = ['ace']; game.owned = ['classic', 'gold']; game.skin = 'gold';
+  const html = P.trophiesHtml({ game, bucks: 17, goals: R.ACHIEVEMENTS, skins: R.SKINS, discName: (id) => `Disc <${id}>`, breakIn: R.BREAK_IN_THROWS, msg: 'Nice.' });
+  assert.match(html, /✓ Hole in one/);
+  assert.match(html, /Gold/);
+  assert.match(html, /<b>worn<\/b>/);
+  assert.match(html, /data-skin="classic">Wear/);
+  assert.match(html, /data-skin="neon">Buy 15</, 'affordable with 17 bucks');
+  assert.match(html, /data-skin="leopard"[^>]*disabled>Buy 30/, 'not affordable with 17');
+  assert.match(html, /Disc &lt;7&gt;/, 'names are escaped');
+  assert.match(html, /50%/, '80 throws of 160');
+  assert.match(html, /Nice\./);
+  assert.match(P.trophiesHtml({ game: R.emptyGame(), bucks: 0, goals: R.ACHIEVEMENTS, skins: R.SKINS, discName: String, breakIn: 160 }), /No throws yet/);
+});
