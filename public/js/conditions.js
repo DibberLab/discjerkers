@@ -44,14 +44,15 @@ export function pinSpots(hole) {
 /* ----- a seed's conditions on one hole ----- */
 
 // `idx` of `n`: how far through the round this hole is, for the light (the last holes are played at dusk)
-export function variantFor(seed, hole, { idx = 0, n = 1 } = {}) {
+// Rain is only possible when asked for (`rain: true`): plenty of people do not play in the rain, so it is a choice, off by default.
+export function variantFor(seed, hole, { idx = 0, n = 1, rain: allowRain = false } = {}) {
   if (seed === undefined || seed === null || !Number.isFinite(Number(seed))) return null;
   const rnd = rngOf(Number(seed) * 7919 + hole.id * 104729);
   const base = hole.wind || { mph: 0, from: 0 };
   const calm = rnd() < 0.12;
   const mph = calm ? Math.round(rnd() * 3) : clamp(Math.round(base.mph + (rnd() - 0.35) * 9), 1, 20);
   const from = Math.round((base.from + (rnd() - 0.5) * 180 + 720) % 360);
-  const rain = rnd() < 0.2;
+  const rain = rnd() < 0.2 && allowRain; // (the dice are thrown either way, so the rest of a seed's day is the same with or without rain)
   const dusk = n >= 6 ? clamp(idx / (n - 1) - 0.6, 0, 0.4) / 0.4 : 0;
   const pins = pinSpots(hole);
   const pin = pins[Math.floor(rnd() * pins.length)].k;

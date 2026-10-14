@@ -206,8 +206,7 @@ that way; don't introduce React/Vite/Tailwind here.
   match as `best` (in the view when the match is done) and the page replays it (`replayMove`, which reuses `buildMoveAnim`); a solo round keeps its own
   (`S.course.best`) and shows it on the scorecard.
 - **Closest to the pin** on a par 3 in a match: each hole's results carry `kp` (how near a clean first throw finished), the page names the winner
-  (`closestToPin` in `gamepanels.js`) and keeps a tally. **Marebear borrows a disc**: from hole 3 of a match, when one player leads by 3 strokes or
-  more, she takes their fastest disc for that hole (`steal` in `matches.js`; `round.rounds[uid].stolen`, in `eaten` for the hole only, not carried).
+  (`closestToPin` in `gamepanels.js`) and keeps a tally. (Marebear used to borrow the leader's fastest disc for a hole; that is gone.)
 - **Marebear's bets** (`BETS`, `betKind`, `betWon` in `trash.js`): before your first throw on a hole she bets you cannot make par (+3/-2),
   cannot make bogey (+1/-3) or cannot birdie (+8/-1) and you can take it or not. The stake is Marebear Bucks (`dj_bucks`, in this browser only,
   never negative). It is a game of its own: it does not change the match or the score.
@@ -223,6 +222,15 @@ that way; don't introduce React/Vite/Tailwind here.
   (ground, then trees) are drawn once into pictures of their own when the camera settles (`drawStill`), so only the water ripples, the trail and the throw
   are drawn each frame. A day's hole (`Object.create(hole)`) shares its ground cache with the real hole (`baseOf`). A 3D view that first meets a hole whose
   colours are not ready builds them on the spot, which is the one long frame left: warm early.
+- **Switched off (kept in the code): Marebear's bets** (`BETTING_ON` in `game.js`; no offer, no Bucks, no skin buying: skins come from goals) and
+  the **rain sound** (gone). **Rain is opt-in**: `variantFor(seed, hole, { rain: true })` only; the menu has an "Allow rain" checkbox (`dj_rain`, off), a match
+  never has rain unless its `m.rain` is set (nothing sets it), the daily course has none. The seed's other dice are the same with or without rain.
+- **Input: touch, mouse, keyboard, controller.** One throw takes `{ aim, power }` whichever made it (`finishSwipe`). A finger **draws back and swipes**; a mouse,
+  trackpad or pen **pulls back and lets go** (hold and drag down: the throw goes the opposite way, `pullVector`, `PULL_RATIO`), or **clicks once, moves back and
+  clicks again** (`armed`, for a trackpad). `pullInput()` says which (the last pointer used). Keys and a controller go through `act(name)` (left, right, up, down,
+  confirm, back, prev, next): on the pick screen left/right aim, up/down change disc, Enter or A throws; on the meters Space, Enter or A taps; in the swipe, left/right
+  aim and up/down power (`m.kb`) and Enter or A throws; in menus a controller's d-pad or stick moves focus and A presses it. `pollPad` reads the Gamepad API every
+  frame (stick aim, d-pad repeat, right trigger throws, LB/RB discs). A strip over the hole (`#gm-keys`) says what the keys do once they are used.
 - **Quick start**: "Quick warm-up" is three holes (`WARMUP` in `course.js`: 1, 2, 5); "Play a friend now" signs in if need be, makes a 9-hole match
   and opens the share sheet (or copies the link).
 - **Slow motion**: an ace (drive) or a long putt going in is slowed (flight 1.5x, the putt's film 1.4x) with letterbox bars (`drawCine`); a landing
@@ -287,7 +295,7 @@ that way; don't introduce React/Vite/Tailwind here.
   the server rolls them in a match; into water it costs a stroke). `puttScript` turns that into a film (where the disc is every
   millisecond, with marks for the drop, the rim lap, the spit and the roll) and `drawPuttFx` draws the reaction: CHAINS! with
   rings and confetti, a cold-washed RIMMED OUT, NASTY ROLL with the camera following the disc.
-- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 27, `cam3d.js` 16, `puttfx.js` 12, `ground.js` 5, `sound.js` 2, `marebear.js` 1, `conditions.js` 2, `daily.js` 1, `gamepanels.js` 2, `progress.js` 1, `trash.js` 8, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
+- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 27, `cam3d.js` 16, `puttfx.js` 12, `ground.js` 5, `sound.js` 3, `marebear.js` 1, `conditions.js` 3, `daily.js` 1, `gamepanels.js` 3, `progress.js` 2, `trash.js` 9, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 
 ## Deploy

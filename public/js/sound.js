@@ -172,30 +172,3 @@ export function play(name, arg) {
 }
 export const NAMES = Object.keys(SOUNDS); // for tests
 
-// rain: a soft steady hiss for as long as it is raining on the hole
-let rainNode = null;
-export function rain(wantOn) {
-  if (!wantOn || !on) {
-    if (rainNode) { const n = rainNode; rainNode = null; try { n.gain.gain.linearRampToValueAtTime(0.0001, ctx.currentTime + 0.4); n.src.stop(ctx.currentTime + 0.5); } catch { /* already stopped */ } }
-    return;
-  }
-  if (rainNode) return;
-  const c = audio();
-  if (!c) return;
-  try {
-    const src = noise(c);
-    src.loop = true;
-    const hp = c.createBiquadFilter();
-    hp.type = 'highpass';
-    hp.frequency.value = 1800;
-    const lp = c.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = 7000;
-    const gain = c.createGain();
-    gain.gain.setValueAtTime(0.0001, c.currentTime);
-    gain.gain.linearRampToValueAtTime(0.06, c.currentTime + 1.2);
-    src.connect(hp); hp.connect(lp); lp.connect(gain); gain.connect(master);
-    src.start();
-    rainNode = { src, gain };
-  } catch { rainNode = null; }
-}

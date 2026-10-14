@@ -6,16 +6,16 @@ import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl,
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=11';
 import * as G from './gamecore.js?v=27';
-import * as T from './trash.js?v=8';
+import * as T from './trash.js?v=9';
 import * as C3 from './cam3d.js?v=16';
 import * as PF from './puttfx.js?v=12';
 import * as GR from './ground.js?v=5';
-import * as SND from './sound.js?v=2';
+import * as SND from './sound.js?v=3';
 import * as MB from './marebear.js?v=1';
-import * as K from './conditions.js?v=2';
+import * as K from './conditions.js?v=3';
 import * as DLY from './daily.js?v=1';
-import * as GP from './gamepanels.js?v=2';
-import * as PR from './progress.js?v=1';
+import * as GP from './gamepanels.js?v=3';
+import * as PR from './progress.js?v=2';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -221,12 +221,15 @@ function startHole() {
 /* ----- Marebear Bucks and her bets ----- */
 
 // Her bets are a game of their own: a stake in Marebear Bucks (kept in this browser), won or lost on how a hole goes. They do not touch the match.
+// Marebear's bets are switched off for now (the code is all here): no offer, no stakes, no Bucks to earn or spend
+const BETTING_ON = false;
+const GOALS = PR.ACHIEVEMENTS.filter((a) => BETTING_ON || !a.retired);
 const bucks = () => { try { return Math.max(0, Number(localStorage.getItem('dj_bucks')) || 0); } catch { return 0; } };
 const setBucks = (n) => { try { localStorage.setItem('dj_bucks', String(Math.max(0, Math.round(n)))); } catch { /* not saved */ } };
 const betKey = () => (S.mode === 'match' && S.mp ? `m${S.mp.view.id}:${S.mp.view.holeIdx}` : `s${S.course?.seed ?? 'c'}:${S.course?.idx ?? 0}:${S.hole.id}`);
 // this hole's bet (made the first time it is looked at, before your first throw)
 function betNow() {
-  if (!S.round || !S.course) return null;
+  if (!BETTING_ON || !S.round || !S.course) return null;
   const key = betKey();
   if (S.bet?.key === key) return S.bet;
   if (S.round.strokes > 0 || S.round.throws.length) return null;
@@ -271,15 +274,17 @@ function settleBet(strokes, par, holed, holeId) {
 
 // "Varied conditions" is on unless the player has asked for the classic course (remembered)
 const condOn = () => { try { return localStorage.getItem('dj_cond') !== 'classic'; } catch { return true; } };
+// rain is a choice (off unless the player turns it on): plenty of disc golfers do not play in the rain
+const rainOn = () => { try { return localStorage.getItem('dj_rain') === 'on'; } catch { return false; } };
 const newSeed = () => Math.floor(Math.random() * 2e9) + 1;
 // the hole as this round plays it (the base hole, if it is the classic course)
-const holeNow = (base) => (S.course?.seed ? K.holeOn(S.course.seed, base, { idx: S.course.idx, n: S.course.holes.length }) : base);
+const holeNow = (base) => (S.course?.seed ? K.holeOn(S.course.seed, base, { idx: S.course.idx, n: S.course.holes.length, rain: !!S.course.rain }) : base);
 const matchDays = new Map();
 function matchHole(id, view = S.mp?.view) {
   const base = holeById(id);
   if (!view || view.seed === undefined || view.seed === null) return base;
-  const key = `${view.seed}:${id}:${view.holeIdx}:${view.holes}`;
-  if (!matchDays.has(key)) { if (matchDays.size > 60) matchDays.clear(); matchDays.set(key, K.holeOn(view.seed, base, { idx: view.holeIdx, n: view.holes })); }
+  const key = `${view.seed}:${id}:${view.holeIdx}:${view.holes}:${view.rain ? 'r' : ''}`;
+  if (!matchDays.has(key)) { if (matchDays.size > 60) matchDays.clear(); matchDays.set(key, K.holeOn(view.seed, base, { idx: view.holeIdx, n: view.holes, rain: !!view.rain })); }
   return matchDays.get(key);
 }
 const tagBit = (h) => { const t = K.tags(h.variant); return t.length ? ` · ${t.join(' · ')}` : ''; };
@@ -288,7 +293,7 @@ const tagBit = (h) => { const t = K.tags(h.variant); return t.length ? ` · ${t.
 function startSolo(length, practiceId) {
   const holes = length === 1 ? [holeById(practiceId) || HOLES[0]] : holesFor(length);
   S.mode = 'solo';
-  S.course = { length, holes, idx: 0, card: [], eaten: [], seed: condOn() ? newSeed() : null };
+  S.course = { length, holes, idx: 0, card: [], eaten: [], seed: condOn() ? newSeed() : null, rain: condOn() && rainOn() };
   S.hole = holes[0];
   startHole();
 }
@@ -307,6 +312,7 @@ function setPhase(phase, focusSel) {
   syncTop();
   renderPanel(focusSel);
   updateHud();
+  showKeys();
 }
 
 /* ---------- the panel ---------- */
@@ -506,7 +512,7 @@ function panelMenu() {
       <h2>Play the course</h2>
       <p>Eighteen holes of woods, hills, water and wind. Pick a round, bring your bag, and try not to triple bogey: Marebear is watching, and she has a handbag.</p>
       <button class="btn" type="button" data-daily>Daily course<small>nine holes, the same for everyone today · a leaderboard</small></button>
-      <button class="btn btn--ghost" type="button" data-trophies>Trophies and skins<small>${S.game.unlocked.length} of ${PR.ACHIEVEMENTS.length} goals · break-in · disc skins</small></button>
+      <button class="btn btn--ghost" type="button" data-trophies>Trophies and skins<small>${S.game.unlocked.filter((id) => GOALS.some((a) => a.id === id)).length} of ${GOALS.length} goals · break-in · disc skins</small></button>
       <button class="btn" type="button" data-solo="3">Quick warm-up<small>3 holes, about 5 minutes</small></button>
       <button class="btn btn--ghost" type="button" data-quick-friend>Play a friend now<small>one tap: a 9-hole match and a link to send</small></button>
       <div class="gm-menu">
@@ -514,8 +520,9 @@ function panelMenu() {
         <button class="btn" type="button" data-solo="18">Full 18<small>par ${parTotal(HOLES)}</small></button>
       </div>
       <button class="btn btn--ghost" type="button" data-versus>Play with friends <small>up to 8 players, turn by turn</small></button>
-      <p class="gm-note">Marebear Bucks: <b>${bucks()}</b> · she bets on every hole.</p>
-      <label class="gm-check"><input type="checkbox" data-cond${condOn() ? ' checked' : ''}> <span>Varied conditions: each round has its own wind, rain, pin positions, a mando here and there, and dusk on the last holes.</span></label>
+      ${BETTING_ON ? `<p class="gm-note">Marebear Bucks: <b>${bucks()}</b> · she bets on every hole.</p>` : ''}
+      <label class="gm-check"><input type="checkbox" data-cond${condOn() ? ' checked' : ''}> <span>Varied conditions: each round has its own wind, pin positions, a mando here and there, and dusk on the last holes.</span></label>
+      <label class="gm-check"><input type="checkbox" data-rain${rainOn() ? ' checked' : ''}> <span>Allow rain: wet days where discs skid on landing and putts are slicker (off, unless you want it).</span></label>
       <div class="gm-row">
         <label class="gm-practice"><span class="fg-wind__l">Practice a hole</span><select data-practice aria-label="Which hole">${options}</select></label>
         <button class="chip" type="button" data-solo="1">Play it</button>
@@ -919,13 +926,15 @@ function startSwipe(shot = null, throwEx = null) {
 function panelSwipe() {
   const drive = !!S.meter?.throwEx;
   const brief = isPhone() && tipSeen(); // once you know it, a phone gets one line, so the hole (and your swipe) has the room
-  const text = brief
+  const text = pullInput()
+    ? `Hold the mouse button, drag down to pull back, and let go: it throws the opposite way, as hard as you pulled. On a trackpad you can click once, move the pointer back, and click again. Keep it between the lime lines and finish in the band. Or use the arrow keys (left and right to aim, up and down for power) and Enter, or a controller: stick and A.`
+    : brief
     ? 'Draw back, then swipe up in one motion. Stay in the lime lines and stop in the band.'
     : drive
       ? 'Draw back down the screen, then swipe forward up it, in one smooth motion, from anywhere. The forward swipe is the throw: stay inside the lime lines and stop in the lime band. A short draw back costs power; off line steers the throw, too soft loses distance, too hard makes it loose.'
       : 'Draw back down the screen, then swipe forward up it, in one smooth motion, from anywhere. The forward swipe is the putt: stay inside the lime lines and stop in the lime band. A short draw back costs power; too soft dies short, too hard runs long, and off line misses.';
   return `<div class="gm-meter ${drive ? '' : 'gm-meter--putt'}">
-      <p class="gm-meter__t"><span>${drive ? 5 : 2} ·</span> Draw back, swipe</p>
+      <p class="gm-meter__t"><span>${drive ? 5 : 2} ·</span> ${pullInput() ? 'Pull back, let go' : 'Draw back, swipe'}</p>
       <div class="gm-meter__h"><p>${text}</p></div>
     </div>`;
 }
@@ -943,17 +952,28 @@ const swipeNote = (text) => { if (S.meter) S.meter.note = { text, until: now2() 
 function beginSwipe(e) {
   const p = swipePoint(e);
   const t = now2();
-  S.meter.drag = { x0: p.x, y0: p.y, x: p.x, y: p.y, phase: 'start', samples: [{ x: p.x, y: p.y, t }], backLen: 0, backPt: { x: p.x, y: p.y }, fwdLen: 0, fwdPt: null, peak: 0, speed: 0, slowPt: null, slowT: 0, lastMove: t };
-  cv.setPointerCapture?.(e.pointerId);
+  if (S.meter.armed) { // the second click of a click-move-click throw (for a trackpad, where holding and dragging is awkward)
+    const a = S.meter.armed;
+    S.meter.armed = null;
+    commitPull({ x0: a.x0, y0: a.y0, x: p.x, y: p.y }, true);
+    return;
+  }
+  const pull = e.pointerType === 'mouse' || e.pointerType === 'pen'; // a mouse or trackpad pulls back and lets go; a finger draws back and swipes
+  S.meter.drag = { x0: p.x, y0: p.y, x: p.x, y: p.y, mode: pull ? 'pull' : 'swipe', phase: pull ? 'pull' : 'start', samples: [{ x: p.x, y: p.y, t }], backLen: 0, backPt: { x: p.x, y: p.y }, fwdLen: 0, fwdPt: null, peak: 0, speed: 0, slowPt: null, slowT: 0, lastMove: t };
+  try { cv.setPointerCapture?.(e.pointerId); } catch { /* a pointer that is already gone */ }
 }
 function moveSwipe(e) {
   const d = S.meter?.drag;
-  if (!d) return;
+  if (!d) { // armed (clicked once): the pull follows the pointer without a button held
+    if (S.meter?.armed) { const q = swipePoint(e); S.meter.armed.x = q.x; S.meter.armed.y = q.y; }
+    return;
+  }
   const p = swipePoint(e);
   const t = now2();
   d.x = p.x;
   d.y = p.y;
   d.lastMove = t;
+  if (d.mode === 'pull') return; // pulling back has no timing: only where you let go matters
   d.samples.push({ x: p.x, y: p.y, t });
   while (d.samples.length > 2 && t - d.samples[0].t > 400) d.samples.shift();
   const fromStart = Math.hypot(p.x - d.x0, p.y - d.y0);
@@ -982,7 +1002,7 @@ function moveSwipe(e) {
 // every frame: a finger that has stopped (or is holding still, so sends nothing) ends the forward stroke where it stopped
 function tickSwipe() {
   const d = S.phase === 'swipe' ? S.meter?.drag : null;
-  if (!d) return;
+  if (!d || d.mode === 'pull') return;
   const t = now2();
   if (d.phase === 'back' && t - d.lastMove > SWIPE.holdMs) { S.meter.drag = null; swipeNote('NO HOLDING: DRAW BACK AND GO'); return; }
   if (d.phase !== 'forward' || d.peak < SWIPE.minPeak) return;
@@ -993,6 +1013,7 @@ function endSwipe() {
   const d = S.meter?.drag;
   if (S.phase !== 'swipe' || !d) return;
   S.meter.drag = null;
+  if (d.mode === 'pull') { commitPull(d); return; }
   if (d.phase === 'forward') {
     if (d.peak < SWIPE.minPeak) { if (d.fwdLen > SWIPE.minLen) swipeNote('TOO SLOW: ONE QUICK SWIPE'); return; } // a drag, not a swipe: try again
     S.meter.drag = d;
@@ -1009,7 +1030,36 @@ function commitSwipe(pt) {
   const dy = pt.y - d.backPt.y;
   const len = Math.hypot(dx, dy);
   if (len < SWIPE.minLen) return; // a tap, not a swipe: try again
-  const swipe = { aim: Math.round(((Math.atan2(dx, -dy) * 180) / Math.PI) * 10) / 10, power: Math.round(swipePower(len, d.backLen) * 1000) / 1000 };
+  finishSwipe({ aim: Math.round(((Math.atan2(dx, -dy) * 180) / Math.PI) * 10) / 10, power: Math.round(swipePower(len, d.backLen) * 1000) / 1000 });
+}
+/* Pulling back and letting go (a mouse, a trackpad, a pen): the throw goes the opposite way to the pull, as hard as you pulled it, with no timing
+   to get right. The same {aim, power} goes to the rules as a swipe does, so nothing else cares how it was made. */
+const PULL_RATIO = 0.8; // a pull that is this much of the swipe's length is exactly enough
+function commitPull(d, second = false) {
+  const dx = d.x - d.x0;
+  const dy = d.y - d.y0;
+  const len = Math.hypot(dx, dy);
+  if (len < SWIPE.minLen) {
+    // a plain click arms it: now move back and click again (so a trackpad needs no click-and-drag); a second click too near the first tries again
+    S.meter.armed = { x0: second ? d.x0 : d.x, y0: second ? d.y0 : d.y, x: d.x, y: d.y };
+    swipeNote(second ? 'PULL BACK FURTHER, THEN CLICK' : 'NOW MOVE BACK, THEN CLICK');
+    return;
+  }
+  if (dy < 10) { if (second) S.meter.armed = { x0: d.x0, y0: d.y0, x: d.x, y: d.y }; swipeNote('PULL DOWN, THEN LET GO'); return; }
+  finishSwipe(pullVector(d));
+}
+const pullVector = (d) => {
+  const dx = d.x - d.x0;
+  const dy = d.y - d.y0;
+  return { aim: Math.round(((Math.atan2(-dx, Math.max(1, dy)) * 180) / Math.PI) * 10) / 10, power: Math.round((Math.hypot(dx, dy) / (swipeNeed() * PULL_RATIO)) * 1000) / 1000 };
+};
+// the throw (or putt) itself, from an aim and a power however they were made
+function finishSwipe(swipe) {
+  const m = S.meter;
+  if (!m || S.phase !== 'swipe') return;
+  m.drag = null;
+  m.kb = null;
+  m.armed = null;
   if (m.throwEx) {
     const ex = G.withSwipe(m.throwEx, swipe);
     // solo rolls the slip here; in a match the server does, and the throw comes back with it
@@ -1078,6 +1128,50 @@ function drawSwipeGuide() {
   ctx.moveTo(ax - 16, backTo);
   ctx.lineTo(ax + 16, backTo);
   ctx.stroke();
+  const pd = d?.mode === 'pull' ? d : m.armed ? { ...m.armed, mode: 'pull' } : null; // a pull in progress: held, or armed by a click
+  const vec = m.kb ? { aim: m.kb.aim, power: m.kb.power } : pd ? pullVector(pd) : null;
+  if (vec) { // a pull (mouse), or a swipe set with the keys or a stick: shown as the throw it would make, coloured by how true it is
+    const q = Math.max(Math.abs(vec.aim) / tol.aim, Math.abs(vec.power - 1) / tol.power);
+    const c = q <= 1 ? '#a3e635' : q <= 1.5 ? '#f2c14e' : '#ff6a3a';
+    const ex = ax + Math.sin(rad(vec.aim)) * need * vec.power;
+    const ey = ay - Math.cos(rad(vec.aim)) * need * vec.power;
+    if (pd) { // the band you are pulling, from where you pressed
+      ctx.beginPath();
+      ctx.moveTo(pd.x0, pd.y0);
+      ctx.lineTo(pd.x, pd.y);
+      ctx.strokeStyle = 'rgba(242,193,78,0.7)';
+      ctx.lineWidth = 5;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(pd.x, pd.y, 10, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(242,193,78,0.9)';
+      ctx.fill();
+    }
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(ex, ey);
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 11;
+    ctx.stroke();
+    ctx.strokeStyle = c;
+    ctx.lineWidth = 6;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(ex, ey, 11, 0, Math.PI * 2);
+    ctx.fillStyle = c;
+    ctx.fill();
+    ctx.font = '700 14px "Space Mono", monospace';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#fff';
+    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+    ctx.lineWidth = 4;
+    ctx.strokeText(`${Math.round(vec.power * 100)}%`, ex + 18, ey + 5);
+    ctx.fillText(`${Math.round(vec.power * 100)}%`, ex + 18, ey + 5);
+    if (m.armed && !d) label('CLICK TO THROW', W / 2, Math.min(backTo + 44, H - S.dock - 14), '#f2c14e', Math.min(22, W / 15));
+    if (m.kb) label('ENTER OR A TO THROW', W / 2, Math.min(backTo + 44, H - S.dock - 14), '#eef1e8', Math.min(22, W / 15));
+    ctx.restore();
+    return;
+  }
   if (!d) {
     const pulse = (performance.now() / 700) % 1;
     for (let i = 0; i < 3; i++) { // chevrons run down (draw back), then up (swipe): the order to do it in
@@ -1092,7 +1186,7 @@ function drawSwipeGuide() {
       ctx.stroke();
     }
     if (m.note && m.note.until > now2()) label(m.note.text, W / 2, Math.min(backTo + 44, H - S.dock - 14), '#f2c14e', 24);
-    else label('DRAW BACK, THEN SWIPE UP', W / 2, Math.min(backTo + 44, H - S.dock - 14), '#eef1e8', Math.min(24, W / 14));
+    else label(pullInput() ? 'PULL BACK, THEN LET GO' : 'DRAW BACK, THEN SWIPE UP', W / 2, Math.min(backTo + 44, H - S.dock - 14), '#eef1e8', Math.min(24, W / 14));
   } else {
     const color = (aim, power) => { const q = Math.max(Math.abs(aim) / tol.aim, Math.abs(power - 1) / tol.power); return q <= 1 ? '#a3e635' : q <= 1.5 ? '#f2c14e' : '#ff6a3a'; };
     // where the finger really is, faintly
@@ -1978,11 +2072,9 @@ function drawPop(t) {
   ctx.restore();
 }
 
-const rainSound = (v) => SND.rain(v);
 // the day's weather over the whole picture: rain, and the dusk of the last holes
 function drawWeather(t) {
   const w = S.round && S.mode !== 'menu' ? S.hole.weather : null;
-  rainSound(!!w?.rain);
   if (!w) return;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (w.dusk > 0) {
@@ -2279,6 +2371,7 @@ function update(t) {
 function frame() {
   try {
     const t = now();
+    pollPad(performance.now());
     update(t);
     draw(t);
   } catch (err) {
@@ -2423,6 +2516,7 @@ function onPanelChange(e) {
   if (rangeEvent(e)) return;
   if (e.target.matches('[data-bag]')) setActive(e.target.value);
   else if (e.target.matches('[data-practice]') && S.phase === 'menu') previewHole(Number(e.target.value));
+  else if (e.target.matches('[data-rain]')) { try { localStorage.setItem('dj_rain', e.target.checked ? 'on' : 'off'); } catch { /* not saved */ } }
   else if (e.target.matches('[data-cond]')) { try { localStorage.setItem('dj_cond', e.target.checked ? 'varied' : 'classic'); } catch { /* not saved */ } }
 }
 
@@ -2446,18 +2540,146 @@ function onPanelInput(e) {
   if (key === 'aim') { S.aimOff = v; out.textContent = aimText(v); retarget(false); }
 }
 
+/* ----- keyboard and controller: the same few actions, whichever made them ----- */
+
+// A mouse or trackpad (or a pen) pulls back and lets go; a finger draws back and swipes. Before anything has been used, a phone is a finger.
+const pullInput = () => {
+  const k = S.pointerKind || (window.matchMedia?.('(pointer: coarse)').matches ? 'touch' : 'mouse');
+  return k === 'mouse' || k === 'pen';
+};
+function setInput(kind) { // 'touch' | 'mouse' | 'key' | 'pad': what the player is using now (the hint strip shows for the last two)
+  if (S.input === kind) return;
+  S.input = kind;
+  showKeys();
+}
+const KEYMAP = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down', Enter: 'confirm', ' ': 'confirm', Escape: 'back', Backspace: 'back', PageUp: 'prev', PageDown: 'next', '[': 'prev', ']': 'next' };
+
+function selectDisc(step) {
+  const list = available();
+  if (!list.length) return;
+  const i = list.findIndex((x) => x.disc.id === S.discId);
+  S.discId = list[(i + step + list.length) % list.length].disc.id;
+  renderPanel(`[data-disc="${S.discId}"]`);
+  retarget(false);
+}
+const panelButtons = () => [...panel().querySelectorAll('button:not([disabled]), select, input')].filter((el) => el.offsetParent !== null);
+function focusMove(step) {
+  const items = panelButtons();
+  if (!items.length) return;
+  const i = items.indexOf(document.activeElement);
+  items[(i + step + items.length) % items.length].focus({ preventScroll: false });
+}
+function pressFocused() {
+  const el = document.activeElement;
+  if (el && panel().contains(el) && el.matches('button')) el.click();
+  else panel().querySelector('.btn:not(.btn--ghost):not([disabled]), .gm-tap')?.click(); // nothing chosen: the main button of the screen
+}
+
+/**
+ * Do something: left, right, up, down, confirm, back, prev, next. What each means depends on where the game is. Returns whether it did anything.
+ * (o.amount: how far an aim or power step goes; o.pad: it came from a controller, which also moves round menus.)
+ */
+function act(name, o = {}) {
+  const amt = o.amount ?? 1;
+  if (S.replay) return false;
+  if (S.phase === 'flight') { // a ride can be skipped
+    if ((name === 'confirm' || name === 'back') && S.anim && riding()) { S.anim.t0 -= 1e7; return true; }
+    return false;
+  }
+  if (isMeter()) { if (name === 'confirm') { tap(); return true; } return false; }
+  if (S.phase === 'swipe') { // the swipe, made with keys or a stick: aim and power, then throw
+    const m = S.meter;
+    if (!m) return false;
+    const kb = () => (m.kb ||= { aim: 0, power: 1 });
+    if (name === 'left') kb().aim = clamp(kb().aim - amt, -45, 45);
+    else if (name === 'right') kb().aim = clamp(kb().aim + amt, -45, 45);
+    else if (name === 'up') kb().power = clamp(Math.round((kb().power + 0.03 * amt) * 100) / 100, 0.15, 2);
+    else if (name === 'down') kb().power = clamp(Math.round((kb().power - 0.03 * amt) * 100) / 100, 0.15, 2);
+    else if (name === 'confirm') { finishSwipe({ aim: kb().aim, power: kb().power }); return true; }
+    else if (name === 'back') { m.kb = null; m.armed = null; return true; }
+    else return false;
+    return true;
+  }
+  if (S.phase === 'pick') {
+    if (name === 'left' || name === 'right') { if (inPutt()) return false; setAim(S.aimOff + (name === 'left' ? -amt : amt)); return true; }
+    if (name === 'up' || name === 'prev') { selectDisc(-1); return true; }
+    if (name === 'down' || name === 'next') { selectDisc(1); return true; }
+    if (name === 'confirm') { panel().querySelector('[data-go], [data-next-step]')?.click(); return true; }
+    if (name === 'back' && isPhone() && S.step !== 'disc') { S.step = S.step === 'aim' ? 'grip' : 'disc'; renderPanel(); return true; }
+    return false;
+  }
+  // everywhere else (menus, results, scorecards)
+  if (o.pad && (name === 'up' || name === 'down')) { focusMove(name === 'down' ? 1 : -1); return true; }
+  if (name === 'confirm') { pressFocused(); return true; }
+  return false;
+}
+
 function onKey(e) {
   if (e.key === 'Enter' && S.phase === 'lobby' && e.target.matches?.('[data-lobby-code]')) { e.preventDefault(); mpJoin(S.lobby.code); return; }
   if (e.key === 'Enter' && S.phase === 'lobby' && e.target.matches?.('[data-lobby-invite]')) { e.preventDefault(); mpCreate(); return; }
   if (e.target.closest?.('input, select, textarea') && e.key !== 'Enter') return;
-  if (isMeter() && (e.key === ' ' || e.key === 'Enter')) {
-    e.preventDefault();
-    tap();
-  } else if (S.phase === 'pick' && !inPutt() && !e.target.closest?.('input, select, textarea, button')) {
-    if (e.key === 'ArrowLeft') setAim(S.aimOff - (e.shiftKey ? 5 : 1));
-    else if (e.key === 'ArrowRight') setAim(S.aimOff + (e.shiftKey ? 5 : 1));
-  }
+  const name = KEYMAP[e.key];
+  if (!name || e.ctrlKey || e.metaKey || e.altKey) return;
+  // a focused button does its own thing on Enter or Space, except on the meters and the swipe, where it is the tap or the throw
+  if (name === 'confirm' && e.target.closest?.('button, a') && !isMeter() && S.phase !== 'swipe') return;
+  if (act(name, { amount: e.shiftKey ? 5 : 1 })) { e.preventDefault(); setInput('key'); }
 }
+
+// a controller, polled every frame: buttons act once, the d-pad repeats while held, and a stick moves things smoothly
+const pad = { prev: {}, hold: {}, last: 0, aimF: 0, name: '' };
+const PAD_BUTTONS = { confirm: 0, back: 1, prev: 4, next: 5, up: 12, down: 13, left: 14, right: 15 };
+function pollPad(t) {
+  const list = navigator.getGamepads ? navigator.getGamepads() : [];
+  const g = [...list].find((x) => x && x.connected);
+  if (!g) return;
+  const dt = clamp((t - pad.last) / 1000, 0.001, 0.05);
+  pad.last = t;
+  let used = false;
+  for (const [name, i] of Object.entries(PAD_BUTTONS)) {
+    const down = !!g.buttons[i]?.pressed;
+    const repeats = i >= 12; // the d-pad repeats while held
+    const h = pad.hold[name];
+    if (down && !pad.prev[name]) { act(name, { pad: true }); used = true; pad.hold[name] = { next: t + 350 }; }
+    else if (down && repeats && h && t >= h.next) { act(name, { pad: true }); used = true; h.next = t + 80; }
+    pad.prev[name] = down;
+  }
+  const rt = (g.buttons[7]?.value || 0) > 0.6; // the right trigger throws too
+  if (rt && !pad.prev.rt) { act('confirm', { pad: true }); used = true; }
+  pad.prev.rt = rt;
+  // the left stick: aim in the pick phase, aim and power in the swipe; in menus, up and down
+  const lx = Math.abs(g.axes[0]) > 0.3 ? g.axes[0] : 0;
+  const ly = Math.abs(g.axes[1]) > 0.3 ? g.axes[1] : 0;
+  const ry = Math.abs(g.axes[3] ?? 0) > 0.3 ? g.axes[3] : 0;
+  if (lx || ly || ry) used = true;
+  if (S.phase === 'pick' && lx && !inPutt()) {
+    pad.aimF += lx * dt * 45;
+    if (Math.abs(pad.aimF) >= 1) { const n = Math.trunc(pad.aimF); pad.aimF -= n; setAim(S.aimOff + n); }
+  } else if (S.phase === 'swipe' && S.meter && (lx || ly || ry)) {
+    const kb = (S.meter.kb ||= { aim: 0, power: 1 });
+    kb.aim = clamp(kb.aim + lx * dt * 40, -45, 45);
+    kb.power = clamp(kb.power - (ry || ly) * dt * 0.7, 0.15, 2);
+  } else if (ly && !isMeter() && S.phase !== 'pick' && S.phase !== 'flight') {
+    const h = pad.hold.stick;
+    if (!h || t >= h.next) { act(ly > 0 ? 'down' : 'up', { pad: true }); pad.hold.stick = { next: t + (h ? 160 : 380) }; }
+  } else pad.hold.stick = null;
+  if (used) setInput('pad');
+}
+
+// what the keys or the controller do right now, in a strip over the hole
+function showKeys() {
+  const el = $('#gm-keys');
+  if (!el) return;
+  const isPad = S.input === 'pad';
+  if (!(S.input === 'key' || isPad) || !S.round) { el.hidden = true; return; }
+  const [L, R, U, D, OK] = isPad ? ['◀', '▶', '▲', '▼', 'A'] : ['←', '→', '↑', '↓', 'Enter'];
+  const text = isMeter() ? `${isPad ? 'A' : 'Space or Enter'}: tap`
+    : S.phase === 'swipe' ? `${L} ${R} aim · ${U} ${D} power · ${OK}: throw`
+      : S.phase === 'pick' ? `${L} ${R} aim · ${U} ${D} disc · ${OK}: ${inPutt() ? 'putt' : 'next / throw'}`
+        : S.phase === 'flight' ? `${OK}: skip` : isPad ? `${U} ${D} choose · A: select` : '';
+  el.textContent = text;
+  el.hidden = !text;
+}
+window.addEventListener('gamepadconnected', (e) => { toast('Controller connected', 'good', 1600); pad.name = e.gamepad.id; });
 
 /* ---------- versus: two players, one course, turn by turn ---------- */
 
@@ -2526,7 +2748,7 @@ function openTrophies() {
   retarget(true);
   syncGame();
 }
-const panelTrophies = () => GP.trophiesHtml({ game: S.game, bucks: bucks(), goals: PR.ACHIEVEMENTS, skins: PR.SKINS, discName: (id) => splitName(DISCS.get(Number(id))?.name || `Disc ${id}`), breakIn: PR.BREAK_IN_THROWS, msg: S.trophyMsg });
+const panelTrophies = () => GP.trophiesHtml({ game: S.game, bucks: bucks(), canBuy: BETTING_ON, goals: GOALS, skins: PR.SKINS, discName: (id) => splitName(DISCS.get(Number(id))?.name || `Disc ${id}`), breakIn: PR.BREAK_IN_THROWS, msg: S.trophyMsg });
 function chooseSkin(id) {
   const skin = PR.skinOf(id);
   if (S.game.owned.includes(id)) { PR.equipSkin(S.game, id); S.trophyMsg = `${skin.name} is on your discs.`; } else {
@@ -2779,17 +3001,6 @@ function applyView(view) {
     S.round = { hole: S.hole, lie: { ...r.lie }, strokes: r.strokes, throws: r.throws, eaten: [...r.eaten], bearCame: r.bearCame, done: r.done, holed: r.holed };
     const path = (tr) => tr.map((t) => ({ pts: t.pts.map(([x, y]) => ({ x, y })), kind: t.kind, n: t.n }));
     S.trail = path(view.round.trails[me] || []);
-    const stoleKey = `${view.id}:${view.holeIdx}`;
-    if (mp.stoleKey !== stoleKey) { // Marebear borrows the leader's fastest disc for a hole
-      mp.stoleKey = stoleKey;
-      for (const p of view.players) {
-        const sid = view.round.rounds[p.uid]?.stolen;
-        if (!sid) continue;
-        const nm = splitName(DISCS.get(sid)?.name || 'disc');
-        if (p.uid === me) setTimeout(() => popUp(T.stealLine(nm, Math.random, S.lastQuip), '', 'bad'), 1900);
-        else setTimeout(() => toast(`Marebear took ${p.name}'s ${nm} for this hole`, '', 2600), 1900);
-      }
-    }
     S.others = view.players.filter((p) => p.uid !== me && !p.left && view.round.rounds[p.uid]).map((p) => {
       const o = view.round.rounds[p.uid];
       return { uid: p.uid, name: p.name, color: colorOf(p.uid, view), lie: { ...o.lie }, strokes: o.strokes, done: o.done, holed: o.holed, trail: path(view.round.trails[p.uid] || []) };
@@ -2904,7 +3115,7 @@ function replayBest() {
   if (S.mode === 'match' && S.mp?.view.best) {
     const v = S.mp.view;
     const b = v.best.last;
-    replayMove(b, K.holeOn(v.seed, holeById(b.holeId), { idx: b.holeId - 1, n: v.holes }));
+    replayMove(b, K.holeOn(v.seed, holeById(b.holeId), { idx: b.holeId - 1, n: v.holes, rain: !!v.rain }));
   } else if (S.course?.best) {
     replayMove(S.course.best.move, S.course.best.hole);
   }
@@ -3024,7 +3235,7 @@ function boardHtml() {
     const where = p.left ? 'left' : !r ? '–' : r.done ? (r.holed ? 'in' : 'out') : ft(G.distance(r.lie, hole.basket));
     return `<li class="${p.uid === S.mp.me ? 'is-me' : 'is-them'}${v.round.turn === p.uid ? ' is-turn' : ''}${p.left ? ' is-left' : ''}"><span>${dot}${esc(p.name)}${p.uid === S.mp.me ? ' (you)' : ''}</span><span>${where}</span><b>${r ? r.strokes : '–'}</b><span>${(v.cards[p.uid] || []).length ? vsPar(total - par) : '–'}</span></li>`;
   }).join('');
-  return `${bar}<ol class="gm-board" aria-label="Scoreboard"><li class="gm-board__h"><span>Player</span><span>To basket</span><span>Hole</span><span>Round</span></li>${rows}</ol>`;
+  return `${bar}<ol class="gm-board" aria-label="Scoreboard"><li class="gm-board__h"><span>Player</span><span>To basket</span><span>Strokes</span><span>Round</span></li>${rows}</ol>`;
 }
 
 function panelMwait() {
@@ -3254,10 +3465,11 @@ async function boot() {
   p.addEventListener('pointerdown', (e) => { if (e.target.closest('[data-tap], .gm-bar, #gm-putt') && isMeter()) { e.preventDefault(); tap(); } });
   p.addEventListener('keydown', (e) => { if (e.target.matches('[data-tap]') && (e.key === ' ' || e.key === 'Enter')) e.preventDefault(); });
   document.addEventListener('keydown', onKey);
+  document.addEventListener('pointerdown', (e) => { S.pointerKind = e.pointerType; setInput(e.pointerType === 'touch' ? 'touch' : 'mouse'); }, true);
   cv.addEventListener('pointerdown', (e) => {
     if (riding()) { S.anim.t0 -= 1e7; return; } // tap to skip the ride
     if (S.phase === 'swipe') { beginSwipe(e); return; }
-    cv.setPointerCapture?.(e.pointerId);
+    try { cv.setPointerCapture?.(e.pointerId); } catch { /* a pointer that is already gone */ }
     setAimFromPointer(e);
   });
   cv.addEventListener('pointermove', (e) => { if (S.phase === 'swipe') { moveSwipe(e); return; } if (e.buttons || e.pointerType === 'touch') setAimFromPointer(e); });

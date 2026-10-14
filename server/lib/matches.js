@@ -54,10 +54,10 @@ async function loadGameplay() {
   const days = new Map();
   const holeFor = (m, id) => {
     if (m.seed === undefined || m.seed === null) return base(id);
-    const key = `${m.seed}:${id}:${m.holeIdx}:${m.holes}`;
+    const key = `${m.seed}:${id}:${m.holeIdx}:${m.holes}:${m.rain ? 'r' : ''}`;
     if (!days.has(key)) {
       if (days.size > 200) days.clear();
-      days.set(key, cond.applyVariant(base(id), cond.variantFor(m.seed, base(id), { idx: m.holeIdx, n: m.holes })));
+      days.set(key, cond.applyVariant(base(id), cond.variantFor(m.seed, base(id), { idx: m.holeIdx, n: m.holes, rain: !!m.rain })));
     }
     return days.get(key);
   };
@@ -104,23 +104,8 @@ function startHole(gp, m) {
     order = (m.round.order || []).filter((uid) => rounds[uid]).sort((x, y) => score(x) - score(y));
     for (const p of players) if (!order.includes(p.uid)) order.push(p.uid);
   }
-  if (m.holeIdx >= 2) steal(gp, m, rounds, players);
   m.round = { holeId: hole.id, rounds, trails: Object.fromEntries(players.map((p) => [p.uid, []])), order, lastSeq: {}, turn: null };
   chooseTurn(gp, m);
-}
-
-// Marebear gets bored of a runaway: when one player leads by three strokes or more, she takes their fastest disc for this one hole
-// (it is in `eaten` for the hole, and `stolen` says which, so it is not carried to the next one)
-function steal(gp, m, rounds, players) {
-  const totals = players.map((p) => ({ p, t: m.cards[p.uid].reduce((n, c) => n + c.score, 0) })).sort((a, b) => a.t - b.t);
-  if (totals.length < 2 || totals[1].t - totals[0].t < 3) return;
-  const lead = totals[0].p;
-  const r = rounds[lead.uid];
-  const have = lead.discs.filter((d) => !r.eaten.includes(d.id));
-  if (have.length < 3) return;
-  const fastest = have.map((d) => ({ d, sp: gp.discs.get(d.id)?.speed ?? 0 })).sort((a, b) => b.sp - a.sp)[0].d;
-  r.eaten.push(fastest.id);
-  r.stolen = fastest.id;
 }
 
 // The farthest player from the basket throws next. When some are as far as each other (everyone, on the tee), it goes to
@@ -229,7 +214,7 @@ function cardHole(gp, m) {
     const r = m.round.rounds[p.uid];
     const score = gp.G.holeScore(r.strokes, hole.par, r.holed);
     m.cards[p.uid].push({ hole: hole.id, par: hole.par, strokes: r.strokes, score, holed: r.holed });
-    m.eaten[p.uid] = r.eaten.filter((id) => id !== r.stolen); // a disc she only borrowed for the hole comes back
+    m.eaten[p.uid] = [...r.eaten];
     // closest to the pin: how near the first throw (if it was a clean one) finished to the basket
     const first = r.throws[0];
     const kp = first && first.strokes === 1 ? (first.kind === 'basket' ? 0 : r1(gp.G.distance(first.lie, hole.basket))) : null;
@@ -380,6 +365,7 @@ function createMatchStore(file, { now = () => Date.now(), seed = () => crypto.ra
       holes: m.holes,
       holeIdx: m.holeIdx,
       seed: m.seed,
+      rain: !!m.rain,
       invite: m.invite,
       you: uid,
       host: m.players[0].uid,
@@ -542,4 +528,4 @@ function createMatchStore(file, { now = () => Date.now(), seed = () => crypto.ra
   };
 }
 
-module.exports = { createMatchStore, loadGameplay, MatchError, LIMITS, _steal: steal };
+module.exports = { createMatchStore, loadGameplay, MatchError, LIMITS };

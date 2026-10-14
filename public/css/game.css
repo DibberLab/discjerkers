@@ -386,3 +386,11 @@
   .gm-dock .gm-discs.is-more { -webkit-mask-image: linear-gradient(#000 82%, transparent); mask-image: linear-gradient(#000 82%, transparent); }
 }
 @media (max-width: 900px) and (max-height: 520px) { .gm-dock .gm-discs { max-height: 120px; } }
+
+/* the strip that says what the keys or the controller do */
+.gm-keys {
+  position: absolute; left: 50%; bottom: calc(var(--dock, 0px) + 12px); transform: translateX(-50%); z-index: 3; max-width: 92%; padding: 7px 14px; border-radius: 999px;
+  background: rgba(6, 11, 7, 0.82); border: 1px solid rgba(163, 230, 53, 0.45); color: var(--bone); white-space: nowrap; pointer-events: none;
+  font: 700 0.66rem/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase;
+}
+.gm-keys[hidden] { display: none; }

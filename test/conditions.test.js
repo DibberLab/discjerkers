@@ -28,7 +28,10 @@ test('a day is believable: wind in range, rain now and then, dusk only late in a
   let n = 0;
   for (const hole of HOLES) {
     for (let seed = 1; seed <= 40; seed++) {
-      const v = K.variantFor(seed, hole, { idx: 3, n: 9 });
+      const v = K.variantFor(seed, hole, { idx: 3, n: 9, rain: true });
+      const dry = K.variantFor(seed, hole, { idx: 3, n: 9 });
+      assert.strictEqual(dry.rain, false, 'rain is only there when asked for');
+      assert.deepStrictEqual({ ...dry, rain: v.rain, wind: v.wind }, { ...v }, 'and nothing else about the day changes with it');
       n++;
       assert.ok(v.wind.mph >= 0 && v.wind.mph <= 24 && v.wind.from >= 0 && v.wind.from < 360, JSON.stringify(v.wind));
       if (v.rain) rain++;
@@ -45,7 +48,7 @@ test('a day is believable: wind in range, rain now and then, dusk only late in a
       assert.strictEqual(played.id, hole.id);
     }
   }
-  assert.ok(rain > n * 0.1 && rain < n * 0.35, `it rains about one day in five: ${rain}/${n}`);
+  assert.ok(rain > n * 0.1 && rain < n * 0.35, `with rain allowed it rains about one day in five: ${rain}/${n}`);
   assert.ok(pins.has('A') && pins.has('B') && pins.has('C'), 'all three pins get used');
   assert.ok(mandos > 5, 'and the mandos');
   // dusk: only the last holes of a round, and it deepens

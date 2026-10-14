@@ -128,11 +128,9 @@ for (const [k, v] of Object.entries(MORE2_THEIRS)) THEIRS[k].push(...v);
 for (const [k, v] of Object.entries(MORE2_HOLE)) HOLE[k].push(...v);
 for (const [k, v] of Object.entries(MORE2_MATCH)) MATCH[k].push(...v);
 
-// Her taking a disc off a runaway leader, and a grudging word when a player reaches a goal. {disc}, {title} and {skin} are filled in.
-export const STEAL = ['Sorry, sugar, I am borrowing your {disc} for this hole. You are doing far too well.', 'Hand over the {disc}, honey. You are winning, and I do not care for it.', 'I am taking your {disc} for this hole. Think of it as a tax on being good.', 'Your {disc} is going in my handbag. You will get it back. Eventually.', 'You are too far ahead, darling. The {disc} stays with me for a hole.', 'Winning is lovely, but I have a rule: your {disc} is mine until the next hole.'];
+// A grudging word when a player reaches a goal. {title} and {skin} are filled in.
 export const GOAL_SKIN = ['Hmph. {title}. Fine, have a {skin} disc. Do not get used to it.', '{title}, is it? Take the {skin} skin and stop looking at me.', 'Well. {title}. Here is a {skin} disc. I am not smiling, it is the make-up.', '{title}. I suppose that earns you a {skin} disc. I suppose.', 'You did {title}? Sweetheart. Fine. The {skin} disc is yours.', 'Oh, look who did {title}. Have a {skin} disc and a moment of my time.'];
 export const GOAL_PLAIN = ['{title}? Do not let it go to your head.', '{title}. I am not impressed. I am slightly impressed.', 'Look at you, doing {title}. I will write it on my fridge.', '{title}, darling. I will allow it.', 'So you did {title}. Good for you. Truly. Mostly.', '{title}! Fine, take a bow. A small one.'];
-export const stealLine = (disc, rnd = Math.random, avoid = '') => pick(STEAL, { disc }, rnd, avoid);
 export const goalLine = (title, skin, rnd = Math.random, avoid = '') => pick(skin ? GOAL_SKIN : GOAL_PLAIN, { title, skin }, rnd, avoid);
 
 // Marebear's bets: she bets against you, and you can take it or not. What each is worth is in BETS below.

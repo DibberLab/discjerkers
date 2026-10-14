@@ -84,15 +84,15 @@ export function closestToPin(results, nameOf) {
  * Trophies: goals reached, skins to wear or buy, and how worn in each disc is.
  *   game: the player's progress   bucks: Marebear Bucks   goals: ACHIEVEMENTS   skins: SKINS   discName(id) -> string   breakIn: throws for fully broken in
  */
-export function trophiesHtml({ game, bucks, goals, skins, discName, breakIn, msg }) {
+export function trophiesHtml({ game, bucks, canBuy = true, goals, skins, discName, breakIn, msg }) {
   const done = new Set(game.unlocked);
   const goalRows = goals.map((a) => `<li class="${done.has(a.id) ? 'is-me' : ''}"><span>${done.has(a.id) ? '✓ ' : ''}${esc(a.title)}<small>${esc(a.desc)}</small></span><b>${done.has(a.id) ? 'done' : ''}</b></li>`).join('');
   const skinRows = skins.map((s) => {
     const own = game.owned.includes(s.id);
     const worn = game.skin === s.id;
     const swatch = `<i class="gm-swatch" style="--c:${s.color || '#8a9a86'}"></i>`;
-    const action = worn ? '<b>worn</b>' : own ? `<button class="chip" type="button" data-skin="${s.id}">Wear</button>` : `<button class="chip" type="button" data-skin="${s.id}"${bucks < s.cost ? ' disabled' : ''}>Buy ${s.cost}</button>`;
-    return `<li class="${worn ? 'is-me' : ''}"><span>${swatch}${esc(s.name)}<small>${own ? 'yours' : `${esc(s.how)}, or ${s.cost} Marebear Bucks`}</small></span>${action}</li>`;
+    const action = worn ? '<b>worn</b>' : own ? `<button class="chip" type="button" data-skin="${s.id}">Wear</button>` : canBuy ? `<button class="chip" type="button" data-skin="${s.id}"${bucks < s.cost ? ' disabled' : ''}>Buy ${s.cost}</button>` : '<b>locked</b>';
+    return `<li class="${worn ? 'is-me' : ''}"><span>${swatch}${esc(s.name)}<small>${own ? 'yours' : canBuy ? `${esc(s.how)}, or ${s.cost} Marebear Bucks` : esc(s.how)}</small></span>${action}</li>`;
   }).join('');
   const discs = Object.entries(game.stats.discs).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).slice(0, 8);
   const wearRows = discs.length
@@ -101,7 +101,7 @@ export function trophiesHtml({ game, bucks, goals, skins, discName, breakIn, msg
   const s = game.stats;
   return `<div class="gm-card">
       <h2>Trophies</h2>
-      <p>${s.throws} throws · ${s.holes} holes · ${s.aces} ${s.aces === 1 ? 'ace' : 'aces'} · best putt ${s.bestPutt} ft · best drive ${s.bestDrive} ft. You have <b>${bucks}</b> Marebear Bucks.</p>
+      <p>${s.throws} throws · ${s.holes} holes · ${s.aces} ${s.aces === 1 ? 'ace' : 'aces'} · best putt ${s.bestPutt} ft · best drive ${s.bestDrive} ft.${canBuy ? ` You have <b>${bucks}</b> Marebear Bucks.` : ''}</p>
       ${msg ? `<p class="gm-note" role="status">${esc(msg)}</p>` : ''}
       <p class="gm-h">Goals</p>
       <ol class="gm-vs-list gm-board">${goalRows}</ol>

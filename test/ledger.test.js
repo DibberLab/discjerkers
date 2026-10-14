@@ -143,29 +143,10 @@ test('over HTTP: today\'s daily course, posting a card, one score a day, and the
   } finally { close(); }
 });
 
-test('the throw of the match is kept, and Marebear borrows the leader\'s fastest disc', async () => {
+test('the throw of the match is kept: an ace is the best, then a long putt, then a long pure drive', async () => {
   const G = await import('../public/js/gamecore.js');
   assert.ok(G.highlightScore({ kind: 'basket', putt: false, feet: 280 }) > G.highlightScore({ kind: 'basket', putt: true, made: true, dist: 45 }), 'an ace beats a long putt');
   assert.ok(G.highlightScore({ kind: 'basket', putt: true, made: true, dist: 45 }) > G.highlightScore({ kind: 'landed', putt: false, feet: 400, ex: { pure: true } }));
   assert.strictEqual(G.highlightScore({ kind: 'basket', putt: true, made: true, gimme: true, dist: 1 }), 0, 'a tap-in is not a highlight');
   assert.strictEqual(G.highlightScore({ kind: 'water' }), 0);
-  const { _steal } = require('../server/lib/matches');
-  const gp = await loadGameplay();
-  const disc = (id) => ({ id });
-  const speed = (id) => gp.discs.get(id).speed;
-  const bag = [...gp.discs.values()].slice(0, 6).map((d) => disc(d.id));
-  const players = [{ uid: 'a', discs: bag }, { uid: 'b', discs: bag }];
-  const mk = (a, b) => ({ cards: { a: Array.from({ length: 3 }, () => ({ score: a })), b: Array.from({ length: 3 }, () => ({ score: b })) } });
-  let rounds = { a: { eaten: [] }, b: { eaten: [] } };
-  _steal(gp, mk(4, 4), rounds, players);
-  assert.strictEqual(rounds.a.stolen, undefined, 'a tie is nobody\'s runaway');
-  _steal(gp, mk(4, 4.9), rounds, players);
-  assert.strictEqual(rounds.a.stolen, undefined, 'two strokes is not a runaway');
-  _steal(gp, mk(3, 4), rounds, players); // three strokes ahead over three holes
-  assert.ok(rounds.a.stolen && rounds.a.eaten.includes(rounds.a.stolen), 'the leader loses a disc');
-  assert.strictEqual(rounds.b.stolen, undefined);
-  assert.strictEqual(speed(rounds.a.stolen), Math.max(...bag.map((d) => speed(d.id))), 'the fastest one');
-  rounds = { a: { eaten: [bag[0].id, bag[1].id, bag[2].id, bag[3].id] }, b: { eaten: [] } };
-  _steal(gp, mk(3, 4), rounds, players);
-  assert.strictEqual(rounds.a.stolen, undefined, 'she never takes the last discs');
 });

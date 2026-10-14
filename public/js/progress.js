@@ -24,11 +24,11 @@ export const ACHIEVEMENTS = [
   { id: 'streak3', title: 'Hot streak', desc: 'Go under par on three holes in a row.', skin: 'neon' },
   { id: 'clean', title: 'Clean card', desc: 'Finish a round of nine or more holes with no penalty strokes.', skin: 'ice' },
   { id: 'eagle', title: 'Eagle', desc: 'Make an eagle: two under par or better.', skin: 'sunset' },
-  { id: 'rainy', title: 'Rain or shine', desc: 'Make par or better on a hole in the rain.', skin: 'storm' },
+  { id: 'rainy', title: 'Rain or shine', desc: 'Make par or better on a hole in the rain (turn rain on in the menu).', skin: 'storm' },
   { id: 'daily', title: 'Daily driver', desc: 'Post a score to the daily board.', skin: 'leopard' },
   { id: 'veteran', title: 'Broken in', desc: 'Throw one disc 100 times: it turns a little more for you now.' },
   { id: 'regular', title: 'Regular', desc: 'Play 25 holes.' },
-  { id: 'bettor', title: 'High roller', desc: 'Win a bet with Marebear.' },
+  { id: 'bettor', title: 'High roller', desc: 'Win a bet with Marebear.', retired: true }, // betting is switched off: not shown
 ];
 
 export const emptyGame = () => ({
