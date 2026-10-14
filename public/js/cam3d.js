@@ -697,6 +697,81 @@ function drawSplash(ctx, cam, view, at, age, gz = 0) {
  * Draw the whole scene for one frame.
  *   scene: { hole, cam, view, disc: {x, y, h}, trail: [{x, y, h}], color, t (ms), splash?: { at, age }, shake?: number }
  */
+/* ----- the player: a ghost of a person, drawn from the joints player.js gives (in the player's own frame, feet) ----- */
+
+let ghostPad = null; // a canvas the body is drawn on, opaque, then stamped on the picture a little see-through and glowing
+const BONES = [ // [from, to, width in feet]
+  ['hip', 'chest', 0.9], ['lsho', 'rsho', 0.42], ['lhip', 'rhip', 0.5],
+  ['lhip', 'lknee', 0.5], ['lknee', 'lfoot', 0.38], ['rhip', 'rknee', 0.5], ['rknee', 'rfoot', 0.38],
+  ['lsho', 'lelb', 0.34], ['lelb', 'lhand', 0.28], ['rsho', 'relb', 0.34], ['relb', 'rhand', 0.28], ['neck', 'head', 0.3],
+];
+/**
+ * fig: { x, y (where the player stands), yaw (radians: which way they face, from north, clockwise), pose (from poseAt), discColor, hideDisc }
+ * `dz` scales heights like the rest of the scene (a ride squashes them, a putt does not).
+ */
+export function drawPlayer(ctx, cam, view, hole, fig, dz = 1) {
+  const pose = fig.pose;
+  const j = pose.joints;
+  const fx = Math.sin(fig.yaw);
+  const fy = Math.cos(fig.yaw);
+  const rx = Math.cos(fig.yaw);
+  const ry = -Math.sin(fig.yaw);
+  const gz = groundAt(hole, fig.x, fig.y);
+  const world = (p) => [fig.x + rx * p[0] + fx * p[1], fig.y + ry * p[0] + fy * p[1], gz + p[2] * dz];
+  const scr = {};
+  for (const [name, p] of Object.entries(j)) {
+    const w = world(p);
+    const q = project(cam, view, w[0], w[1], w[2]);
+    if (!q) return; // part of the body is behind the camera: draw nothing rather than half of it
+    scr[name] = q;
+  }
+  const foot = project(cam, view, fig.x, fig.y, gz);
+  if (foot) { // a soft shadow on the grass
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath(); ctx.ellipse(foot.x, foot.y, 1.5 * foot.s, 0.55 * foot.s, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  const segs = BONES.map(([a, b, w]) => ({ a: scr[a], b: scr[b], w, d: (scr[a].d + scr[b].d) / 2 }));
+  segs.sort((p, q) => q.d - p.d);
+  let x0 = Infinity; let y0 = Infinity; let x1 = -Infinity; let y1 = -Infinity;
+  const grow = (q, r) => { x0 = Math.min(x0, q.x - r); y0 = Math.min(y0, q.y - r); x1 = Math.max(x1, q.x + r); y1 = Math.max(y1, q.y + r); };
+  const headR = 0.44 * scr.head.s;
+  for (const s of segs) { grow(s.a, s.w * s.a.s); grow(s.b, s.w * s.b.s); }
+  grow(scr.head, headR + 2);
+  const m = 14;
+  x0 = Math.floor(x0 - m); y0 = Math.floor(y0 - m);
+  const w = Math.ceil(x1 - x0 + m); const h = Math.ceil(y1 - y0 + m);
+  if (w < 4 || h < 4 || w > 2400 || h > 2400) return;
+  if (!ghostPad) ghostPad = document.createElement('canvas');
+  if (ghostPad.width < w || ghostPad.height < h) { ghostPad.width = Math.max(ghostPad.width, w); ghostPad.height = Math.max(ghostPad.height, h); }
+  const g = ghostPad.getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, ghostPad.width, ghostPad.height);
+  g.translate(-x0, -y0);
+  g.lineCap = 'round';
+  const line = (a, b, wd, col) => { g.strokeStyle = col; g.lineWidth = Math.max(1.5, wd); g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); };
+  for (const s of segs) { // each bone: its rim, then its body, far to near, so a near arm lies over a far one
+    const wd = s.w * (s.a.s + s.b.s) / 2;
+    line(s.a, s.b, wd + 2.2, '#6fae98');
+    line(s.a, s.b, wd, '#eaf8f1');
+  }
+  for (const k of ['lhand', 'rhand']) { g.fillStyle = '#eaf8f1'; g.strokeStyle = '#6fae98'; g.lineWidth = 1.6; g.beginPath(); g.arc(scr[k].x, scr[k].y, Math.max(1.5, 0.17 * scr[k].s), 0, Math.PI * 2); g.fill(); g.stroke(); }
+  g.fillStyle = '#f3fcf7'; g.strokeStyle = '#6fae98'; g.lineWidth = 2.2; // the head
+  g.beginPath(); g.arc(scr.head.x, scr.head.y, headR, 0, Math.PI * 2); g.fill(); g.stroke();
+  ctx.save();
+  ctx.globalAlpha = 0.82;
+  ctx.shadowColor = 'rgba(163,230,53,0.75)';
+  ctx.shadowBlur = 12;
+  ctx.drawImage(ghostPad, 0, 0, w, h, x0, y0, w, h);
+  ctx.restore();
+  if (pose.held && !fig.hideDisc) { // the disc, in the hand until it is let go
+    const hnd = scr[pose.grip];
+    ctx.fillStyle = fig.discColor || '#a3e635';
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.ellipse(hnd.x, hnd.y, Math.max(2.5, 0.52 * hnd.s), Math.max(1.4, 0.2 * hnd.s), -0.15, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
+}
+
 // A small marker over the pin so the basket can be found from far off, or behind a tree: a little orange triangle on a hair of a line, and when
 // the pin is off the side of the picture (or behind you) a small arrow at the edge showing which way to turn. Not drawn close in.
 export function drawPin(ctx, cam, b, view, hole) {
@@ -758,7 +833,8 @@ export function drawScene(ctx, scene) {
   things.push({ d: dB + 1.6, draw: () => drawBasket(ctx, cam, b, view, hole, scene.chain || 0, t, 'base') });
   things.push({ d: dB + 1.4, draw: () => drawBasket(ctx, cam, b, view, hole, scene.chain || 0, t, 'back') });
   things.push({ d: dB - 1.4, draw: () => drawBasket(ctx, cam, b, view, hole, scene.chain || 0, t, 'front') });
-  things.push({ d: toCam(cam, b, disc.x, disc.y, 0)[2], draw: () => drawDisc(ctx, cam, view, disc, color, t, dz, groundAt(hole, disc.x, disc.y)) });
+  if (!scene.hideDisc) things.push({ d: toCam(cam, b, disc.x, disc.y, 0)[2], draw: () => drawDisc(ctx, cam, view, disc, color, t, dz, groundAt(hole, disc.x, disc.y)) });
+  if (scene.player) things.push({ d: toCam(cam, b, scene.player.x, scene.player.y, 0)[2] - 0.5, draw: () => drawPlayer(ctx, cam, view, hole, scene.player, dz) });
   things.sort((p, q) => q.d - p.d);
   for (const th of things) th.draw();
   if (scene.overlay) scene.overlay(ctx); // the caller's own marks (the aim line, say), over the world

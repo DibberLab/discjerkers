@@ -163,6 +163,13 @@ that way; don't introduce React/Vite/Tailwind here.
   run away). **Find pin** (chip bottom left, or V) lifts it to a 3/4 view up and back, looking along the line to the basket, so a dogleg's pin can be found; aiming works there too.
   The world is drawn into a picture of its own when the camera moves and stamped while it is still (`S.aimPic`); the aim line, the pin marker and the fade are drawn over it each frame.
   Any drawing mistake falls back to the map (`S.aimFail`). A result screen, a hole's end and the menus are still the map.
+- **The ghost** (`player.js` is the body, pure; `drawPlayer` in `cam3d.js` draws it; `playerFig`, `leadFor` in `game.js`): in the 3D view a translucent, glowing figure of a person stands at the
+  lie and throws. `poseAt(kind, ms, hand)` gives every joint in the player's own frame (feet; x right, y forward, z up) for a **backhand**, **forehand** or **putt**, either hand (the
+  left-hander is the mirror image), by keyframes (reach back, pull in, release, follow through) and two-bone arm and leg solving. The thrower takes `LEAD[kind]` ms (about half a second) to
+  let go: a flight's `t0` is `now() + lead`, so everything that already keyed off `t0` just starts a little later (sounds are set back by the lead; the map, with 3D off, has no lead).
+  It stands so the throwing hand lets go **at the lie itself, about 4 ft up** for a drive (3.2 ft for a putt, the putt film's own start); the ride's disc is drawn at that height and
+  settles into the flight's own over the first tenth of it (a view-only offset: the flight itself still starts at 0, so the physics did not change). The aim and putt cameras sit over the
+  thrower's right shoulder so the ghost is to one side. In a match everybody's throw is a ghost throwing (others as right-handed backhands, as their style is not sent).
 - **The pin marker** (`drawPin` in `cam3d.js`): in every 3D view a small orange triangle hangs over the basket from 70 ft out (and an arrow at the edge of the picture when it is to the side or behind you).
   The flag on the staff is small now.
 - **3D putting (preview):** with the 3D preview on, once you are within putting range the view stays in 3D (camera behind your disc,
@@ -324,7 +331,7 @@ that way; don't introduce React/Vite/Tailwind here.
   the server rolls them in a match; into water it costs a stroke). `puttScript` turns that into a film (where the disc is every
   millisecond, with marks for the drop, the rim lap, the spit and the roll) and `drawPuttFx` draws the reaction: CHAINS! with
   rings and confetti, a cold-washed RIMMED OUT, NASTY ROLL with the camera following the disc.
-- Modules import each other with `?v=N` (now `course.js` 12, `gamecore.js` 30, `cam3d.js` 19, `puttfx.js` 15, `foliage.js` 1, `ground.js` 6, `sound.js` 4, `marebear.js` 2, `conditions.js` 4, `daily.js` 1, `gamepanels.js` 3, `progress.js` 2, `trash.js` 11, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
+- Modules import each other with `?v=N` (now `course.js` 12, `gamecore.js` 30, `cam3d.js` 20, `puttfx.js` 16, `player.js` 1, `foliage.js` 1, `ground.js` 6, `sound.js` 4, `marebear.js` 2, `conditions.js` 4, `daily.js` 1, `gamepanels.js` 3, `progress.js` 2, `trash.js` 11, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 
 ## Deploy

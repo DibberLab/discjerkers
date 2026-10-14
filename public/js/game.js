@@ -7,9 +7,10 @@ import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=12';
 import * as G from './gamecore.js?v=30';
 import * as T from './trash.js?v=11';
-import * as C3 from './cam3d.js?v=19';
+import * as C3 from './cam3d.js?v=20';
 import * as FO from './foliage.js?v=1';
-import * as PF from './puttfx.js?v=15';
+import * as PL from './player.js?v=1';
+import * as PF from './puttfx.js?v=16';
 import * as GR from './ground.js?v=6';
 import * as SND from './sound.js?v=4';
 import * as MB from './marebear.js?v=2';
@@ -869,9 +870,16 @@ function throwDisc(ex) {
   S.last = { result, ex, disc, from };
   const ace = result.kind === 'basket';
   const flightMs = camDur(clamp(900 + result.plan.feet * 4.2, 1200, 3300)) * (ace ? 1.5 : 1);
-  S.anim = { type: 'flight', t0: now(), dur: flightMs, pts: result.pts, roll: result.roll, result, cine: ace };
-  SND.play('throw', clamp(S.settings.mph / 90, 0.2, 1));
-  toast(ex.grade, ex.pure ? 'good' : ex.slip || ex.grade === 'Shank' ? 'bad' : '', 1300);
+  const kind = PL.kindFor(false, S.settings.style);
+  const lead = leadFor(kind); // the thrower winds up and lets go; the disc leaves at t0
+  const anim = { type: 'flight', t0: now() + lead, lead, kind, hand: S.settings.hand, relH: PL.releasePoint(kind, S.settings.hand)[2], dur: flightMs, pts: result.pts, roll: result.roll, result, cine: ace };
+  S.anim = anim;
+  const letGo = () => {
+    if (S.anim !== anim) return;
+    SND.play('throw', clamp(S.settings.mph / 90, 0.2, 1));
+    toast(ex.grade, ex.pure ? 'good' : ex.slip || ex.grade === 'Shank' ? 'bad' : '', 1300);
+  };
+  if (lead) setTimeout(letGo, lead); else letGo();
   setPhase('flight');
   retarget(false, result.pts);
 }
@@ -896,8 +904,8 @@ function slowScript(sc, k) {
 }
 
 // the sounds of a putt, at the moments of its film (or all at once on the map)
-function puttSounds(sc, result) {
-  const at = (ms, name, arg) => setTimeout(() => SND.play(name, arg), Math.max(0, ms));
+function puttSounds(sc, result, lead = 0) {
+  const at = (ms, name, arg) => setTimeout(() => SND.play(name, arg), Math.max(0, ms) + lead);
   at(0, 'throw', 0.25);
   const m = sc?.marks || {};
   if (result.made) {
@@ -925,9 +933,10 @@ function puttAnim(from, result, lie, who) {
   const film = watching3D(who);
   const long = result.made && !result.gimme && result.dist > 30; // a long one going in is worth slowing down for
   const sc = film && long ? slowScript(script, 1.4) : script;
-  puttSounds(film ? sc : null, result);
+  const lead = film ? PL.LEAD.putt : 0; // the thrower sets and pushes it before the disc leaves
+  puttSounds(film ? sc : null, result, lead);
   if (S.last) S.last.sfx = true;
-  return { type: 'flight', t0: now(), dur: film ? sc.total : 750, pts, roll: [], result, putt: true, script: sc, tail: film ? sc.tail : 350, cine: long };
+  return { type: 'flight', t0: now() + lead, lead, kind: 'putt', hand: handOf(who), relH: 3.2, dur: film ? sc.total : 750, pts, roll: [], result, putt: true, script: sc, tail: film ? sc.tail : 350, cine: long };
 }
 
 /* ----- the swipe: after the radar, DRAW BACK and then SWIPE FORWARD toward the basket, in one smooth motion. True in aim and in power, or it misses. ----- */
@@ -2334,8 +2343,11 @@ function drawPutt3D(t) {
   const l = Math.hypot(d.x, d.y) || 1;
   const dir = { x: d.x / l, y: d.y / l };
   const gnd = (x, y) => C3.groundAt(S.hole, x, y); // the land under the camera and under the basket: putts are often up or down a slope
-  const camZ = gnd(lie.x - dir.x * 13, lie.y - dir.y * 13) + 5.2;
-  const want = { x: lie.x - dir.x * 13, y: lie.y - dir.y * 13, z: camZ, yaw: Math.atan2(dir.x, dir.y), pitch: Math.atan2(gnd(b.x, b.y) + 3.2 - camZ, l + 13) };
+  // over the thrower's right shoulder, a little high, so the ghost is to one side and the basket is in the clear
+  const cx = lie.x - dir.x * 13 + dir.y * 1.8;
+  const cy = lie.y - dir.y * 13 - dir.x * 1.8;
+  const camZ = gnd(cx, cy) + 6;
+  const want = { x: cx, y: cy, z: camZ, yaw: Math.atan2(b.x - cx, b.y - cy), pitch: Math.atan2(gnd(b.x, b.y) + 3.2 - camZ, Math.hypot(b.x - cx, b.y - cy)) };
   if (!S.pcam) { S.pcam = C3.newCamera(want.x, want.y, want.z, want.yaw, want.pitch); S.pcamT = t; }
   const dt = clamp((t - S.pcamT) / 1000, 0.001, 0.05);
   S.pcamT = t;
@@ -2372,10 +2384,29 @@ function drawPutt3D(t) {
   const view = C3.viewOf(W, H, c, S.dockV);
   const baseFov = 64 * (Math.PI / 180);
   c.fov += ((baseFov + (S.pfov || 0)) - c.fov) * (1 - Math.exp(-dt * 6));
-  C3.drawScene(ctx, { hole: S.hole, cam: c, view, disc, trail, dz: 1, chain, dusk: S.hole.weather?.dusk || 0, color: (a ? discLook(S.last.disc.id, S.last.who) : discLook(curDisc()?.id ?? S.last?.disc.id, 'me')).color, t });
+  const puttColor = (a ? discLook(S.last.disc.id, S.last.who) : discLook(curDisc()?.id ?? S.last?.disc.id, 'me')).color;
+  const player = playerFig(lie, Math.atan2(dir.x, dir.y), 'putt', a ? a.hand : S.settings.hand, a ? t - (a.t0 - (a.lead || 0)) : -1, puttColor);
+  C3.drawScene(ctx, { hole: S.hole, cam: c, view, disc, trail, dz: 1, chain, dusk: S.hole.weather?.dusk || 0, color: puttColor, t, player, hideDisc: !a || t < a.t0 });
   S.pfov = sc ? PF.drawPuttFx(ctx, { cam: c, view, hole: S.hole, W, H }, sc, ms, a.result).fov : 0;
   if (sc) { if (ms >= sc.total + sc.tail) finishThrow(); } else if (a && t - a.t0 >= a.dur + 250) finishThrow();
 }
+/* ----- the ghost: a person who stands at the lie and throws (player.js has the body; cam3d.js draws it) ----- */
+
+// which way the thrower faces on a flight: the way the disc starts out
+const flightYaw = (a) => { const k = Math.min(6, a.pts.length - 1); return Math.atan2(a.pts[k].x - a.pts[0].x, a.pts[k].y - a.pts[0].y); };
+// The figure, `ms` after the throw began (negative: standing ready). It stands where its hand lets go of the disc at the lie itself.
+function playerFig(lie, yaw, kind, hand, ms, color, hideDisc = false) {
+  const pose = PL.poseAt(kind, ms, hand);
+  const rp = PL.releasePoint(kind, hand);
+  const fx = Math.sin(yaw);
+  const fy = Math.cos(yaw);
+  return { x: lie.x - (Math.cos(yaw) * rp[0] + fx * rp[1]), y: lie.y - (-Math.sin(yaw) * rp[0] + fy * rp[1]), yaw, pose, discColor: color, hideDisc };
+}
+// how long the thrower takes to let go (only when the 3D view is watching), and the hand and style of whoever is throwing
+const leadFor = (kind) => (CAM.on ? PL.LEAD[kind] : 0);
+const handOf = (who) => (!who || who === 'me' ? S.settings.hand : 'right');
+const styleOf = (who) => (!who || who === 'me' ? S.settings.style : 'backhand');
+
 /* ----- setting up a throw in 3D: the camera stands behind the disc looking where you are aiming; drag (or tap) to aim, "Find pin" lifts it to a 3/4 view ----- */
 
 const AIM3D_PHASES = ['pick', 'power', 'nose', 'angle', 'release', 'swipe'];
@@ -2402,11 +2433,11 @@ function aimCamWant(lie) {
   const yaw = heading() * RAD;
   const ux = Math.sin(yaw);
   const uy = Math.cos(yaw);
-  const x = lie.x - ux * 18;
-  const y = lie.y - uy * 18;
-  const z = gnd(x, y) + 5.6;
+  const x = lie.x - ux * 20 + uy * 2; // behind the thrower and a little to their right, so the ghost is to one side and the line ahead is in the clear
+  const y = lie.y - uy * 20 - ux * 2;
+  const z = gnd(x, y) + 7;
   const ahead = gnd(lie.x + ux * 140, lie.y + uy * 140);
-  return { x, y, z, yaw, pitch: clamp(Math.atan2(ahead + 2 - z, 158) - 0.03, -0.25, 0.1), fov: 64 * RAD };
+  return { x, y, z, yaw, pitch: clamp(Math.atan2(ahead + 2 - z, 160) - 0.03, -0.25, 0.1), fov: 64 * RAD };
 }
 function toggleView3() {
   S.view3 = S.view3 === 'pin' ? 'behind' : 'pin';
@@ -2487,13 +2518,14 @@ function drawAim3D(t) {
     const g2 = off.getContext('2d');
     g2.setTransform(dpr, 0, 0, dpr, 0, 0);
     g2.clearRect(0, 0, W, H);
-    C3.drawScene(g2, { hole: S.hole, cam: c, view, disc: { x: lie.x, y: lie.y, h: 0.3 }, trail: [], dz: 1, dusk: S.hole.weather?.dusk || 0, color, t, pin: false });
+    C3.drawScene(g2, { hole: S.hole, cam: c, view, disc: { x: lie.x, y: lie.y, h: 0.3 }, hideDisc: true, trail: [], dz: 1, dusk: S.hole.weather?.dusk || 0, color, t, pin: false });
     S.aimPic = { key, canvas: off };
   }
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.drawImage(S.aimPic.canvas, 0, 0);
   ctx.restore();
+  C3.drawPlayer(ctx, c, view, S.hole, playerFig(lie, heading() * RAD, PL.kindFor(false, S.settings.style), S.settings.hand, -1, color), 1); // the ghost, ready to throw
   aimOverlay(c, view, lie)(ctx);
   C3.drawPin(ctx, c, C3.basis(c), view, S.hole);
   const fade = 1 - (t - S.aimFade) / 300; // a soft cut from the map (or the last throw) to the view from behind the disc
@@ -2522,7 +2554,8 @@ function draw3D(t) {
     const far = a.pts[Math.min(6, a.pts.length - 1)];
     const d0 = { x: far.x - a.pts[0].x, y: far.y - a.pts[0].y };
     const l = Math.hypot(d0.x, d0.y) || 1;
-    a.cam = C3.startCamera(a.pts[0], { x: d0.x / l, y: d0.y / l }, C3.groundAt(S.hole, a.pts[0].x, a.pts[0].y));
+    if (S.acam) { a.cam = { ...S.acam }; a.fromAim = true; } // carry on from the camera that was aiming: no cut
+    else a.cam = C3.startCamera(a.pts[0], { x: d0.x / l, y: d0.y / l }, C3.groundAt(S.hole, a.pts[0].x, a.pts[0].y));
     a.prev = t;
   }
   const dt = clamp((t - a.prev) / 1000, 0.001, 0.05);
@@ -2536,19 +2569,23 @@ function draw3D(t) {
   } else {
     trail.push({ x: pos.x, y: pos.y, h: pos.h });
   }
+  const lift = (a.relH || 0) * Math.max(0, 1 - p / 0.1) ** 2; // let go of at about head height, falling into the flight's own height
+  disc.h += lift;
   C3.follow(a.cam, { ...disc, h: disc.h * C3.ZS, g: C3.groundAt(S.hole, disc.x, disc.y) }, dir, dt, { back: 15 + 7 * (1 - Math.abs(p - 0.5) * 2), lift: 3.5, ahead: 70, ground: (x, y) => C3.groundAt(S.hole, x, y) });
   const kind = a.result.kind;
+  const color = discLook(S.last.disc.id, S.last.who).color;
+  const player = a.kind ? playerFig(a.pts[0], flightYaw(a), a.kind, a.hand, t - (a.t0 - (a.lead || 0)), color) : null;
   const landed = Math.max(0, (t - a.t0 - a.dur) / 700);
   C3.drawScene(ctx, {
     hole: S.hole, cam: a.cam, view: C3.viewOf(W, H, a.cam, S.dock), disc, trail, dusk: S.hole.weather?.dusk || 0,
-    color: discLook(S.last.disc.id, S.last.who).color, t,
+    color, t, player, hideDisc: t < a.t0,
     splash: (kind === 'water' || kind === 'oob') && p >= 1 ? { at: a.pts.at(-1), age: landed } : null,
     shake: kind === 'tree' && p >= 0.97 && landed < 0.6 ? 7 * (1 - landed / 0.6) : 0,
   });
   // fade in from the map, and out to it, so the cut is soft
   const doneAt = a.dur + (a.roll.length ? 500 : 0) + 250;
   const el = t - a.t0;
-  const fade = Math.max(0, 1 - el / 260, 1 - (doneAt - el) / 300);
+  const fade = Math.max(0, a.fromAim ? 0 : 1 - el / 260, 1 - (doneAt - el) / 300);
   if (fade > 0) { ctx.fillStyle = `rgba(6,11,7,${Math.min(1, fade)})`; ctx.fillRect(0, 0, W, H); }
   if (el >= doneAt) finishThrow();
 }
@@ -3440,8 +3477,11 @@ function buildMoveAnim(last, hole, who) {
   if (last.putt) {
     S.anim = puttAnim(last.from, result, last.lie, who);
   } else {
-    S.anim = { type: 'flight', t0: now(), dur: camDur(clamp(900 + last.feet * 4.2, 1200, 3300)) * (last.kind === 'basket' ? 1.5 : 1), pts, roll, result, putt: false, cine: last.kind === 'basket' };
-    SND.play('throw', 0.6);
+    const kind = PL.kindFor(false, styleOf(who));
+    const lead = watching3D(who) ? PL.LEAD[kind] : 0;
+    const anim = { type: 'flight', t0: now() + lead, lead, kind, hand: handOf(who), relH: PL.releasePoint(kind, handOf(who))[2], dur: camDur(clamp(900 + last.feet * 4.2, 1200, 3300)) * (last.kind === 'basket' ? 1.5 : 1), pts, roll, result, putt: false, cine: last.kind === 'basket' };
+    S.anim = anim;
+    setTimeout(() => { if (S.anim === anim) SND.play('throw', 0.6); }, lead);
   }
   return { result, pts };
 }
