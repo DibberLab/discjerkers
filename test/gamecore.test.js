@@ -338,6 +338,25 @@ test('the course: eighteen holes, each laid out sensibly', async () => {
   }
 });
 
+test('technical holes: trees reach into the fairway on alternating sides, baskets are guarded, and greens shed a miss', async () => {
+  const G = await load();
+  const tall = (h) => h.trees.filter((t) => t.h >= 60);
+  const inside = (h) => tall(h).filter((t) => { const p = G.routePosition(h, t.x, t.y); return p.s > 40 && p.s < h.route.len - 60 && p.d < p.hw - 6; }).length;
+  for (const id of [3, 4, 7, 11, 12, 14]) assert.ok(inside(G.holeById(id)) >= 6, `hole ${id}: staggered trees in the fairway: ${inside(G.holeById(id))}`);
+  // the two sides really alternate on a hole that asks for it (hole 3: right first, then left)
+  const h3 = G.holeById(3);
+  const sides = tall(h3).filter((t) => { const p = G.routePosition(h3, t.x, t.y); return p.s > 70 && p.s < 150 && p.d < p.hw - 6; }).map((t) => G.routePosition(h3, t.x, t.y).side);
+  assert.ok(sides.includes(1) && sides.includes(-1), 'hole 3: trees reach in from the right and from the left');
+  const guarded = G.HOLES.filter((h) => tall(h).some((t) => { const d = G.distance(t, h.basket); return d > 30 && d < 75 && G.routePosition(h, t.x, t.y).d < G.routePosition(h, t.x, t.y).hw; }));
+  assert.ok(guarded.length >= 8, `baskets with a guard tree on the approach: ${guarded.length}`);
+  const sheds = G.HOLES.filter((h) => {
+    let worst = 0;
+    for (let a = 0; a < 360; a += 30) { const s = G.slopeAt(h, h.basket.x + Math.cos(a * Math.PI / 180) * 14, h.basket.y + Math.sin(a * Math.PI / 180) * 14); worst = Math.max(worst, Math.hypot(s.gx, s.gy)); }
+    return worst >= 0.12;
+  });
+  assert.ok(sheds.length >= 8, `greens that run a miss off (raised, or dropping away behind): ${sheds.length}`);
+});
+
 test('every hole can be played: a careful player with a clean meter makes par or better', async () => {
   const G = await load();
   const FW = { id: 2, speed: 9, glide: 5, turn: -2, fade: 2 };

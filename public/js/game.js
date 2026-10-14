@@ -4,16 +4,16 @@
 
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
-import { HOLES, holeById, holesFor } from './course.js?v=11';
-import * as G from './gamecore.js?v=29';
+import { HOLES, holeById, holesFor } from './course.js?v=12';
+import * as G from './gamecore.js?v=30';
 import * as T from './trash.js?v=11';
-import * as C3 from './cam3d.js?v=18';
+import * as C3 from './cam3d.js?v=19';
 import * as FO from './foliage.js?v=1';
-import * as PF from './puttfx.js?v=14';
-import * as GR from './ground.js?v=5';
+import * as PF from './puttfx.js?v=15';
+import * as GR from './ground.js?v=6';
 import * as SND from './sound.js?v=4';
 import * as MB from './marebear.js?v=2';
-import * as K from './conditions.js?v=3';
+import * as K from './conditions.js?v=4';
 import * as DLY from './daily.js?v=1';
 import * as GP from './gamepanels.js?v=3';
 import * as PR from './progress.js?v=2';

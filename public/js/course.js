@@ -282,10 +282,13 @@ export function routeAhead(hole, x, y, feet) {
  *   trees: [s, o, radius, height]          shrubs: [s, o] low bushes you can throw over        groves: { s, o, n, spread, h }
  *   rows: { s0, s1, o }  a row of trees along the hole    walls: { s, from, to, gaps, h }  a row of trees across the hole, with gates
  *                   ponds: { s, o, rx, ry }
+ *   staggers: { s0, s1, every, reach, sides }  trees reaching in from the edge, one after another on alternating sides (or only the sides listed), so the line
+ *             through the hole is an S: reach is the fraction of the fairway's width each one blocks
+ *   guards: { side, back, off, n }  tall trees `back` feet before the basket and `off` feet to one side of the line, so the approach has an angle
  *   creeks: { s, w, gap }  water straight across, with an optional dry ford [o0, o1]           oob: { s0, s1, o0, o1 }
  */
 function build(spec) {
-  const { id, name, note, par, path, wind, woods = [], trees: explicit = [], shrubs = [], groves = [], walls = [], rows = [], ponds = [], creeks = [], oob = [], backstop = true, teeWall = true, forest = true, front = 0, padBottom = 60, seed = id * 131, ground = GROUNDS[id] || {}, mando = null } = spec;
+  const { id, name, note, par, path, wind, woods = [], trees: explicit = [], shrubs = [], groves = [], walls = [], rows = [], ponds = [], creeks = [], staggers = [], guards = [], oob = [], backstop = true, teeWall = true, forest = true, front = 0, padBottom = 60, seed = id * 131, ground = GROUNDS[id] || {}, mando = null } = spec;
   const rnd = seeded(seed);
   const line = smooth(path);
   const route = { pts: line, s: [0] };
@@ -355,6 +358,21 @@ function build(spec) {
   for (const r of rows) {
     const { s0, s1, o, h = [70, 94], gap = 5.2 } = r; // a disc is a point and a trunk stops it within 3/4 of its radius, so a solid row is a tree every 5 feet
     for (let sAt = s0; sAt <= s1; sAt += gap + rnd() * 0.5) treeAt(sAt, o + rnd() * 4 - 2, 4 + rnd() * 1.5, h[0] + rnd() * (h[1] - h[0]));
+  }
+  // staggers: tall trees that reach in from one edge, then the other: a fairway that has to be shaped, left then right, to get through
+  for (const g of staggers) {
+    const { s0, s1, every = 60, reach = 0.42, sides = [1, -1], h = [72, 96] } = g;
+    let k = 0;
+    for (let sAt = s0; sAt <= s1 + 0.1; sAt += every, k++) {
+      const side = sides[k % sides.length];
+      const hw = frame(sAt).hw;
+      for (let o = hw + 4; o >= hw - reach * 2 * hw; o -= 5.2 + rnd() * 0.4) treeAt(sAt + rnd() * 4 - 2, side * o, 4 + rnd() * 1.4, h[0] + rnd() * (h[1] - h[0]));
+    }
+  }
+  // guards: a couple of tall trees beside the line in to the basket, so the last approach is shaped and not a straight dart
+  for (const g of guards) {
+    const { side, back = 44, off = 14, n = 2, h = [70, 92] } = g;
+    for (let k = 0; k < n; k++) treeAt(L - back + k * 7, side * (off + k * 3), 4.2 + rnd() * 1.2, h[0] + rnd() * (h[1] - h[0]));
   }
   // the tee is boxed in behind: you play down the hole, not out of the back of the tee
   if (teeWall) for (let o = -(path[0][2] + 26); o <= path[0][2] + 26; o += 5.2 + rnd() * 0.4) treeAt(-26, o, 4.4 + rnd() * 1.3, 70 + rnd() * 20);
@@ -475,31 +493,31 @@ function build(spec) {
 // How the land lies (see buildField): rise is feet above the tee along the route, in [s, z] pairs, and s, o in a mound are feet along
 // and to the right of it. Steepest anywhere is about one foot in five. Holes that do not say get a gentle bowl and nothing else.
 const GROUNDS = {
-  1: { rise: [[100, -3], [200, 2], [290, -4], [390, -2]], bowl: 0.06, mounds: [{ s: 232, o: 24, r: 26, h: 3 }] }, // a rolling start
+  1: { rise: [[100, -3], [200, 2], [290, -4], [390, -2]], bowl: 0.06, mounds: [{ s: 232, o: 24, r: 26, h: 3 }, { s: 420, o: 0, r: 22, h: -5 }] }, // a rolling start, and the land drops away behind the basket
   2: { rise: [[110, 4], [235, 13]], bowl: 0.1, mounds: [{ s: 112, o: -3, r: 18, h: 3 }] }, // uphill to the pin, a knoll under the middle tree
-  3: { rise: [[120, -12], [250, -16], [426, -9]], bowl: 0.08 }, // down off the tee, up to the green
+  3: { rise: [[120, -12], [250, -16], [426, -9]], bowl: 0.08, mounds: [{ s: 426, o: 0, r: 30, h: 4.5 }] }, // down off the tee, up to a raised green that sheds a miss
   4: { rise: [[120, 4], [240, -9], [330, -9], [470, 6], [614, 10]], bowl: 0.09 }, // the creek runs along the bottom of a valley
   5: { rise: [[40, -4], [110, -16], [252, -18]], bowl: 0.07 }, // a tee on a bluff over the pond
-  6: { rise: [[90, 5], [180, -3], [290, 7], [380, 0], [445, -5]], bowl: 0.03, mounds: [{ s: 150, o: -34, r: 30, h: 4 }, { s: 330, o: 30, r: 30, h: -3 }] }, // open rolling prairie
+  6: { rise: [[90, 5], [180, -3], [290, 7], [380, 0], [445, -5]], bowl: 0.03, mounds: [{ s: 150, o: -34, r: 30, h: 4 }, { s: 330, o: 30, r: 30, h: -3 }, { s: 475, o: 0, r: 24, h: -5 }] }, // open rolling prairie
   7: { rise: [[200, 5], [405, 9]], bowl: 0.09, shelves: [{ side: 1, off: 46, drop: 42, width: 26, from: 30, to: 430 }] }, // the cliff on the right is real
-  8: { rise: [[125, -5], [250, -10], [375, 4], [496, 10]], bowl: 0.08 }, // down the first bend, up the last
-  9: { rise: [[120, 4], [215, 10], [300, 2], [400, -4]], bowl: 0.08, mounds: [{ s: 215, o: 0, r: 44, h: 5 }] }, // the stand of trees is on a ridge
+  8: { rise: [[125, -5], [250, -10], [375, 4], [496, 10]], bowl: 0.08, mounds: [{ s: 496, o: 0, r: 30, h: 4.5 }] }, // down the first bend, up the last to a raised green
+  9: { rise: [[120, 4], [215, 10], [300, 2], [400, -4]], bowl: 0.08, mounds: [{ s: 215, o: 0, r: 44, h: 5 }, { s: 430, o: 0, r: 22, h: -5 }] }, // the stand of trees is on a ridge
   10: { rise: [[70, 3], [118, 8], [190, -2], [255, -8]], bowl: 0.09 }, // the oak is on the crest, the green is down by the water
   11: { rise: [[200, 3], [390, 8], [608, -2]], bowl: 0.08 }, // out and over a low hill, home down the other side
-  12: { rise: [[210, -6], [330, -4], [426, 6]], bowl: 0.08 }, // up to the green
+  12: { rise: [[70, -10], [210, -8], [330, -4], [426, 6]], bowl: 0.08, mounds: [{ s: 426, o: 0, r: 30, h: 4 }] }, // off a knoll, down and up to a raised green
   13: { rise: [[90, 3], [190, -3], [285, 1]], bowl: 0.1 }, // low and wet
-  14: { rise: [[200, -5], [421, -3]], bowl: 0.08, mounds: [{ s: 130, o: 6, r: 20, h: 3 }] }, // the land falls away toward the lake
+  14: { rise: [[80, -12], [200, -9], [421, -3]], bowl: 0.08, mounds: [{ s: 130, o: 6, r: 20, h: 3 }] }, // off a high tee, the land falls away toward the lake
   15: { rise: [[100, 4], [250, 6], [420, 3], [591, -3]], bowl: 0.05, shelves: [{ side: 1, off: 38, drop: 7, width: 16, from: 150, to: 520 }, { side: -1, off: 38, drop: 7, width: 16, from: 150, to: 520 }] }, // a causeway above the lakes
-  16: { rise: [[130, -6], [200, -8], [290, 4], [400, 9]], bowl: 0.08 }, // a valley, then up
+  16: { rise: [[130, -6], [200, -8], [290, 4], [400, 9]], bowl: 0.08, mounds: [{ s: 430, o: 0, r: 22, h: -5 }] }, // a valley, then up to a green with nothing behind it
   17: { rise: [[110, 6], [225, 14]], bowl: 0.14 }, // the den is on the hill
-  18: { rise: [[120, -8], [262, -14], [380, -6], [483, 4]], bowl: 0.08 }, // down into the valley and home up the far side
+  18: { rise: [[120, -8], [262, -14], [380, -6], [483, 4]], bowl: 0.08, mounds: [{ s: 483, o: 0, r: 30, h: 4.5 }] }, // down into the valley and home up the far side to a raised green
 };
 
 /* ---------- the eighteen ---------- */
 
 const HOLE_SPECS = [
   // 1: a gentle opener: wide fairway, an S bend, one tree to think about and a pond that only the greedy find
-  { id: 1, note: "A wide-open start. Mind the lone tree in the fairway, and keep clear of the pond by the basket.", name: 'Fairway Opener', par: 4, path: trail(0, 36, [[120, 6, 36], [140, -10, 34], [130, 6, 30]]), wind: { mph: 4, from: 200 },
+  { id: 1, note: "A wide-open start. Mind the lone tree in the fairway, keep clear of the pond, and do not run past the basket: the ground drops away behind it.", name: 'Fairway Opener', par: 4, path: trail(0, 36, [[120, 6, 36], [140, -10, 34], [130, 6, 30]]), wind: { mph: 4, from: 200 },
     woods: [{ side: -1, dense: 0.45 }, { side: 1, dense: 0.45 }], trees: [[232, -16, 4.4, 60]], shrubs: [[170, 40], [190, 44]],
     ponds: [{ s: 318, o: 58, rx: 28, ry: 36 }], front: 2 },
   // 2: a narrow corridor through the pines: a tree in the middle you throw over, a gap in the right wall
@@ -507,32 +525,36 @@ const HOLE_SPECS = [
     woods: [{ side: -1, dense: 0.95, rows: 2, d: 5 }, { side: 1, dense: 0.95, rows: 2, d: 5, gaps: [[120, 150]] }],
     trees: [[112, -3, 3.4, 36]], front: 1 },
   // 3: a dogleg left: the inside of the corner is low shrubs you can cut over, the outside is wall to wall pine
-  { id: 3, note: "A dogleg left. Follow the fairway round, or fly the shrubs on the inside of the corner.", name: 'Left Bender', par: 4, path: trail(0, 32, [[200, 0, 30], [220, -62, 24]]), wind: { mph: 7, from: 90 },
+  { id: 3, note: "A dogleg left. Trees reach in from the right then the left, so shape it left and right before the corner, then follow it round or fly the shrubs. The green is raised: a miss rolls off.", name: 'Left Bender', par: 4, path: trail(0, 32, [[200, 0, 30], [220, -62, 24]]), wind: { mph: 7, from: 90 },
     woods: [{ side: 1, dense: 0.9, rows: 2, to: 330 }, { side: -1, dense: 0.75, from: 26, to: 150 }, { side: -1, dense: 0.7, from: 270 }],
     shrubs: [[188, -30], [198, -34], [208, -29], [218, -36], [204, -44]], trees: [[236, -18, 4.6, 66]],
+    staggers: [{ s0: 80, s1: 140, every: 60, reach: 0.4, sides: [1, -1] }], guards: [{ side: 1, back: 60, off: 13, n: 2 }],
     mando: { s: 196, o: -33, side: -1 } }, // some days, no flying the shrubs: the post is on the inside of the corner
   // 4: a long S, a creek across the middle with one dry ford on the right
-  { id: 4, note: "A long S with a creek across it. The only dry crossing is the ford on the right.", name: 'Ford Crossing', par: 5, path: trail(0, 38, [[160, 0, 38], [170, 28, 34], [150, -50, 34], [130, 22, 30]]), wind: { mph: 8, from: 310 },
+  { id: 4, note: "A long S with a creek across it. The only dry crossing is the ford on the right, and past it the trees reach in from both sides.", name: 'Ford Crossing', par: 5, path: trail(0, 38, [[160, 0, 38], [170, 28, 34], [150, -50, 34], [130, 22, 30]]), wind: { mph: 8, from: 310 },
     woods: [{ side: -1, dense: 0.5 }, { side: 1, dense: 0.5 }], creeks: [{ s: 300, w: 24, gap: [8, 30] }],
-    trees: [[110, 14, 4.4, 60], [420, -12, 4.2, 58]], groves: [{ s: 360, o: 40, n: 4, spread: 14 }], mando: { s: 168, o: 38, side: 1 } },
+    trees: [[110, 14, 4.4, 60], [420, -12, 4.2, 58]], groves: [{ s: 360, o: 40, n: 4, spread: 14 }], mando: { s: 168, o: 38, side: 1 },
+    staggers: [{ s0: 400, s1: 530, every: 65, reach: 0.4, sides: [-1, 1] }], guards: [{ side: -1, back: 58, off: 14, n: 2 }] },
   // 5: a pond between you and the basket: carry it, or play the long way round the right
   { id: 5, note: "The pond is in front of the basket. Carry it, or bend the throw out round the right.", name: 'Water Carry', par: 3, path: trail(-20, 28, [[115, 0, 28], [135, 38, 24]]), wind: { mph: 9, from: 250 },
     woods: [{ side: -1, dense: 0.4 }, { side: 1, dense: 0.4 }], ponds: [{ s: 170, o: -30, rx: 48, ry: 46 }], front: 2 },
   // 6: wide open prairie running northeast into a headwind, with groves to play around
-  { id: 6, note: "Open prairie into the wind. Plan around the groves and keep the disc low.", name: 'Prairie', par: 4, path: trail(48, 50, [[220, -8, 50], [225, 10, 44]]), wind: { mph: 14, from: 45 },
-    woods: [{ side: -1, d: 22, dense: 0.5 }, { side: 1, d: 22, dense: 0.5 }], groves: [{ s: 120, o: -34, n: 6, spread: 20 }, { s: 250, o: 26, n: 7, spread: 24 }, { s: 350, o: -22, n: 5, spread: 16 }], trees: [[190, 0, 5.6, 78]] },
+  { id: 6, note: "Open prairie into the wind. Plan around the groves and keep the disc low; a tree guards the right of the basket and the land drops away behind it.", name: 'Prairie', par: 4, path: trail(48, 50, [[220, -8, 50], [225, 10, 44]]), wind: { mph: 14, from: 45 },
+    woods: [{ side: -1, d: 22, dense: 0.5 }, { side: 1, d: 22, dense: 0.5 }], groves: [{ s: 120, o: -34, n: 6, spread: 20 }, { s: 250, o: 26, n: 7, spread: 24 }, { s: 350, o: -22, n: 5, spread: 16 }], trees: [[190, 0, 5.6, 78]],
+    guards: [{ side: 1, back: 62, off: 18, n: 2 }] },
   // 7: a cliff down the right: miss that way and it is out of bounds
-  { id: 7, note: "The cliff is on your right: anything out there is out of bounds. Play left of the line.", name: 'Cliffside', par: 4, path: trail(5, 32, [[200, -6, 30], [205, -10, 28]]), wind: { mph: 9, from: 270 },
-    woods: [{ side: -1, dense: 0.85, rows: 2 }], oob: [{ s0: 40, s1: 420, o0: 46, o1: 170 }], shrubs: [[240, 36]], trees: [[260, -8, 4.4, 62]] },
+  { id: 7, note: "The cliff is on your right: anything out there is out of bounds. Trees reach in from the left, so the safe line is a narrow one down the right.", name: 'Cliffside', par: 4, path: trail(5, 32, [[200, -6, 30], [205, -10, 28]]), wind: { mph: 9, from: 270 },
+    woods: [{ side: -1, dense: 0.85, rows: 2 }], oob: [{ s0: 40, s1: 420, o0: 46, o1: 170 }], shrubs: [[240, 36]], trees: [[260, -8, 4.4, 62]],
+    staggers: [{ s0: 110, s1: 320, every: 70, reach: 0.4, sides: [-1] }] },
   // 8: a zig-zag through the pines: three bends, three shaped throws
-  { id: 8, note: "A lazy S through the pines. Shape one left, then one right, or cut the corners over the shrubs.", name: 'Pinball', par: 4, path: trail(-18, 38, [[125, 0, 38], [125, 44, 36], [125, -68, 34], [115, 46, 32]]), wind: { mph: 5, from: 160 },
+  { id: 8, note: "A lazy S through the pines. Shape one left, then one right, or cut the corners over the shrubs. The green is raised and sheds a miss.", name: 'Pinball', par: 4, path: trail(-18, 38, [[125, 0, 38], [125, 44, 36], [125, -68, 34], [115, 46, 32]]), wind: { mph: 5, from: 160 },
     woods: [{ side: -1, dense: 0.7, rows: 1 }, { side: 1, dense: 0.7, rows: 1 }],
     // low shrubs on the inside of each bend: you can fly the corner if you dare
     shrubs: [[130, 50], [141, 54], [152, 50], [250, -52], [262, -56], [274, -52]], front: 2 },
   // 9: a stand of trees splits the fairway: the left is longer and safe, the right is a shortcut beside the water
-  { id: 9, note: "A stand of trees splits the fairway. Left is long and safe, right is short beside the water.", name: 'Split Decision', par: 4, path: trail(28, 40, [[200, -6, 40], [200, 8, 38]]), wind: { mph: 6, from: 120 },
+  { id: 9, note: "A stand of trees splits the fairway. Left is long and safe, right is short beside the water, and the land drops away behind the basket.", name: 'Split Decision', par: 4, path: trail(28, 40, [[200, -6, 40], [200, 8, 38]]), wind: { mph: 6, from: 120 },
     woods: [{ side: -1, dense: 0.5 }, { side: 1, dense: 0.5 }], groves: [{ s: 215, o: 0, n: 11, spread: 24, h: [52, 70] }],
-    ponds: [{ s: 235, o: 76, rx: 36, ry: 52 }], front: 2 },
+    ponds: [{ s: 235, o: 76, rx: 36, ry: 52 }], front: 2, guards: [{ side: 1, back: 52, off: 16, n: 1 }] },
   // 10: one giant oak guards the front, and water waits behind the basket
   { id: 10, note: "One giant oak guards the front and water waits behind. Land it soft.", name: 'Big Oak', par: 3, path: trail(-35, 26, [[130, 4, 24], [125, -4, 24]]), wind: { mph: 6, from: 30 },
     woods: [{ side: -1, dense: 0.35 }, { side: 1, dense: 0.35 }], trees: [[118, 2, 7, 96]], shrubs: [[200, -14], [206, 12], [214, -6]],
@@ -541,32 +563,36 @@ const HOLE_SPECS = [
   { id: 11, note: "The basket looks close, but a wall of trees runs between. Go out, round and back.", name: 'Switchback', par: 5, path: trail(0, 34, [[200, 0, 34], [175, 90, 30], [215, 90, 26]]), wind: { mph: 7, from: 90 },
     woods: [{ side: -1, dense: 0.6, from: 26, to: 190 }, { side: 1, dense: 0.85, rows: 2, from: 0, to: 195 }, { side: 1, dense: 0.8, rows: 2, from: 380 }],
     // a row of trees from the edge of the course up the middle: the short way across to the basket is not a way
-    padBottom: 150, rows: [{ s0: -150, s1: 60, o: 90 }, { s0: 60, s1: 190, o: 74 }], groves: [{ s: 200, o: 0, n: 5, spread: 20 }, { s: 520, o: 60, n: 6, spread: 26 }] },
+    padBottom: 150, rows: [{ s0: -150, s1: 60, o: 90 }, { s0: 60, s1: 190, o: 74 }], groves: [{ s: 200, o: 0, n: 5, spread: 20 }, { s: 520, o: 60, n: 6, spread: 26 }],
+    staggers: [{ s0: 440, s1: 560, every: 60, reach: 0.4, sides: [-1] }], guards: [{ side: -1, back: 60, off: 14, n: 2 }] },
   // 12: a dogleg right with the pond on the inside of the corner: bite it off or play the safe line out left
-  { id: 12, note: "A dogleg right with the pond on the inside of the corner. Bite it off, or play out left.", name: 'Right Hook', par: 4, path: trail(0, 34, [[210, 0, 32], [210, 64, 26]]), wind: { mph: 8, from: 280 },
+  { id: 12, note: "Off a knoll, a dogleg right with the pond on the inside of the corner. Trees reach in from both sides before it, then bite it off or play out left. The green is raised.", name: 'Right Hook', par: 4, path: trail(0, 34, [[210, 0, 32], [210, 64, 26]]), wind: { mph: 8, from: 280 },
     woods: [{ side: -1, dense: 0.85, rows: 2 }, { side: 1, dense: 0.6, from: 26, to: 150 }, { side: 1, dense: 0.8, from: 300 }],
-    ponds: [{ s: 222, o: 56, rx: 46, ry: 44 }], trees: [[250, -14, 4.6, 64]], mando: { s: 214, o: 34, side: 1 } },
+    ponds: [{ s: 222, o: 56, rx: 46, ry: 44 }], trees: [[250, -14, 4.6, 64]], mando: { s: 214, o: 34, side: 1 },
+    staggers: [{ s0: 100, s1: 160, every: 60, reach: 0.4, sides: [-1, 1] }], guards: [{ side: -1, back: 58, off: 14, n: 2 }] },
   // 13: ponds all down the hole: pick the dry lane
   { id: 13, note: "Ponds all down the hole. Pick the dry lane and commit.", name: 'Archipelago', par: 3, path: trail(15, 40, [[140, 6, 38], [145, -6, 36]]), wind: { mph: 10, from: 330 },
     woods: [{ side: -1, dense: 0.3 }, { side: 1, dense: 0.3 }],
     ponds: [{ s: 90, o: -26, rx: 22, ry: 30 }, { s: 150, o: 24, rx: 26, ry: 32 }, { s: 215, o: -22, rx: 24, ry: 26 }, { s: 262, o: 28, rx: 20, ry: 24 }] },
   // 14: a long lake runs down the left; the wind pushes you toward it
-  { id: 14, note: "The lake runs down the left and the wind pushes you into it. Hold your line right.", name: 'Creekside', par: 4, path: trail(0, 34, [[140, 0, 34], [150, -24, 30], [130, 20, 28]]), wind: { mph: 6, from: 90 },
-    woods: [{ side: 1, dense: 0.7, rows: 2 }], ponds: [{ s: 200, o: -52, rx: 22, ry: 130, n: 16 }], trees: [[130, 6, 4.4, 60]], front: 2 },
+  { id: 14, note: "Off a high tee, the lake runs down the left and the wind pushes you into it. Trees reach in from the right, so hold a narrow line between them and the water.", name: 'Creekside', par: 4, path: trail(0, 34, [[140, 0, 34], [150, -24, 30], [130, 20, 28]]), wind: { mph: 6, from: 90 },
+    woods: [{ side: 1, dense: 0.7, rows: 2 }], ponds: [{ s: 200, o: -52, rx: 22, ry: 130, n: 16 }], trees: [[130, 6, 4.4, 60]], front: 2,
+    staggers: [{ s0: 190, s1: 320, every: 65, reach: 0.4, sides: [1] }] },
   // 15: a causeway between lakes: stay on the grass for three shots
   { id: 15, note: "A causeway between two lakes. Stay on the grass for three shots.", name: 'Peninsula', par: 5, path: trail(0, 34, [[170, 0, 34], [150, -20, 28], [150, 22, 26], [120, 0, 30]]), wind: { mph: 9, from: 200 },
     woods: [{ side: -1, dense: 0.6, from: 26, to: 100 }, { side: 1, dense: 0.6, from: 26, to: 100 }],
     ponds: [{ s: 250, o: -72, rx: 58, ry: 80, n: 14 }, { s: 250, o: 74, rx: 58, ry: 80, n: 14 }, { s: 420, o: -66, rx: 50, ry: 60, n: 14 }, { s: 420, o: 68, rx: 50, ry: 60, n: 14 }] },
   // 16: a wall of trees across the hole with two gates: wide and long to the left, tight and straight on the right
-  { id: 16, note: "A wall of trees with two gates: wide and long on the left, tight and straight on the right.", name: 'The Gate', par: 4, path: trail(-25, 36, [[200, 10, 36], [200, -6, 36]]), wind: { mph: 5, from: 180 },
-    woods: [{ side: -1, dense: 0.7 }, { side: 1, dense: 0.7 }], walls: [{ s: 200, from: -90, to: 90, gaps: [[-58, -30], [26, 36]], h: [72, 94] }], shrubs: [[320, 20], [330, -22]], front: 2 },
+  { id: 16, note: "A wall of trees with two gates: wide and long on the left, tight and straight on the right. Nothing behind the basket but a slope: do not go long.", name: 'The Gate', par: 4, path: trail(-25, 36, [[200, 10, 36], [200, -6, 36]]), wind: { mph: 5, from: 180 },
+    woods: [{ side: -1, dense: 0.7 }, { side: 1, dense: 0.7 }], walls: [{ s: 200, from: -90, to: 90, gaps: [[-58, -30], [26, 36]], h: [72, 94] }], shrubs: [[320, 20], [330, -22]], front: 2,
+    guards: [{ side: 1, back: 58, off: 14, n: 2 }] },
   // 17: Marebear's parlor: little room, lots of pine
   { id: 17, note: "Not much room and a lot of pine. Be patient, and keep an eye on her handbag.", name: "Marebear's Parlor", par: 3, path: trail(-8, 22, [[225, 10, 20]]), wind: { mph: 3, from: 270 },
     woods: [{ side: -1, dense: 0.95, rows: 2 }, { side: 1, dense: 0.95, rows: 2 }], trees: [[100, -8, 4.4, 66], [135, 12, 4.4, 62], [175, -2, 4.6, 70]], front: 3 },
   // 18: home: a big pond in the valley. Play round the left, or have a go over the water
-  { id: 18, note: "A big pond fills the valley. Play round the left, or have a go over the water.", name: 'Valley Home', par: 4, path: trail(0, 40, [[170, 0, 40], [160, -35, 34], [150, 35, 26]]), wind: { mph: 12, from: 235 },
+  { id: 18, note: "A big pond fills the valley. Play round the left, or have a go over the water. The green is raised and trees guard its left.", name: 'Valley Home', par: 4, path: trail(0, 40, [[170, 0, 40], [160, -35, 34], [150, 35, 26]]), wind: { mph: 12, from: 235 },
     woods: [{ side: -1, dense: 0.7, rows: 2 }, { side: 1, dense: 0.5, from: 26, to: 120 }, { side: 1, dense: 0.7, from: 380 }],
-    ponds: [{ s: 262, o: 66, rx: 58, ry: 62, n: 14 }], oob: [{ s0: 420, s1: 600, o0: -80, o1: -45 }], trees: [[320, 10, 4.6, 66]] },
+    ponds: [{ s: 262, o: 66, rx: 58, ry: 62, n: 14 }], oob: [{ s0: 420, s1: 600, o0: -80, o1: -45 }], trees: [[320, 10, 4.6, 66]], guards: [{ side: -1, back: 56, off: 15, n: 2 }] },
 ];
 
 // Holes 1-9 are the front nine, 10-18 the back; a nine-hole round is the front nine.

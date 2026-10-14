@@ -3,7 +3,7 @@
    server, which re-plays every throw, finds the same basket and the same wind as the page. Nothing here rolls dice: a seed in, a
    description out. A hole with no seed is the classic hole. Feet; x east, y north. */
 
-import { surfaceAt, treesIn, slopeAt } from './course.js?v=11';
+import { surfaceAt, treesIn, slopeAt } from './course.js?v=12';
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 function rngOf(seed) {

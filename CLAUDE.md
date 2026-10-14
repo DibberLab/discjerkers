@@ -145,6 +145,12 @@ that way; don't introduce React/Vite/Tailwind here.
   Live updates are SSE like the change log (keep `X-Accel-Buffering: no` and the ping).
   Matches live in `data/matches.json` (gitignored, atomic writes, fail-soft like accounts): back it up with
   `accounts.json`. Limits: 6 open matches per user, unstarted matches expire after 24h, finished ones are kept 14 days.
+- **What makes a hole technical** (from what players and designers say about the best courses: risk and reward with a real choice, shots that need shaping, variety of shape,
+  elevation, guarded targets, fairness for a miss; see UDisc, Innova's course-development notes, Disc Golf Magazine and DGCourseReview): in `build()`, `staggers` put tall trees reaching in
+  from the edge on alternating sides (or only listed ones) so the line is an S, `guards` put tall trees beside the line in to the basket so the approach is shaped, and the ground gives
+  raised greens (a mound centred on the basket) or a hollow behind it, so a miss rolls off. Elevated tees are `rise` drops of 10-12 ft in the first 70-80 ft (keep the fairway under 1 in 4).
+  Every change must stay playable by the test's careful bot (`every hole can be played`) and fair (a way round, no trap): the test `technical holes` checks the features exist.
+  Variety to keep when adding a hole: open and wooded, pars 3/4/5, left, right and straight, a water carry with a bail-out, a split fairway, and the last four holes the most strategic.
 - **The forest.** Wherever a side of a hole has `woods`, everything outside the fairway on that side, out to the course
   edge, is forest (`build()` in `course.js`): white pine (`k: 'p'`, narrow and tallest), maple (`'m'`, round, a fifth turning
   orange) and oak (`'o'`, broad), with low bushes (`'b'`) and taller shrubs (`'s'`) under and between them. A side or a stretch
@@ -318,7 +324,7 @@ that way; don't introduce React/Vite/Tailwind here.
   the server rolls them in a match; into water it costs a stroke). `puttScript` turns that into a film (where the disc is every
   millisecond, with marks for the drop, the rim lap, the spit and the roll) and `drawPuttFx` draws the reaction: CHAINS! with
   rings and confetti, a cold-washed RIMMED OUT, NASTY ROLL with the camera following the disc.
-- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 29, `cam3d.js` 18, `puttfx.js` 14, `foliage.js` 1, `ground.js` 5, `sound.js` 4, `marebear.js` 2, `conditions.js` 3, `daily.js` 1, `gamepanels.js` 3, `progress.js` 2, `trash.js` 11, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
+- Modules import each other with `?v=N` (now `course.js` 12, `gamecore.js` 30, `cam3d.js` 19, `puttfx.js` 15, `foliage.js` 1, `ground.js` 6, `sound.js` 4, `marebear.js` 2, `conditions.js` 4, `daily.js` 1, `gamepanels.js` 3, `progress.js` 2, `trash.js` 11, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 
 ## Deploy

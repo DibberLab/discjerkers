@@ -5,7 +5,7 @@
    state: callers hand it a hole, a camera and a disc. */
 
 import { fieldAt } from './terrain.js?v=1';
-import { groundCells, PALETTE } from './ground.js?v=5';
+import { groundCells, PALETTE } from './ground.js?v=6';
 import * as FO from './foliage.js?v=1';
 
 export const ZS = 0.72; // heights are drawn a little squashed: a real arc looks like a rocket when you ride it
