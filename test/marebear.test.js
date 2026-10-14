@@ -51,39 +51,6 @@ test('her body business: asterisks in her words become a cough, wheeze, spit or 
   for (const act of ['cough', 'wheeze', 'spit', 'strap']) for (const t of [0, 300, 700, 1000, 1300, 2000]) assert.doesNotThrow(() => M.drawMarebear(ctx, 100, 200, 1, { mood: 'laugh', t, act, facing: -1 }), `${act} at ${t}`);
 });
 
-test('her voice: what is spoken, which voice, and nothing when it is off or the device cannot talk', async () => {
-  const S = await import('../public/js/sound.js');
-  assert.strictEqual(S.spoken('Well. *cough cough* That was "bad", uff da. Ope.'), 'Well. That was bad, oof dah. oap.', 'no coughing in the words, and Minnesota vowels');
-  assert.strictEqual(S.spoken('*wheeze*'), '');
-  const v = (name, lang) => ({ name, lang });
-  assert.strictEqual(S.pickVoice([v('Daniel', 'en-GB'), v('Samantha', 'en-US'), v('Karen', 'en-AU')]).name, 'Samantha', 'a preferred woman first');
-  assert.strictEqual(S.pickVoice([v('Thomas', 'fr-FR'), v('Alex', 'en-US')]).name, 'Alex', 'else any English voice');
-  assert.strictEqual(S.pickVoice([v('Thomas', 'fr-FR')]), null);
-  assert.strictEqual(S.pickVoice([]), null);
-  assert.strictEqual(S.speak('Hello, hon.'), false, 'no speech in this environment: she just does not');
-  assert.strictEqual(S.canSpeak(), false);
-  const said = [];
-  let cancels = 0;
-  global.window = { speechSynthesis: { speak: (u) => said.push(u), cancel: () => { cancels++; }, getVoices: () => [v('Samantha', 'en-US')] }, SpeechSynthesisUtterance: function (t) { this.text = t; } };
-  try {
-    S.setOn(true);
-    S.setVoice(true);
-    let done = 0;
-    assert.strictEqual(S.speak('Hey *cough* hon.', () => { done++; }), true);
-    assert.strictEqual(said.at(-1).text, 'Hey hon.');
-    assert.ok(said.at(-1).pitch < 1 && said.at(-1).voice.name === 'Samantha');
-    said.at(-1).onend();
-    assert.strictEqual(done, 1, 'told when she is finished');
-    S.setVoice(false);
-    assert.strictEqual(S.speak('Hey hon.'), false, 'voice off: silent');
-    assert.ok(cancels >= 2, 'turning it off shuts her up');
-    S.setVoice(true);
-    S.setOn(false);
-    assert.strictEqual(S.speak('Hey hon.'), false, 'sound off: silent too');
-    assert.strictEqual(S.voiceIsOn(), false);
-  } finally { delete global.window; S.setOn(true); }
-});
-
 test('sound: every sound can be made without a hitch, and nothing plays when it is off or unavailable', async () => {
   const S = await import('../public/js/sound.js');
   assert.ok(['laugh', 'chains', 'splash', 'thunk', 'throw', 'clank', 'fanfare', 'snap'].every((n) => S.NAMES.includes(n)));

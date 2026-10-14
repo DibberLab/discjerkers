@@ -31,62 +31,10 @@ export const isOn = () => on;
 export function setOn(v) {
   on = !!v;
   try { localStorage.setItem('dj_sound', on ? 'on' : 'off'); } catch { /* not saved */ }
-  if (on) audio(); else hush();
+  if (on) audio();
 }
-// call from any tap or click: it is what lets the browser start the sound (and, on a phone, the voice)
-export const unlock = () => { audio(); prime(); };
-
-/* ----- her voice: the browser's own speech (speechSynthesis), so no files and no service. It is whatever voice the device has, pitched down and
-   slowed a little for Marebear. It speaks only when the sound is on and the player has not turned the voice off (remembered). ----- */
-let talk = true;
-try { talk = localStorage.getItem('dj_voice') !== 'off'; } catch { /* on */ }
-const synth = () => (typeof window !== 'undefined' && window.speechSynthesis && window.SpeechSynthesisUtterance ? window.speechSynthesis : null);
-export const canSpeak = () => !!synth();
-export const voiceIsOn = () => talk && on && canSpeak();
-export const voiceWanted = () => talk; // the setting itself, whether or not the sound is on
-export function setVoice(v) {
-  talk = !!v;
-  try { localStorage.setItem('dj_voice', talk ? 'on' : 'off'); } catch { /* not saved */ }
-  if (!talk) hush();
-}
-export function hush() { try { synth()?.cancel(); } catch { /* nothing to stop */ } }
-let primed = false;
-function prime() { // a phone only lets a page speak after it has spoken once from a touch
-  const s = synth();
-  if (!s || primed) return;
-  primed = true;
-  try { const u = new window.SpeechSynthesisUtterance(' '); u.volume = 0; s.speak(u); } catch { /* fine */ }
-}
-// a woman's voice in English, the throatier the better: these names, in this order, then any English voice
-const VOICES = ['Samantha', 'Karen', 'Moira', 'Tessa', 'Victoria', 'Fiona', 'Zira', 'Aria', 'Jenny', 'Google US English', 'Female'];
-export function pickVoice(list) {
-  const en = (list || []).filter((v) => /^en([-_]|$)/i.test(v.lang || ''));
-  for (const name of VOICES) { const v = en.find((x) => x.name.includes(name)); if (v) return v; }
-  return en.find((v) => /^en[-_]US/i.test(v.lang)) || en[0] || null;
-}
-// what she says aloud: no asterisk business (that is her coughing, not words), no stray symbols, and a few words the way a Minnesotan says them
-export function spoken(text) {
-  return String(text || '').replace(/\*[^*]*\*/g, ' ').replace(/\buff da\b/gi, 'oof dah').replace(/\bope\b/gi, 'oap').replace(/[“”"]/g, '').replace(/\s+/g, ' ').trim();
-}
-// say it: true if she started. `done` is called when she stops (or cannot).
-export function speak(text, done = () => {}) {
-  const s = synth();
-  const words = spoken(text);
-  if (!s || !on || !talk || !words) return false;
-  try {
-    s.cancel();
-    const u = new window.SpeechSynthesisUtterance(words);
-    const v = pickVoice(s.getVoices());
-    if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'en-US';
-    u.pitch = 0.72; // low and gravelly
-    u.rate = 0.93;
-    u.volume = 1;
-    u.onend = () => done();
-    u.onerror = () => done();
-    s.speak(u);
-    return true;
-  } catch { return false; }
-}
+// call from any tap or click: it is what lets the browser start the sound
+export const unlock = () => { audio(); };
 
 let noiseBuf = null;
 function noise(c) {

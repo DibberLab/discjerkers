@@ -10,7 +10,7 @@ import * as T from './trash.js?v=11';
 import * as C3 from './cam3d.js?v=16';
 import * as PF from './puttfx.js?v=12';
 import * as GR from './ground.js?v=5';
-import * as SND from './sound.js?v=5';
+import * as SND from './sound.js?v=4';
 import * as MB from './marebear.js?v=2';
 import * as K from './conditions.js?v=3';
 import * as DLY from './daily.js?v=1';
@@ -522,7 +522,6 @@ function panelMenu() {
       <button class="btn btn--ghost" type="button" data-versus>Play with friends <small>up to 8 players, turn by turn</small></button>
       ${BETTING_ON ? `<p class="gm-note">Marebear Bucks: <b>${bucks()}</b> · she bets on every hole.</p>` : ''}
       <label class="gm-check"><input type="checkbox" data-cond${condOn() ? ' checked' : ''}> <span>Varied conditions: each round has its own wind, pin positions, a mando here and there, and dusk on the last holes.</span></label>
-      ${SND.canSpeak() ? `<label class="gm-check"><input type="checkbox" data-voice${SND.voiceWanted() ? ' checked' : ''}> <span>Marebear talks out loud (your device's voice; the sound has to be on).</span></label>` : ''}
       <label class="gm-check"><input type="checkbox" data-rain${rainOn() ? ' checked' : ''}> <span>Allow rain: wet days where discs skid on landing and putts are slicker (off, unless you want it).</span></label>
       <div class="gm-row">
         <label class="gm-practice"><span class="fg-wind__l">Practice a hole</span><select data-practice aria-label="Which hole">${options}</select></label>
@@ -2152,21 +2151,16 @@ function popUp(text, to, mood) {
   if (!S.round && S.mode !== 'match') return;
   $('#gm-bubble')?.classList.remove('is-on'); // her balloon has the stage: the caddy's note gets out of the way
   S.popSide = -(S.popSide || -1);
-  SND.hush(); // she does not talk over herself
-  S.pop = { t0: now(), text, to, mood, dur: MB.popDuration(text), side: S.popSide, sounded: false, act: MB.actOf(text), moodSounded: false, voice: SND.voiceIsOn(), spoke: false, speaking: false };
+  S.pop = { t0: now(), text, to, mood, dur: MB.popDuration(text), side: S.popSide, sounded: false, act: MB.actOf(text), moodSounded: false };
 }
 function drawPop(t) {
   const p = S.pop;
   if (!p) return;
   const ms = t - p.t0;
   if (ms > p.dur) { S.pop = null; return; }
-  // her business first (a cough, a snap), then her laugh, or, with her voice on, a snicker and then the words themselves
-  const moodSound = () => SND.play(p.mood === 'bad' ? (p.text.length > 70 && !p.voice ? 'laugh' : 'snicker') : p.mood === 'good' ? 'hmph' : 'snicker');
-  const wordsAt = p.act ? (p.act === 'wheeze' ? 1400 : 1000) : 520;
-  if (!p.sounded && ms > 120) { p.sounded = true; if (p.act) SND.play(p.act === 'strap' ? 'snap' : p.act); else { p.moodSounded = true; moodSound(); } }
-  if (p.act && !p.moodSounded && ms > wordsAt - 80) { p.moodSounded = true; if (!p.voice) moodSound(); }
-  if (p.voice && !p.spoke && ms > wordsAt) { p.spoke = true; p.speaking = SND.speak(p.text, () => { p.speaking = false; }); }
-  if (p.speaking && ms > p.dur - 320 && p.dur < 16000) p.dur = ms + 320; // she stays up until she has finished
+  const moodSound = () => SND.play(p.mood === 'bad' ? (p.text.length > 70 ? 'laugh' : 'snicker') : p.mood === 'good' ? 'hmph' : 'snicker');
+  if (!p.sounded && ms > 120) { p.sounded = true; if (p.act) SND.play(p.act === 'strap' ? 'snap' : p.act); else { p.moodSounded = true; moodSound(); } } // her business first, then her laugh
+  if (p.act && !p.moodSounded && ms > (p.act === 'wheeze' ? 1400 : 1000)) { p.moodSounded = true; moodSound(); }
   const rise = MB.popRise(ms, p.dur);
   if (rise <= 0) return;
   const bottom = H - S.dock; // on a phone she comes up from behind the controls
@@ -2179,7 +2173,7 @@ function drawPop(t) {
   ctx.beginPath();
   ctx.rect(0, 0, W, bottom);
   ctx.clip();
-  MB.drawMarebear(ctx, x, waist, sc, { mood: p.mood === 'bad' ? 'laugh' : p.mood === 'good' ? 'grudge' : 'sly', t: ms, facing: p.side > 0 ? -1 : 1, act: p.act, mouth: p.speaking && p.mood !== 'bad' ? 0.15 + 0.5 * Math.abs(Math.sin(ms / 85)) : undefined });
+  MB.drawMarebear(ctx, x, waist, sc, { mood: p.mood === 'bad' ? 'laugh' : p.mood === 'good' ? 'grudge' : 'sly', t: ms, facing: p.side > 0 ? -1 : 1, act: p.act });
   // her words, in a balloon beside her head (only once she is up)
   if (rise > 0.8) {
     const fs = clamp(Math.round(15 * sc + 5), 13, 17);
@@ -2661,7 +2655,6 @@ function onPanelChange(e) {
   if (e.target.matches('[data-bag]')) setActive(e.target.value);
   else if (e.target.matches('[data-practice]') && S.phase === 'menu') previewHole(Number(e.target.value));
   else if (e.target.matches('[data-rain]')) { try { localStorage.setItem('dj_rain', e.target.checked ? 'on' : 'off'); } catch { /* not saved */ } }
-  else if (e.target.matches('[data-voice]')) SND.setVoice(e.target.checked);
   else if (e.target.matches('[data-cond]')) { try { localStorage.setItem('dj_cond', e.target.checked ? 'varied' : 'classic'); } catch { /* not saved */ } }
 }
 
