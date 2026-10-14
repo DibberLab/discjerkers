@@ -785,3 +785,23 @@ test('short putts are forgiving: inside 25 feet they go in unless you really mes
   assert.ok(!G.resolvePutt(hole, spot, P, { x: 0, y: 0 }, 1, { aim: 40, power: 1 }).made, 'but really off line misses');
   assert.ok(!G.resolvePutt(hole, spot, P, { x: 0, y: 0 }, 1, { aim: 0, power: 0.3 }).made, 'and a dead soft swipe');
 });
+
+test('a missed putt never ends up behind where it was thrown from, and a short miss stays near the basket', async () => {
+  const G = await load();
+  const P = { id: 4, speed: 3, glide: 3, turn: 0, fade: 1 };
+  const hole = await (async () => { const { makeHole } = await load(); return makeHole({ id: 9, name: 'T', par: 3, fairway: [[0, 0, 60], [0, 300, 60]], basket: { x: 0, y: 300 }, wind: { mph: 0, from: 0 } }); })();
+  for (const dist of [4, 6, 9, 14, 20, 28]) {
+    const from = { x: 0, y: 300 - dist };
+    for (const shot of [{ x: 0, y: -1 }, { x: 0.4, y: -0.9 }, { x: -0.9, y: -0.5 }, { x: 0, y: 1 }, { x: 1, y: 0 }]) {
+      for (const swipe of [{ aim: 0, power: 0.3 }, { aim: 30, power: 1 }, { aim: 0, power: 2.2 }, { aim: -45, power: 0.5 }]) {
+        for (const roll of [1, 0]) {
+          const r = G.resolvePutt(hole, from, P, shot, roll, swipe);
+          if (r.made) continue;
+          const behind = r.lie.y - from.y; // up the hole is positive: a negative number is behind the thrower
+          assert.ok(behind >= -0.01, `${dist} ft, shot ${JSON.stringify(shot)}, swipe ${JSON.stringify(swipe)}${roll ? '' : ' nasty'}: it ended ${(-behind).toFixed(1)} ft behind the thrower`);
+          if (!r.nasty) assert.ok(G.distance(r.lie, hole.basket) <= 3 + dist * 0.6 + 0.01, `a ${dist} ft miss stays near the basket: ${G.distance(r.lie, hole.basket).toFixed(1)} ft`);
+        }
+      }
+    }
+  }
+});

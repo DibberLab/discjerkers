@@ -287,7 +287,7 @@ that way; don't introduce React/Vite/Tailwind here.
   the server rolls them in a match; into water it costs a stroke). `puttScript` turns that into a film (where the disc is every
   millisecond, with marks for the drop, the rim lap, the spit and the roll) and `drawPuttFx` draws the reaction: CHAINS! with
   rings and confetti, a cold-washed RIMMED OUT, NASTY ROLL with the camera following the disc.
-- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 26, `cam3d.js` 16, `puttfx.js` 12, `ground.js` 5, `sound.js` 2, `marebear.js` 1, `conditions.js` 2, `daily.js` 1, `gamepanels.js` 2, `progress.js` 1, `trash.js` 8, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
+- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 27, `cam3d.js` 16, `puttfx.js` 12, `ground.js` 5, `sound.js` 2, `marebear.js` 1, `conditions.js` 2, `daily.js` 1, `gamepanels.js` 2, `progress.js` 1, `trash.js` 8, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 
 ## Deploy

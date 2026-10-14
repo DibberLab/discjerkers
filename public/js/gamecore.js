@@ -599,10 +599,11 @@ export function resolvePutt(hole, lie, disc, shot, roll = 1, swipe = null) {
   // a miss: a few feet from the basket, on the side the dot was: across is left or right, up is long, down is short
   const rim = off <= radius * 1.45; // just outside the target: it hits the cage and spits out
   const nasty = roll < nastyChance(dd, disc, rim) + (why === 'strong' ? 0.22 : 0) + clamp(-rise * 0.012, 0, 0.1) + (hole.weather?.rain ? 0.05 : 0); // downhill, or in the rain, a miss runs away more // a putt hit too hard runs away more
-  let miss = clamp(2.5 + off * 10, 3, 14);
+  let miss = Math.min(clamp(2.5 + off * 10, 3, 14), 3 + dist * 0.6); // a short putt that misses stays near the basket
   if (nasty) miss = clamp((miss * 2.4 + 6) * (rise < -1 ? 1 + Math.min(0.5, -rise * 0.05) : 1), 14, 56); // and then it runs, farther downhill
   const hv = headingVec(headingTo(lie, hole.basket));
-  const along = (v.y / off) * miss;
+  // a putt that is too soft stops short of the basket, but never behind where it was thrown from (it cannot bounce back past you)
+  const along = Math.max((v.y / off) * miss, -Math.max(1.5, dist - 1.2));
   const across = (v.x / off) * miss;
   const spot = {
     x: hole.basket.x + hv.ux * along + hv.rx * across,
