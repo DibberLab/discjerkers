@@ -6,7 +6,7 @@ import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl,
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=11';
 import * as G from './gamecore.js?v=24';
-import * as T from './trash.js?v=7';
+import * as T from './trash.js?v=8';
 import * as C3 from './cam3d.js?v=15';
 import * as PF from './puttfx.js?v=11';
 import * as GR from './ground.js?v=4';
@@ -1845,6 +1845,7 @@ function drawBearScene(t) {
 
 function popUp(text, to, mood) {
   if (!S.round && S.mode !== 'match') return;
+  $('#gm-bubble')?.classList.remove('is-on'); // her balloon has the stage: the caddy's note gets out of the way
   S.popSide = -(S.popSide || -1);
   S.pop = { t0: now(), text, to, mood, dur: MB.popDuration(text), side: S.popSide, sounded: false };
 }
@@ -1858,7 +1859,8 @@ function drawPop(t) {
   if (rise <= 0) return;
   const bottom = H - S.dock; // on a phone she comes up from behind the controls
   const sc = clamp(Math.min(W / 520, bottom / 520), 0.45, 1.1);
-  const x = W * (p.side > 0 ? 0.76 : 0.24);
+  const reach = 112 * sc; // how far her pointing arm reaches toward the middle: the balloon has to stay clear of it
+  const x = isDock() ? (p.side > 0 ? W - 62 * sc : 62 * sc) : W * (p.side > 0 ? 0.76 : 0.24); // on a phone she stands at the edge, so the words get the width
   const waist = bottom - 62 * sc + (1 - rise) * 280 * sc;
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1870,11 +1872,14 @@ function drawPop(t) {
   if (rise > 0.8) {
     const fs = clamp(Math.round(15 * sc + 5), 13, 17);
     ctx.font = `600 ${fs}px Archivo, system-ui, sans-serif`;
-    const bw = Math.min(W * 0.6, 330);
+    const lo = isDock() ? 58 : 8; // (on a phone, clear of the zoom buttons)
+    const hi = isDock() ? W - 106 : W - 8; // (and clear of the 3D and sound chips down the right)
+    const room = p.side > 0 ? x - reach - 10 - lo : hi - (x + reach + 10); // the width between the edge and her arm
+    const bw = clamp(Math.min(W * 0.62, 330), 150, Math.max(150, room));
     const lines = MB.wrap(ctx, p.text, bw - 24);
     const bh = lines.length * (fs + 5) + 20 + (p.to ? 14 : 0);
     const headY = waist - 150 * sc;
-    const bx = clamp(p.side > 0 ? x - bw - 70 * sc : x + 70 * sc, isDock() ? 58 : 8, W - bw - 8); // (on a phone, clear of the zoom buttons)
+    const bx = clamp(p.side > 0 ? x - reach - 10 - bw : x + reach + 10, lo, hi - bw);
     const by = isDock() ? Math.max(8, bottom - bh - 8) : clamp(headY - bh * 0.55, 8, bottom - bh - 8); // on a phone the scoreboard owns the top, so it sits low
     ctx.globalAlpha = clamp((rise - 0.8) / 0.2, 0, 1) * (ms > p.dur - 260 ? clamp((p.dur - ms) / 260, 0, 1) : 1);
     ctx.fillStyle = '#fffaf0';
@@ -2434,7 +2439,7 @@ function announce(ids) {
     const skin = a.skin ? PR.skinOf(a.skin) : null;
     toast(`Goal reached: ${a.title}${skin ? `. New skin: ${skin.name}` : ''}`, 'good', 3200);
     SND.play('fanfare');
-    setTimeout(() => { if (S.round) popUp(skin ? `Hmph. ${a.title}. Fine, have a ${skin.name} disc. Do not get used to it.` : `${a.title}? Do not let it go to your head.`, '', 'good'); }, 1600);
+    setTimeout(() => { if (S.round) popUp(T.goalLine(a.title, skin?.name, Math.random, S.lastQuip), '', 'good'); }, 1600);
   }
   if (ids.length) saveGame();
 }
@@ -2707,7 +2712,7 @@ function applyView(view) {
         const sid = view.round.rounds[p.uid]?.stolen;
         if (!sid) continue;
         const nm = splitName(DISCS.get(sid)?.name || 'disc');
-        if (p.uid === me) setTimeout(() => popUp(`Sorry, sugar, I am borrowing your ${nm} for this hole. You are doing far too well.`, '', 'bad'), 1900);
+        if (p.uid === me) setTimeout(() => popUp(T.stealLine(nm, Math.random, S.lastQuip), '', 'bad'), 1900);
         else setTimeout(() => toast(`Marebear took ${p.name}'s ${nm} for this hole`, '', 2600), 1900);
       }
     }

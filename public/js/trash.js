@@ -62,17 +62,90 @@ const MATCH = {
   tie: ['A tie! The most boring result there is.'],
   left: ['You left. The discs are still out there, judging you.'],
 };
+
+// A good deal more of her, so a long round does not hear the same remark twice (she also remembers what she has said: see `pick`).
+const MORE2_MINE = {
+  grip: ['Your hand and that disc are in a committed relationship now.', 'Let go, darling. Nobody is going to take it from you. Except me.', 'You held on so long the disc started to feel like a hostage.', 'Open the fingers, honey. Open the fingers. That is the whole trick.', 'A grip lock. I have held onto things that long myself, but they were diamonds.', 'That disc stayed in your hand like a coupon at the end of the month.'],
+  early: ['Gone before you were ready. I know the feeling, I was married three times.', 'That disc left like a guest who heard the check was coming.', 'Too early, sweetheart. Patience is a lipstick shade you have not tried yet.', 'You let go like you remembered the oven was on.', 'The disc left early. I do not blame it, honestly.', 'Premature, darling. Premature. We will leave it there.'],
+  shank: ['Honey, I have seen better aim from a toddler with a spoon.', 'That was not a throw, that was a sneeze with a disc in it.', 'The disc went sideways and so did my opinion of you.', 'My hairdo has better direction than that, and it is held up by prayer.', 'A shank. Please do not do that near anything I love.', 'You threw that like you were swatting a wasp off your casserole.'],
+  tree: ['The tree stepped out in front of you. Rude, but also very much your fault.', 'That tree was minding its business, sweetheart.', 'You and the woods: a love story with a bad ending.', 'Thwack! That tree has not felt this seen in years.', 'The disc and the tree have met. They did not hit it off.', 'Trees do not move, honey. I have told you. I have told the whole county.'],
+  water: ['Sploosh. I hope that disc could swim, because it was not given lessons.', 'You gave the pond a gift. It will not write a thank-you card.', 'The fish have a new frisbee and they have you to thank.', 'Into the drink! Hand me one, I need it more than the disc did.', 'That water has been waiting all day for someone like you.', 'You threw it in the pond. The pond says thanks and that you owe it a disc.'],
+  oob: ['Out of bounds, honey. The orange line is not a suggestion, it is a hobby.', 'You are off the map. I would send a search party, but I am between hobbies.', 'That disc has left the property. It is now a problem for somebody else. Yours.', 'The boundary is there for your protection, darling. And my amusement.', 'You threw it where discs go to retire.', 'A penalty stroke. The line is orange, it is dashed, and you went right through it.'],
+  rough: ['The rough, darling. It is a lovely place, if you like weeds.', 'Rough lie. Rough day. Rough hair. A theme is forming.', 'You landed in the weeds. At least the weeds are happy to see you.', 'That is long grass, sweetheart. Bring a flashlight and a good attitude.', 'Not fairway. Not even close. But the grass is thrilled.', 'You are in the rough, and I am sorry, but I am also taking notes.'],
+  rim: ['It hit the cage, it hesitated, it left. Like my second husband.', 'The basket said maybe, and then it said no.', 'A rim out. The cruelest part of the sport, and I have watched bingo.', 'So close the basket felt it. Not close enough to keep it.', 'That disc visited the basket and went home. Rude.', 'The chains looked at you and sighed. I felt that sigh.'],
+  soft: ['That was a love tap. The basket wanted a kiss and got a handshake.', 'Too soft, darling. You putted like you were apologizing to it.', 'It died on the way. We should say a few words. Short ones.', 'You swiped that like you were buttering toast for someone you did not like.', 'Gentle! That disc could have used a pep talk.', 'The disc ran out of courage halfway there. So did you.'],
+  hard: ['Way too hard, sweetheart. The basket is not a punching bag.', 'You swiped that like it had insulted my casserole.', 'Too much arm. The disc is trembling.', 'That putt left at a speed meant for emergencies.', 'Whoa, Nelly. It is a putt, not a getaway.', 'You hit that like you had a bus to catch.'],
+  wide: ['That swipe was heading to a basket, just not this one.', 'Off line, honey. The line is the one thing that was free.', 'You aimed at a basket and the disc chose another one. Mutiny.', 'Left, right, wherever, as long as it is not toward the basket.', 'The disc and the basket are not on speaking terms after that.', 'You missed the line by a mile and the basket by two.'],
+  nasty: ['That putt rolled off like it saw a sale somewhere else.', 'It rolled and rolled. I would have given it a ride.', 'A nasty roll. Even the grass could not stop it.', 'That disc has a mind of its own, and it is taking a road trip.', 'You will be walking to fetch that one. Good for your circulation.', 'Off it went, rolling away like a rumor.'],
+  longMiss: ['A long one, honey. Nobody is judging you. Okay, I am judging you a little.', 'You did not make it from there. Neither would the Pope.', 'From that far, I give you credit for trying. Credit is all I give.', 'A long putt missing is not a tragedy, it is just Tuesday.', 'You tried a miracle. They are booked this week.', 'That was a long shot, and it behaved like a long shot.'],
+  pure: ['Oh, that was pretty. Do not look at me, I am not clapping.', 'A beautiful throw. I am pretending to be unimpressed.', 'Look at you. Releasing like you mean it.', 'That was clean enough to eat off. Do not eat off the disc.', 'Textbook. If the textbook was written by someone who liked you.', 'You threw that perfectly, and I am furious about it.'],
+  ace: ['A hole in one. I need a lie down and a glass of something.', 'An ace! I take back everything I said. Some of it.', 'That is not luck, that is witchcraft, and I want the recipe.', 'Hole in one, and not a person here will believe you. Not even me.', 'In one! I could kiss you. I will not, the lipstick is new.', 'I saw it with my own eyes and I am still filing a complaint.'],
+  chains: ['In the chains! Listen to that sound. I will never admit I like it.', 'It went in. I will allow it, this once.', 'The basket took it. Do not look so pleased.', 'Chains! Even I did not see that coming, and I see everything.', 'Nice one. It will not last, but nice one.', 'In it goes. A round of applause, performed internally.'],
+  sunk: ['You made it from way out there. Good grief. Somebody pinch me.', 'That was a long one and it went in. Fine. Marvelous. Whatever.', 'A long putt, in the chains. I need a minute with my compact.', 'From that distance? You are either gifted or guilty.', 'Drained it. I will be telling people it was my idea.', 'Long range, no problem. Show-off, darling. Show-off.'],
+  mando: ['The mando is the red post, sweetheart. The post. The red one.', 'You went the wrong side of the mando. That is a stroke, and an eye roll.', 'A mando is a signpost with opinions. You ignored its opinions.', 'You cannot go that way. It said so. With an arrow.', 'One stroke for the mando, and one for being stubborn.', 'The post pointed. You went the other way. A bold, wrong choice.'],
+};
+const MORE2_THEIRS = {
+  grip: ['{name} is still holding that disc, in spirit.', '{name} had a grip lock. Some people just cannot let go.', '{name} could not release it. A commitment problem, I would say.', 'Grip lock for {name}. I know that kind of clinginess.'],
+  early: ['{name} let go early. The disc was not ready, and neither was {name}.', 'An early release from {name}. It happens to the best of us, apparently.', '{name} released too soon, and the disc hit the road.', 'Premature, {name}. That is all I will say.'],
+  shank: ['{name} shanked it. I will light a candle for the disc.', 'A shank from {name}. The disc is filing for divorce.', '{name} threw that sideways on purpose, right? Right?', 'That was ugly, {name}. Gorgeous, but ugly.'],
+  tree: ['{name} and the tree. It was always going to end like this.', 'The tree stopped {name}. The tree has a future in security.', '{name} hit the wood. I heard it from here.', 'Thwack! {name} found out that trees are solid.'],
+  water: ['{name} threw it in the pond. The fish are applauding.', 'Sploosh. {name} is now a pond contributor.', '{name} found the water. Somebody get a towel for the disc.', 'The pond thanks {name} for the donation.'],
+  oob: ['{name} is out of bounds. Somebody send a postcard.', '{name} threw it off the map. Bold.', 'Out of bounds for {name}. The orange line wins again.', '{name} left the course. The disc did, anyway.'],
+  rim: ['{name} rimmed out. The basket looked away.', 'So close, {name}. So very, very close. Hee.', 'The disc kissed the basket and kept walking. Sorry, {name}.', '{name} got the rim and nothing else.'],
+  soft: ['{name} putted like a library voice. The disc fell short.', 'Too gentle, {name}. The basket needs a firmer hand.', '{name} left it short. It did not have the energy.', 'Not enough oomph from {name}. It never arrived.'],
+  hard: ['{name} putted that like it owed them money.', 'Easy, {name}. The basket did nothing to you.', '{name} swiped with a little too much feeling.', 'That was a lot of power from {name}, and nowhere to put it.'],
+  wide: ['{name} swiped that wide. The basket is over there, honey.', 'Off line for {name}. The line is right there. It is the whole point.', '{name} missed the line and the basket in one move.', 'The disc went anywhere but the basket, thanks to {name}.'],
+  nasty: ['{name} watched a putt roll off into the sunset.', 'The disc took off on {name}. It had plans.', 'A nasty roll for {name}. I felt it in my knees.', '{name} is going for a walk. The disc started it.'],
+  longMiss: ['{name} missed a long one. Nobody is shocked.', 'A hopeful putt from {name}. Hope is not a technique.', '{name} tried a long one and the long one said no.', 'Long miss, {name}. A fine try. A terrible result.'],
+  pure: ['{name} threw a good one. I am pretending I did not see it.', 'A pure throw from {name}. Fine. Lovely. Moving on.', '{name} released that perfectly. It made me feel unwell.', 'Pretty throw, {name}. Do not let it go to your head.'],
+  ace: ['{name} aced it! I am going to need a fan.', 'An ace from {name}. Somebody check them for magnets.', '{name} got a hole in one. The rest of you can go home.', 'Hole in one for {name}. I am speechless, and that never happens.'],
+  chains: ['{name} made it. It was probably an accident.', 'In the basket for {name}. Mark it down, then forget it.', '{name} holed out. Good for them. Truly. Mostly.', 'Chains for {name}. It makes a lovely sound. I will not say so twice.'],
+  sunk: ['{name} sank a long one. Luck is a fickle lady, and she likes {name}.', 'A long putt in for {name}. I need to sit down.', '{name} drained it from way out. I hate that I enjoyed it.', 'From that far? {name}, you are making the rest of us look bad.'],
+  rough: ['{name} landed in the rough. It suits them.', '{name} is in the weeds. I will send flowers.', 'Rough lie for {name}. The grass is thrilled.', '{name} found the long grass. It was waiting for them.'],
+  mando: ['{name} missed the mando. Arrow, post, everything. Gone.', 'The mando got {name}. A stroke, and a lesson.', '{name} went the wrong way round the post. The post is hurt.', '{name} ignored the arrow. I am writing it up now.'],
+};
+const MORE2_HOLE = {
+  ace: ['A hole in one! Hand me my smelling salts.', 'An ace. I do not trust it, I do not trust you, but I am happy.', 'One throw. One. I am going to need a drink and a wig adjustment.', 'An ace! The stuff of legend, and I was here for it.', 'Hole in one, honey. Do not tell people you did it. Tell them I made you.'],
+  eagle: ['An eagle! I should have worn my good earrings.', 'Two under, sweetheart. Somebody write this down.', 'Eagle. You have my respect and my suspicion.', 'An eagle on a day like this? The universe is confused.', 'Eagle! You are on fire, and I would like to know who you paid.'],
+  birdie: ['A birdie, honey. Look at you, behaving like a professional.', 'Birdie! Do not let it go to your head. It will not fit anyway.', 'One under. I suppose a stopped clock is right twice a day.', 'Birdie. I will tell everyone it was my influence.', 'Nice birdie. Do not make me say it again.'],
+  par: ['Par. You did the thing you were supposed to do. How novel.', 'Par! Not good, not bad, like a beige hat.', 'A par. The most respectable of the scores, and the dullest.', 'Par, honey. We will call it fine and move along.', 'You made par. It is the least you could do, and you did it.'],
+  bogey: ['Bogey. Close enough to par that you can lie to your friends.', 'A bogey. It is the golf version of a participation ribbon.', 'You bogeyed. The hole did not even have to try.', 'Bogey, darling. A little extra for the effort.', 'One over. You are practically a professional, in the wrong direction.'],
+  double: ['Double bogey. That is generous of you to give the hole two extra.', 'Two over. At least you are consistent.', 'A double. The scorecard has been through a lot today.', 'Double bogey! Eat something, darling, you look weak.', 'A double. I would be embarrassed, but I am too busy enjoying it.'],
+  triple: ['Triple bogey or worse. That hole took years off my life and gave them to you.', 'That was a catastrophe in three acts.', 'A triple. I have seen better outcomes at a casino buffet.', 'Oh, honey. Oh, no. Let us go and get you a sandwich.', 'That hole should come with a warning label and a hug.'],
+  none: ['No discs left, sweetheart. They are in my handbag. They are comfortable.', 'Out of discs. I will keep them warm for you.', 'Not a disc remaining. I have a very full handbag today.', 'You are out of discs. Please leave your hopes at the door.', 'All your discs went into my bag. That was fun for me.'],
+};
+const MORE2_MATCH = {
+  holeWin: ['You took the hole off {name}. Look at them squirm.', '{name} is sulking because you beat them. Delicious.', 'That hole is yours. {name} can mind their own business.', 'A win on that one. {name} should have stayed home.'],
+  holeLose: ['{name} won that hole. You are not supposed to look so surprised.', 'You lost that one to {name}. We do not speak of it.', '{name} beat you on that hole. I would be hot about it.', 'That one went to {name}. A tragedy in three parts.'],
+  holeShare: ['You tied the hole. Nobody wins, nobody loses, nobody enjoys it.', 'A shared hole. The most polite kind of failure.', 'A tie. Boring, but at least nobody gets hurt.', 'The hole is shared. Everyone has to go home and think about it.'],
+  win: ['You won! I will pretend this has not ruined my day.', 'Winner! Well. You said you would, and look at you.', 'You beat {name}. It was not close. It felt close, but it was not.', 'A win, honey. Take the glory and go before it changes its mind.'],
+  lose: ['{name} won. You played beautifully, until you did not.', 'You lost, darling. Shake hands and hide the evidence.', 'A loss. The only upside is that I get to laugh.', '{name} won, and you get a lovely memory of coming second.'],
+  tie: ['A tie. Everybody bought a ticket and nobody got a prize.', 'You tied. Like a bow, only less useful.', 'A tie! The only thing worse is a tie in the rain.', 'A tie. Please go back and finish it off properly.'],
+  left: ['You left the match. The discs will be fine. You, I am less sure.', 'You quit. I thought you had more fight than that. I was wrong.', 'You ran away. I saw it. I am telling people.', 'You forfeited. It takes a certain kind of person.'],
+};
+for (const [k, v] of Object.entries(MORE2_MINE)) MINE[k].push(...v);
+for (const [k, v] of Object.entries(MORE2_THEIRS)) THEIRS[k].push(...v);
+for (const [k, v] of Object.entries(MORE2_HOLE)) HOLE[k].push(...v);
+for (const [k, v] of Object.entries(MORE2_MATCH)) MATCH[k].push(...v);
+
+// Her taking a disc off a runaway leader, and a grudging word when a player reaches a goal. {disc}, {title} and {skin} are filled in.
+export const STEAL = ['Sorry, sugar, I am borrowing your {disc} for this hole. You are doing far too well.', 'Hand over the {disc}, honey. You are winning, and I do not care for it.', 'I am taking your {disc} for this hole. Think of it as a tax on being good.', 'Your {disc} is going in my handbag. You will get it back. Eventually.', 'You are too far ahead, darling. The {disc} stays with me for a hole.', 'Winning is lovely, but I have a rule: your {disc} is mine until the next hole.'];
+export const GOAL_SKIN = ['Hmph. {title}. Fine, have a {skin} disc. Do not get used to it.', '{title}, is it? Take the {skin} skin and stop looking at me.', 'Well. {title}. Here is a {skin} disc. I am not smiling, it is the make-up.', '{title}. I suppose that earns you a {skin} disc. I suppose.', 'You did {title}? Sweetheart. Fine. The {skin} disc is yours.', 'Oh, look who did {title}. Have a {skin} disc and a moment of my time.'];
+export const GOAL_PLAIN = ['{title}? Do not let it go to your head.', '{title}. I am not impressed. I am slightly impressed.', 'Look at you, doing {title}. I will write it on my fridge.', '{title}, darling. I will allow it.', 'So you did {title}. Good for you. Truly. Mostly.', '{title}! Fine, take a bow. A small one.'];
+export const stealLine = (disc, rnd = Math.random, avoid = '') => pick(STEAL, { disc }, rnd, avoid);
+export const goalLine = (title, skin, rnd = Math.random, avoid = '') => pick(skin ? GOAL_SKIN : GOAL_PLAIN, { title, skin }, rnd, avoid);
+
 // Marebear's bets: she bets against you, and you can take it or not. What each is worth is in BETS below.
 export const BETS = {
-  par: { text: 'make par or better', win: 3, lose: 2, offer: ['I bet you cannot make par on this one, sweetheart.', 'Par? You? On this hole? Put your bucks where your mouth is.', 'Three bucks says you do not make par. Go on.'] },
-  bogey: { text: 'make bogey or better', win: 1, lose: 3, offer: ['I bet you cannot even make bogey. Easy money.', 'Bogey or better, honey? I am not so sure. Care to wager?', 'Bet you blow up on this one. Bogey or better, or you pay me.'] },
-  birdie: { text: 'make birdie or better', win: 8, lose: 1, offer: ['A birdie? From you? Eight bucks says you can not. One buck says you wish you could.', 'Ha! Birdie or better and I will pay you handsomely. Not that I ever have to.'] },
+  par: { text: 'make par or better', win: 3, lose: 2, offer: ['I bet you cannot make par on this one, sweetheart.', 'Par? You? On this hole? Put your bucks where your mouth is.', 'Three bucks says you do not make par. Go on.', 'I bet you cannot make par. Care to prove me wrong, honey?', 'Par on this hole? That is a big ask for someone with your swing.', 'Put three bucks on par and let us see what you are made of.'] },
+  bogey: { text: 'make bogey or better', win: 1, lose: 3, offer: ['I bet you cannot even make bogey. Easy money.', 'Bogey or better, honey? I am not so sure. Care to wager?', 'Bet you blow up on this one. Bogey or better, or you pay me.', 'Bogey or better, sweetheart? I will bet you cannot.', 'I am saying you will blow this one. Prove me wrong.', 'A little wager: bogey or better. I do not expect to pay out.'] },
+  birdie: { text: 'make birdie or better', win: 8, lose: 1, offer: ['A birdie? From you? Eight bucks says you can not. One buck says you wish you could.', 'Ha! Birdie or better and I will pay you handsomely. Not that I ever have to.', 'Birdie or better. Come on, darling, I am feeling generous and delusional.', 'Eight bucks if you birdie. One buck if you do not. I am being kind.', 'A birdie? On this hole? In your dreams. But in my wallet, maybe.'] },
 };
 const BETTING = {
-  taken: ['Ooh, she is brave. I like that.', 'You are on, sweetheart. Do not cry when I take it.', 'Okay! Shake on it. I do not shake. Just throw.'],
-  declined: ['Chicken. Bawk bawk.', 'Smart. Cowardly, but smart.', 'No bet? Fine. I will just laugh at you for free.'],
-  won: ['Oh, you got me. I will not forget this. Here.', 'Fine, fine, take it. Beginner\'s luck.', 'You won the bet. I hate you a little. Here is your money.'],
-  lost: ['Pay up, buttercup!', 'Hand it over, darling. A deal is a deal.', 'And that is how Marebear gets rich.'],
+  taken: ['Ooh, she is brave. I like that.', 'You are on, sweetheart. Do not cry when I take it.', 'Okay! Shake on it. I do not shake. Just throw.', 'It is a deal! I love it when they say yes.', 'You took my bet. You are braver than you look.', 'Good for you, sweetheart. Now try not to cry.', 'Oh, you are on, honey. I will take your bucks and your dignity.', 'A bet! Ooh, I am so excited my earrings are shaking.'],
+  declined: ['Chicken. Bawk bawk.', 'Smart. Cowardly, but smart.', 'No bet? Fine. I will just laugh at you for free.', 'No bet? Fine. Fine. Just throw like a coward, see if I care.', 'You said no. I have a very long memory.', 'Playing it safe. How dull. How very sensible.', 'Not even a little bet? You have no sense of adventure.', 'Declined. Noted. Filed under cowardice.'],
+  won: ['Oh, you got me. I will not forget this. Here.', 'Fine, fine, take it. Beginner\'s luck.', 'You won the bet. I hate you a little. Here is your money.', 'You won the bet! I will pay you out of spite.', 'You got me, honey. Here. Do not spend it all in one place.', 'A win! Take your bucks, you beautiful menace.', 'I lost. I never lose. Somebody get my pearls.', 'Fine, take it. I hate how much I like you.'],
+  lost: ['Pay up, buttercup!', 'Hand it over, darling. A deal is a deal.', 'And that is how Marebear gets rich.', 'I win! Hand it over, buttercup. Slowly.', 'You lost the bet. Pay up, and smile while you do it.', 'Ha! Right into my handbag. That is a beautiful sound.', 'The house wins, darling, and I am the house.', 'That is what I thought. Please make your payment now.'],
 };
 export const betOffer = (kind, rnd = Math.random, avoid = '') => pick(BETS[kind]?.offer || [], {}, rnd, avoid);
 export const betRemark = (what, rnd = Math.random, avoid = '') => pick(BETTING[what], {}, rnd, avoid);
@@ -209,15 +282,13 @@ export function eventFor({ kind, putt, made, gimme, ex, strokes, dist, surface, 
 export function remark(event, { who = 'me', name = '' } = {}, rnd = Math.random, avoid = '') {
   if (!event) return { text: '', to: '' };
   const chance = { mando: 1, grip: 1, early: 1, shank: 1, tree: 0.85, water: 1, oob: 1, nasty: 1, soft: 1, hard: 1, wide: 1, rim: 0.7, longMiss: 0.8, pure: 0.5, ace: 1, chains: 0.8, sunk: 1, rough: 0.2 }[event] ?? 0.5;
-  const own = CSV[THROW_KEY[event]];
-  if (own && own.length) {
-    if (rnd() > chance) return { text: '', to: '' };
-    return { text: pick(own, {}, rnd, avoid), to: who === 'me' ? '' : name }; // "you" lines go to whoever threw
-  }
-  const list = (who === 'me' ? MINE : THEIRS)[event];
-  if (!list) return { text: '', to: '' };
+  // her own lines and the owner's, in one pool: the owner's are in the second person, so on somebody else's throw they are aimed at them by name
+  const own = CSV[THROW_KEY[event]] || [];
+  const built = (who === 'me' ? MINE : THEIRS)[event] || [];
+  if (!own.length && !built.length) return { text: '', to: '' };
   if (rnd() > chance) return { text: '', to: '' };
-  return { text: pick(list, { name }, rnd, avoid), to: '' };
+  const text = pick([...own, ...built], { name }, rnd, avoid);
+  return { text, to: who !== 'me' && own.includes(text) ? name : '' };
 }
 
 // a hole finished: how it went (`score` is strokes, or the score a hole you could not finish counts as)
@@ -225,14 +296,12 @@ export function holeRemark(strokes, par, holed, rnd = Math.random, avoid = '') {
   if (!holed) return pick(HOLE.none, {}, rnd, avoid);
   const d = strokes - par;
   const key = strokes === 1 ? 'ace' : d <= -2 ? 'eagle' : d === -1 ? 'birdie' : d === 0 ? 'par' : d === 1 ? 'bogey' : d === 2 ? 'double' : 'triple';
-  const own = CSV[HOLE_KEY[key]];
-  return pick(own && own.length ? own : HOLE[key], {}, rnd, avoid);
+  return pick([...(CSV[HOLE_KEY[key]] || []), ...HOLE[key]], {}, rnd, avoid);
 }
 
 // the others in a match: who took the hole, who won the day
 export function matchRemark(kind, { name = '' } = {}, rnd = Math.random, avoid = '') {
-  if (kind === 'lose' && CSV['Match Results']?.length) return pick(CSV['Match Results'], {}, rnd, avoid); // her words for the loser
-  return pick(MATCH[kind], { name }, rnd, avoid);
+  return pick(kind === 'lose' ? [...(CSV['Match Results'] || []), ...MATCH.lose] : MATCH[kind], { name }, rnd, avoid); // the owner's words for a loser, and hers
 }
 export const bearRemark = (mine, name, rnd = Math.random) => pick(mine ? BEAR.mine : BEAR.theirs, { name }, rnd);
 

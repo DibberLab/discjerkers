@@ -147,3 +147,31 @@ test('she does not repeat herself: with a memory, she says every line of a list 
   const a = T.pick(['one a', 'two b'], {}, () => 0, 'one a');
   assert.strictEqual(a, 'two b');
 });
+
+test('she has plenty to say: deep pools for every event, and her own lines for taking a disc and for goals', async () => {
+  const T = await load();
+  for (const [k, v] of Object.entries(T.LINES.MINE)) assert.ok(v.length >= 8, `${k}: ${v.length} lines of hers about your throw`);
+  for (const [k, v] of Object.entries(T.LINES.THEIRS)) assert.ok(v.length >= 6, `${k}: ${v.length} lines about theirs`);
+  for (const [k, v] of Object.entries(T.LINES.HOLE)) assert.ok(v.length >= 6, `hole ${k}: ${v.length}`);
+  for (const [k, v] of Object.entries(T.LINES.MATCH)) assert.ok(v.length >= 5, `match ${k}: ${v.length}`);
+  for (const [k, v] of Object.entries(T.LINES.BETTING)) assert.ok(v.length >= 8, `betting ${k}: ${v.length}`);
+  for (const [k, b] of Object.entries(T.BETS)) assert.ok(b.offer.length >= 5, `bet offers ${k}`);
+  const every = [...T.STEAL, ...T.GOAL_SKIN, ...T.GOAL_PLAIN];
+  assert.strictEqual(new Set(every).size, every.length);
+  for (const l of every) {
+    assert.ok(l.length > 12 && l.length < 140, l);
+    for (const m of l.matchAll(/\{(\w+)\}/g)) assert.ok(['disc', 'title', 'skin'].includes(m[1]), l);
+  }
+  assert.match(T.stealLine('Destroyer', () => 0), /Destroyer/);
+  assert.match(T.goalLine('Eagle', 'Gold', () => 0), /Eagle/);
+  assert.match(T.goalLine('Eagle', 'Gold', () => 0), /Gold/);
+  assert.doesNotMatch(T.goalLine('Eagle', null, () => 0), /\{/);
+  // the owner's lines and hers are one pool, so on a throw with both she draws from all of them
+  T.useHeckles({ 'Going in the Water': ['Your owner line number one.'] });
+  const got = new Set();
+  for (let i = 0; i < 200; i++) got.add(T.remark('water', { who: 'me' }, () => (i * 0.137) % 1).text);
+  assert.ok(got.has('Your owner line number one.') && got.size > 8, `owner lines and hers: ${got.size}`);
+  const them = T.remark('water', { who: 'them', name: 'Ben' }, () => 0);
+  assert.ok(them.text.length > 10);
+  T.useHeckles({});
+});
