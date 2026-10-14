@@ -87,6 +87,60 @@ export const betWon = (kind, strokes, par, holed = true) => holed && strokes <= 
 
 const BEAR = { mine: ['Do not look at me. You earned it.'], theirs: ['{name} is at a triple bogey. Marebear is reaching for her handbag.'] };
 
+// More of her, so no list comes round too soon.
+const MORE_MINE = {
+  grip: ['Your fingers and that disc are going steady, apparently.', 'Let go, honey. It is a disc, not a baby bird.'],
+  early: ['The disc left the building and you were still in it.', 'That one got away from you before you got to it.'],
+  shank: ['I have seen better throws from people carrying groceries.', 'Was that on purpose? Please say it was on purpose.'],
+  tree: ['The tree has been here for decades. It was not going anywhere.', 'You hit the one tree in the whole county. That takes talent.', 'Wood: one. You: nothing.'],
+  water: ['The pond says it was nothing, and gave the disc a hug.', 'Careful, sweetheart, the pond is wet.', 'You fed the pond. It is a good pond.'],
+  oob: ['That is the part with the orange line. You were on the wrong side of the orange line.', 'Out of bounds. A very bold choice of address.'],
+  rough: ['Rough. It builds character, and you need some.', 'The grass back there is for people who are lost.'],
+  rim: ['The basket looked at that and said no, thank you.', 'So close you could smell it. Pity about the result.', 'It touched the basket and left. We have all dated that kind.'],
+  soft: ['That putt left home with no plan and no courage.', 'That swipe was a whisper, darling. The basket is hard of hearing.'],
+  hard: ['Easy, tiger. It is a putt, not a javelin.', 'You hit that like it said something about your mother.'],
+  wide: ['You were aiming at the basket, right? Because the basket was over there.', 'That swipe took a left turn at the wrong basket.'],
+  nasty: ['It rolled like it had a train to catch.', 'The disc left on its own. I respect its independence.'],
+  longMiss: ['Thirty feet? With that hand? Brave. Very brave.', 'You missed a long one. That is allowed. It is also hilarious.'],
+  pure: ['Fine. That was lovely. I have no insults ready for that, so I will stare.', 'Well. Somebody practiced.'],
+  ace: ['An ace! Somebody check the basket for magnets.', 'I want to see that again. Slowly. In case it was a trick.'],
+  chains: ['In the chains! I suppose even a stopped clock.', 'Chains, chains, chains. Do not get a big head.'],
+  sunk: ['From that far? I choose to believe it was a mistake.', 'A long one, in. Your luck must be on holiday.'],
+  mando: ['Mando, mando, mando. Three syllables. You missed all of them.', 'You went the wrong way round the post. Sweetie. The arrow.'],
+};
+const MORE_THEIRS = {
+  grip: ['{name} could not let go, and I could not look away.'],
+  early: ['{name} released early. The disc was just as surprised.'],
+  shank: ['{name} threw a shank. I will remember it fondly.'],
+  tree: ['{name} met a tree. It was a short and violent friendship.'],
+  water: ['{name} found the water. The water was thrilled.', 'Splash! {name} is making donations to the pond.'],
+  oob: ['{name} is out of bounds, and I am delighted.'],
+  rim: ['{name} rimmed out. It lipped them and left.'],
+  soft: ['{name} putted like they were tiptoeing past a sleeping dog.'],
+  hard: ['{name} swiped like they were mad at the basket.'],
+  wide: ['{name} putted at an entirely different county.'],
+  nasty: ['{name} watched a putt roll away with its dignity.'],
+  longMiss: ['{name} missed a long putt, and honestly I enjoyed it.'],
+  pure: ['{name} threw a pure one. Please, nobody tell them.'],
+  ace: ['{name} just aced it. I need to sit down.'],
+  chains: ['{name} made one. Good for them, I suppose.'],
+  sunk: ['{name} sank a long one. Lucky, lucky, lucky.'],
+  rough: ['{name} is in the rough, where I would expect them.'],
+  mando: ['{name} went the wrong side of the mando. Rookie.'],
+};
+for (const [k, v] of Object.entries(MORE_MINE)) MINE[k].push(...v);
+for (const [k, v] of Object.entries(MORE_THEIRS)) THEIRS[k].push(...v);
+HOLE.par.push('Par. A perfectly respectable amount of nothing special.', 'Par, honey. You did the bare minimum, and did it well.');
+HOLE.bogey.push('A bogey. Do not look at me like that.', 'Bogey. The hole sends its regards.');
+HOLE.double.push('Double bogey. That is two extra strokes of pure ambition.', 'A double. The hole thanks you for the visit.');
+HOLE.triple.push('Triple or worse. I will light a candle.', 'That was not a hole, that was a hostage situation.');
+HOLE.birdie.push('A birdie. Mark the calendar, then forget it.', 'Birdie! Pass the hairspray, I am feeling things.');
+HOLE.eagle.push('An eagle. I am not saying you cheated. I am saying I saw nothing.');
+MATCH.holeWin.push('You took that hole off {name}. Smug is a good look on you.');
+MATCH.holeLose.push('{name} took that one. Do not let them see you cry.');
+MATCH.win.push('You won. I will deny I said anything nice about you.');
+MATCH.lose.push('{name} won. You were fabulous, darling. You also lost.');
+
 // Lines from public/data/heckles.json (the ones the owner wrote), by their own category names. They are in the second person,
 // so when they are about somebody else's throw they are aimed at that player by name.
 let CSV = {};
@@ -96,12 +150,33 @@ const HOLE_KEY = { ace: 'Eagle', eagle: 'Eagle', birdie: 'Birdie', par: 'Par', b
 
 const fill = (line, vars = {}) => line.replace(/\{(\w+)\}/g, (_, k) => (vars[k] ?? ''));
 
-// Pick a line from a list, not the one used last. `rnd` is a function returning 0..1.
+/* She does not repeat herself. Once the page gives her a memory (useMemory), every line she says is remembered, and she goes through a
+   whole list before she says any line of it again (a list is "used up" when every line of it has been said; then it starts afresh, and
+   never begins with the line she just said). The memory is a set of short hashes, so the page can keep it between visits. Without a
+   memory (a test, the server) she only avoids the line she said last. */
+let said = null;
+const hashOf = (s) => { let h = 5381; for (const c of s) h = (Math.imul(h, 33) ^ c.charCodeAt(0)) >>> 0; return h; };
+export function useMemory(list) { said = new Set(Array.isArray(list) ? list.filter((n) => Number.isInteger(n)).slice(-1500) : []); }
+export const memory = () => (said ? [...said].slice(-1500) : []);
+export const forget = () => { said = said ? new Set() : null; };
+
+// Pick a line from a list: one she has not said, and never the one used last. `rnd` is a function returning 0..1.
 export function pick(list, vars = {}, rnd = Math.random, avoid = '') {
   if (!list || !list.length) return '';
-  const fresh = list.map((l) => fill(l, vars)).filter((l) => l !== avoid);
-  const pool = fresh.length ? fresh : list.map((l) => fill(l, vars));
-  return pool[Math.floor(rnd() * pool.length) % pool.length];
+  const all = list.map((l) => fill(l, vars));
+  let pool = all.filter((l) => l !== avoid);
+  if (!pool.length) pool = all;
+  if (said) {
+    let fresh = pool.filter((l) => !said.has(hashOf(l)));
+    if (!fresh.length) { // she has said the lot: start the list again (not with the line she just said)
+      for (const l of all) said.delete(hashOf(l));
+      fresh = pool;
+    }
+    pool = fresh;
+  }
+  const line = pool[Math.floor(rnd() * pool.length) % pool.length];
+  if (said) { said.add(hashOf(line)); if (said.size > 1500) said.delete(said.values().next().value); }
+  return line;
 }
 
 /**

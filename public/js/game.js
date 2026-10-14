@@ -6,7 +6,7 @@ import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl,
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=11';
 import * as G from './gamecore.js?v=24';
-import * as T from './trash.js?v=6';
+import * as T from './trash.js?v=7';
 import * as C3 from './cam3d.js?v=15';
 import * as PF from './puttfx.js?v=11';
 import * as GR from './ground.js?v=4';
@@ -398,7 +398,7 @@ function say(r, mood = 'bad') { // mood: 'bad' (she laughs), 'good' (she sulks, 
   const text = typeof r === 'string' ? r : r?.text || '';
   S.quip = text;
   S.quipTo = (typeof r === 'object' && r?.to) || '';
-  if (text) { S.lastQuip = text; popUp(text, S.quipTo, mood); }
+  if (text) { S.lastQuip = text; popUp(text, S.quipTo, mood); try { localStorage.setItem('dj_said', JSON.stringify(T.memory())); } catch { /* not kept */ } }
 }
 const GOOD_EVENTS = new Set(['pure', 'ace', 'chains', 'sunk']);
 const holeMood = (strokes, par, holed) => (!holed || strokes > par ? 'bad' : strokes === par ? 'sly' : 'good');
@@ -3138,6 +3138,7 @@ async function boot() {
   const res = await fetch('/data/flightguide.json?v=1');
   DATA = await res.json();
   try { T.useHeckles(await (await fetch('/data/heckles.json?v=2')).json()); } catch { /* her own lines are enough */ }
+  try { T.useMemory(JSON.parse(localStorage.getItem('dj_said'))); } catch { T.useMemory([]); } // what she has already said, so she does not say it again
   for (const r of DATA.discs) DISCS.set(r[0], { id: r[0], name: r[1], b: r[2], cat: r[3], speed: r[4], glide: r[5], turn: r[6], fade: r[7], col: r[8] });
 
   document.addEventListener('pointerdown', SND.unlock);

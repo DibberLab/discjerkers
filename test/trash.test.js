@@ -105,3 +105,45 @@ test('the owner\'s own heckles (the CSV) are what she says about trees, water an
     assert.strictEqual(T.remark('longMiss', { who: 'me' }, () => 0).text.length > 0, true, 'and the events the CSV does not cover still get her own lines');
   } finally { T.useHeckles({}); }
 });
+
+test('she does not repeat herself: with a memory, she says every line of a list before saying any again', async () => {
+  const T = await load();
+  const list = Array.from({ length: 9 }, (_, i) => `Line number ${i} of the list.`);
+  let seed = 3;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  T.useMemory([]);
+  try {
+    let last = '';
+    for (let round = 0; round < 4; round++) {
+      const got = [];
+      for (let i = 0; i < list.length; i++) { const l = T.pick(list, {}, rnd, last); got.push(l); last = l; }
+      assert.strictEqual(new Set(got).size, list.length, `round ${round}: every line once, none twice: ${got.map((g) => g.slice(12, 14)).join(',')}`);
+    }
+    // never the line she just said, even when the list starts over
+    T.useMemory([]);
+    let prev = '';
+    for (let i = 0; i < 60; i++) { const l = T.pick(list, {}, rnd, prev); assert.notStrictEqual(l, prev); prev = l; }
+    // a memory can be kept between visits
+    T.useMemory([]);
+    const first = T.pick(list, {}, () => 0);
+    const kept = T.memory();
+    assert.strictEqual(kept.length, 1);
+    T.useMemory(kept);
+    const rest = new Set(Array.from({ length: 8 }, () => T.pick(list, {}, rnd)));
+    assert.ok(!rest.has(first) && rest.size === 8, 'a fresh page remembers what she said');
+    T.useMemory(['junk', null, 5]);
+    assert.deepStrictEqual(T.memory(), [5]);
+    // a real list, through the real functions: ten holes' worth of remarks about the water, no line twice
+    T.useMemory([]);
+    T.useHeckles(heckles());
+    const pool = heckles()['Going in the Water'].length;
+    const seen = [];
+    for (let i = 0; i < pool; i++) { const r = T.remark('water', { who: 'me' }, () => 0.3 + (i % 3) * 0.2, seen.at(-1) || ''); if (r.text) seen.push(r.text); }
+    assert.strictEqual(new Set(seen).size, seen.length, `no repeats until her ${pool} lines about water have all been said`);
+    assert.ok(seen.length >= pool - 1);
+    T.useHeckles({});
+  } finally { T.forget(); }
+  // with no memory (a test, the server) she still never says the line she just said
+  const a = T.pick(['one a', 'two b'], {}, () => 0, 'one a');
+  assert.strictEqual(a, 'two b');
+});

@@ -181,6 +181,8 @@ that way; don't introduce React/Vite/Tailwind here.
   in Duck Hunt: she cackles at a bad throw (`laugh`), sulks with her arms crossed at a good one (`grudge`), smirks at a middling one
   (`sly`), with her words in a balloon (`popUp`/`drawPop`; on a phone she comes up from behind the controls). At a triple bogey she waddles
   on, takes a disc into her handbag and cackles (`drawBearScene`); internally those discs are still `eaten`. Keep her cheeky, never cruel.
+- **She does not repeat herself** (`pick` in `trash.js`): the page gives her a memory (`useMemory`, `dj_said` in localStorage, short hashes) and she says every line of a
+  list before any line of it again, and never the one she just said. With no memory (tests, server) she only avoids the last line.
 - **Sound** (`sound.js`): all synthesized with Web Audio, no files: throw, land, skip, thunk, splash, chains, clank, womp, fanfare, her cackle,
   rain. A chip over the hole turns it off (`dj_sound`). Nothing plays before the first touch; every sound call is a no-op without audio.
 - **Conditions** (`conditions.js`, pure): a seed gives each hole a day: wind (shifted from the hole's own), rain (1 day in 5: discs skid
@@ -279,7 +281,7 @@ that way; don't introduce React/Vite/Tailwind here.
   the server rolls them in a match; into water it costs a stroke). `puttScript` turns that into a film (where the disc is every
   millisecond, with marks for the drop, the rim lap, the spit and the roll) and `drawPuttFx` draws the reaction: CHAINS! with
   rings and confetti, a cold-washed RIMMED OUT, NASTY ROLL with the camera following the disc.
-- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 24, `cam3d.js` 15, `puttfx.js` 11, `ground.js` 4, `sound.js` 2, `marebear.js` 1, `conditions.js` 2, `daily.js` 1, `gamepanels.js` 2, `progress.js` 1, `trash.js` 6, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
+- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 24, `cam3d.js` 15, `puttfx.js` 11, `ground.js` 4, `sound.js` 2, `marebear.js` 1, `conditions.js` 2, `daily.js` 1, `gamepanels.js` 2, `progress.js` 1, `trash.js` 7, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 
 ## Deploy
