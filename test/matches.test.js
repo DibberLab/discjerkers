@@ -7,7 +7,9 @@ const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
 const express = require('express');
-const { createMatchStore, loadGameplay, LIMITS } = require('../server/lib/matches');
+const { createMatchStore: realStore, loadGameplay, LIMITS } = require('../server/lib/matches');
+// the tests play the classic course unless one asks for a seed: a throw should not depend on the day's rain and pins
+const createMatchStore = (file, opts = {}) => realStore(file, { seed: () => undefined, ...opts });
 const { createGameRouter } = require('../server/routes/game');
 const { createAccountStore } = require('../server/lib/accounts');
 const { createAccountRouter } = require('../server/routes/account');
@@ -596,7 +598,10 @@ test('a drive in a match takes the swipe: the server steers and slows the throw 
 const G_distanceOk = (gp, m, uid, hole) => gp.G.distance(m.round.rounds[uid].lie, hole.basket) > gp.G.PUTT_RANGE;
 
 test('a match has a seed, and the server plays every hole on that seed\'s day: the same wind and the same pin the pages will show', async () => {
-  const { gp, store, id } = await seated();
+  const gp = await gameplay();
+  const store = realStore(tmp('matches.json')); // with its real, random seed
+  const id = store.create(ANA, { gp, holes: 9, bag: null }).id;
+  store.join(BEN, id, { gp, bag: null });
   begin(store, gp, id);
   const m = store.get(id);
   assert.ok(Number.isInteger(m.seed) && m.seed > 0, 'made at create');

@@ -300,7 +300,7 @@ function puttMove(gp, m, uid, body) {
 
 /* ---------- the store ---------- */
 
-function createMatchStore(file, { now = () => Date.now() } = {}) {
+function createMatchStore(file, { now = () => Date.now(), seed = () => crypto.randomInt(1, 2147483647) } = {}) { // (seed: tests pass one that gives the classic course, so a throw does not depend on the day's luck)
   const events = new EventEmitter();
   events.setMaxListeners(0);
   let unavailable = false;
@@ -451,7 +451,7 @@ function createMatchStore(file, { now = () => Date.now() } = {}) {
         cards: { [user.id]: [] },
         eaten: { [user.id]: [] },
         round: null,
-        seed: crypto.randomInt(1, 2147483647), // the day's conditions: wind, rain, pins and mandos come from this
+        seed: seed(), // the day's conditions: wind, rain, pins and mandos come from this
         seq: 0,
         last: null,
         winner: null,
