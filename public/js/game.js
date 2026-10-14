@@ -6,7 +6,7 @@ import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl,
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=11';
 import * as G from './gamecore.js?v=28';
-import * as T from './trash.js?v=9';
+import * as T from './trash.js?v=10';
 import * as C3 from './cam3d.js?v=16';
 import * as PF from './puttfx.js?v=12';
 import * as GR from './ground.js?v=5';
@@ -3593,7 +3593,7 @@ async function boot() {
   syncTop();
   const res = await fetch('/data/flightguide.json?v=1');
   DATA = await res.json();
-  try { T.useHeckles(await (await fetch('/data/heckles.json?v=2')).json()); } catch { /* her own lines are enough */ }
+  try { T.useHeckles(await (await fetch('/data/heckles.json?v=3')).json()); } catch { /* her own lines are enough */ }
   try { T.useMemory(JSON.parse(localStorage.getItem('dj_said'))); } catch { T.useMemory([]); } // what she has already said, so she does not say it again
   for (const r of DATA.discs) DISCS.set(r[0], { id: r[0], name: r[1], b: r[2], cat: r[3], speed: r[4], glide: r[5], turn: r[6], fade: r[7], col: r[8] });
 

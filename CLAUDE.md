@@ -176,7 +176,7 @@ that way; don't introduce React/Vite/Tailwind here.
     `cam3d.js`) farthest first, with blocks of 2 and 4 cells at a distance, so a hill hides what is behind it. Colours per cell (`groundCells`)
     include the slope's light, a mown stripe and noise; close up there are patches (`mottle`), tufts and flowers (`drawGrass`), all
     from a hash of the cell so nothing flickers. Everything that stands on the ground (trees, basket, disc, trail, camera) is placed at `groundAt`.
-- **Marebear** is a big, loud older woman (leopard print, lavender bouffant, a great deal of make-up), drawn in `marebear.js`; she is not a bear.
+- **Marebear** is a big, loud older woman from New Jersey (everything she says is in a Jersey voice: "ya", "hon", "ay", the Turnpike and the Shore; keep new lines in it, light on the spelling) (leopard print, lavender bouffant, a great deal of make-up), drawn in `marebear.js`; she is not a bear.
   When she has something to say about a throw (`say(text, mood)` in `game.js`) she **pops up from the bottom of the screen** like the dog
   in Duck Hunt: she cackles at a bad throw (`laugh`), sulks with her arms crossed at a good one (`grudge`), smirks at a middling one
   (`sly`), with her words in a balloon (`popUp`/`drawPop`; on a phone she comes up from behind the controls). At a triple bogey she waddles
@@ -299,7 +299,7 @@ that way; don't introduce React/Vite/Tailwind here.
   the server rolls them in a match; into water it costs a stroke). `puttScript` turns that into a film (where the disc is every
   millisecond, with marks for the drop, the rim lap, the spit and the roll) and `drawPuttFx` draws the reaction: CHAINS! with
   rings and confetti, a cold-washed RIMMED OUT, NASTY ROLL with the camera following the disc.
-- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 28, `cam3d.js` 16, `puttfx.js` 12, `ground.js` 5, `sound.js` 3, `marebear.js` 1, `conditions.js` 3, `daily.js` 1, `gamepanels.js` 3, `progress.js` 2, `trash.js` 9, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
+- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 28, `cam3d.js` 16, `puttfx.js` 12, `ground.js` 5, `sound.js` 3, `marebear.js` 1, `conditions.js` 3, `daily.js` 1, `gamepanels.js` 3, `progress.js` 2, `trash.js` 10, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 
 ## Deploy
