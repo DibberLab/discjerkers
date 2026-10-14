@@ -184,6 +184,10 @@ that way; don't introduce React/Vite/Tailwind here.
 - **Her body business** (`actOf`, `drawMarebear`'s `act`, `sound.js`): a line can have *asterisks* in it, `*cough cough*`, `*wheeeeze*`, `*hhhk, ptoo*` / `*spits in a Hamm's can*`
   or `*adjusts bra strap*`. Only what is between asterisks counts. She does it first (a fist to her mouth, a hand on her chest, a glob she spits, a pink strap she yanks, each with
   its own sound: `cough`, `wheeze`, `spit`, `snap`) and then laughs. About a line in three has one.
+- **She talks** (`speak`, `pickVoice`, `spoken` in `sound.js`): the browser's own speech (`speechSynthesis`), so no files, no service and no cost; the voice is whatever the device
+  has (a woman's English voice if there is one: Samantha, Karen, Zira...), pitched down to 0.72 and slowed a little. After her business and a snicker she says the line aloud (not
+  the asterisks), and the pop-up stays up until she has finished (`p.speaking`). It speaks only when the sound is on and the "Marebear talks out loud" menu checkbox (`dj_voice`,
+  on by default, hidden when the device cannot talk) is on; a phone needs one touch first (`prime`). Quality varies by device; a recorded or generated voice would be a separate project.
 - **She does not repeat herself** (`pick` in `trash.js`): the page gives her a memory (`useMemory`, `dj_said` in localStorage, short hashes) and she says every line of a
   list before any line of it again, and never the one she just said. With no memory (tests, server) she only avoids the last line.
 - **Sound** (`sound.js`): all synthesized with Web Audio, no files: throw, land, skip, thunk, splash, chains, clank, womp, fanfare, her cackle,
@@ -302,7 +306,7 @@ that way; don't introduce React/Vite/Tailwind here.
   the server rolls them in a match; into water it costs a stroke). `puttScript` turns that into a film (where the disc is every
   millisecond, with marks for the drop, the rim lap, the spit and the roll) and `drawPuttFx` draws the reaction: CHAINS! with
   rings and confetti, a cold-washed RIMMED OUT, NASTY ROLL with the camera following the disc.
-- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 28, `cam3d.js` 16, `puttfx.js` 12, `ground.js` 5, `sound.js` 4, `marebear.js` 2, `conditions.js` 3, `daily.js` 1, `gamepanels.js` 3, `progress.js` 2, `trash.js` 11, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
+- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 28, `cam3d.js` 16, `puttfx.js` 12, `ground.js` 5, `sound.js` 5, `marebear.js` 2, `conditions.js` 3, `daily.js` 1, `gamepanels.js` 3, `progress.js` 2, `trash.js` 11, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 
 ## Deploy
