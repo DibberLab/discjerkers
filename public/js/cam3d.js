@@ -251,14 +251,16 @@ function drawTerrain(ctx, cam, b, view, hole) {
       ctx.lineWidth = 1;
       ctx.fill();
       ctx.stroke();
-      if (k === 1 && d < 95) mottle(ctx, cam, view, f, gc, i, j);
+      if (k === 1 && d < 95) mottle(ctx, cam, view, f, gc, i, j, 1 - smooth01((d - 40) / 55));
     }
   }
 }
 
 // Close up, a cell is not one flat colour: soft patches of lighter and darker grass in it, a different few each time, the same every frame
+const smooth01 = (u) => { const t = Math.max(0, Math.min(1, u)); return t * t * (3 - 2 * t); };
 const hash2 = (a, b, c) => { const n = Math.sin(a * 127.1 + b * 311.7 + c * 74.7) * 43758.5453; return n - Math.floor(n); };
-function mottle(ctx, cam, view, f, gc, i, j) {
+function mottle(ctx, cam, view, f, gc, i, j, fade) {
+  if (fade <= 0.01) return;
   const kind = gc.cls[j * gc.nx + i];
   if (kind === 3 || kind === 4) return;
   const colors = kind === 0 ? ['rgba(74,132,56,0.2)', 'rgba(3,16,7,0.22)', 'rgba(110,150,60,0.14)', 'rgba(4,18,8,0.18)', 'rgba(90,140,60,0.16)', 'rgba(3,14,6,0.2)'] : ['rgba(255,255,235,0.05)', 'rgba(0,14,4,0.09)', 'rgba(255,255,235,0.035)', 'rgba(0,14,4,0.06)', 'rgba(255,255,235,0.04)', 'rgba(0,14,4,0.07)'];
@@ -275,12 +277,14 @@ function mottle(ctx, cam, view, f, gc, i, j) {
     if (!c || !e || !a) continue;
     const rx = Math.abs(e.x - c.x) + Math.abs(e.y - c.y) * 0.3;
     const ry = Math.abs(a.y - c.y) + Math.abs(a.x - c.x) * 0.3;
-    if (rx < 1.5) continue;
+    if (rx < 0.5) continue;
+    ctx.globalAlpha = fade; // they melt in and out with distance, so nothing pops as the camera moves
     ctx.fillStyle = colors[n];
     ctx.beginPath();
     ctx.ellipse(c.x, c.y, rx, Math.max(0.8, ry), 0, 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.globalAlpha = 1;
 }
 
 // Grass close up: tufts and a few flecks of colour on the cells nearest the camera, in the same places every frame
@@ -302,7 +306,9 @@ function drawGrass(ctx, cam, b, view, hole) {
       if (kind === 3 || kind === 4) continue; // not on water or out of bounds
       const mx = f.x0 + (i + 0.5) * f.step - cam.x;
       const my = f.y0 + (j + 0.5) * f.step - cam.y;
-      if (mx * mx + my * my > R * R || mx * fx + my * fy < -f.step) continue;
+      const dist = Math.sqrt(mx * mx + my * my);
+      if (dist > R || mx * fx + my * fy < -f.step) continue;
+      const fade = 1 - smooth01((dist - 30) / (R - 30)); // blades shrink away with distance instead of vanishing all at once
       const tufts = kind === 0 ? 4 : 2; // the rough is shaggier than the fairway
       for (let n = 0; n < tufts; n++) {
         if (hash2(i, j, n * 3 + 1) > (kind === 0 ? 0.9 : 0.55)) continue;
@@ -310,8 +316,8 @@ function drawGrass(ctx, cam, b, view, hole) {
         const y = f.y0 + (j + hash2(i, j, n * 3 + 3)) * f.step;
         const base = project(cam, view, x, y, fieldAt(f, x, y));
         if (!base) continue;
-        const hh = (0.55 + hash2(i, j, n + 9) * 0.8) * (kind === 0 ? 1 : 0.55) * base.s;
-        if (hh < 2) continue;
+        const hh = (0.55 + hash2(i, j, n + 9) * 0.8) * (kind === 0 ? 1 : 0.55) * base.s * fade;
+        if (hh < 0.6) continue;
         const lean = (hash2(i, j, n + 13) - 0.5) * hh * 0.9;
         const group = blades[hash2(i, j, n + 17) < 0.5 ? 0 : 1];
         for (let q = -2; q <= 2; q++) group.push([base.x + q * hh * 0.09, base.y, base.x + q * hh * 0.17 + lean * (1 + 0.2 * q), base.y - hh * (1 - Math.abs(q) * 0.12)]);
@@ -320,12 +326,12 @@ function drawGrass(ctx, cam, b, view, hole) {
         const x = f.x0 + (i + hash2(i, j, 32)) * f.step;
         const y = f.y0 + (j + hash2(i, j, 33)) * f.step;
         const base = project(cam, view, x, y, fieldAt(f, x, y) + 0.4);
-        if (base) flecks.push([base.x, base.y, Math.max(1.2, 0.22 * base.s), kind === 0 ? ['#e8d44d', '#f1efe2', '#d98ad2', '#f09a3e'][Math.floor(hash2(i, j, 34) * 4)] : 'rgba(30,20,8,0.5)']);
+        if (base) flecks.push([base.x, base.y, Math.max(0.4, 0.22 * base.s * fade), kind === 0 ? ['#e8d44d', '#f1efe2', '#d98ad2', '#f09a3e'][Math.floor(hash2(i, j, 34) * 4)] : 'rgba(30,20,8,0.5)']);
       }
     }
   }
   ctx.lineCap = 'round';
-  [['rgba(8,26,12,0.8)', 1.6], ['rgba(120,176,84,0.75)', 1.3]].forEach(([color, w], gi) => {
+  [['rgba(8,26,12,0.55)', 1.3], ['rgba(120,176,84,0.55)', 1.1]].forEach(([color, w], gi) => {
     ctx.beginPath();
     for (const [x0, y0, x1, y1] of blades[gi]) { ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); }
     ctx.strokeStyle = color;
