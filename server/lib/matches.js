@@ -43,10 +43,23 @@ async function loadGameplay() {
   const dir = path.join(__dirname, '..', '..', 'public', 'js');
   const core = await import(pathToFileURL(path.join(dir, 'gamecore.js')).href);
   const course = await import(pathToFileURL(path.join(dir, 'course.js')).href);
+  const cond = await import(pathToFileURL(path.join(dir, 'conditions.js')).href);
   const guide = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'public', 'data', 'flightguide.json'), 'utf8'));
   const discs = new Map(guide.discs.map((r) => [r[0], { id: r[0], name: r[1], speed: r[4], glide: r[5], turn: r[6], fade: r[7], col: r[8] }]));
   const starter = STARTER.map((n) => [...discs.values()].find((d) => d.name === n)?.id).filter(Boolean);
-  return { G: { ...core, ...course }, discs, starter, hole: (id) => course.HOLES.find((h) => h.id === id) };
+  const base = (id) => course.HOLES.find((h) => h.id === id);
+  // the hole as this match plays it today: its seed gives each hole its wind, weather, pin and mando (a match with no seed is the classic course)
+  const days = new Map();
+  const holeFor = (m, id) => {
+    if (m.seed === undefined || m.seed === null) return base(id);
+    const key = `${m.seed}:${id}:${m.holeIdx}:${m.holes}`;
+    if (!days.has(key)) {
+      if (days.size > 200) days.clear();
+      days.set(key, cond.applyVariant(base(id), cond.variantFor(m.seed, base(id), { idx: m.holeIdx, n: m.holes })));
+    }
+    return days.get(key);
+  };
+  return { G: { ...core, ...course, ...cond }, discs, starter, hole: base, holeFor };
 }
 
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I/L
@@ -94,7 +107,7 @@ function startHole(gp, m) {
 // The farthest player from the basket throws next. When some are as far as each other (everyone, on the tee), it goes to
 // whoever has waited longest since their last throw, and then to the honor order.
 function chooseTurn(gp, m) {
-  const hole = gp.hole(m.round.holeId);
+  const hole = gp.holeFor(m, m.round.holeId);
   const live = inPlay(m).filter((p) => !m.round.rounds[p.uid].done);
   if (!live.length) { m.round.turn = null; return; }
   if (live.length === 1) { m.round.turn = live[0].uid; return; }
@@ -131,7 +144,7 @@ const trailOf = (result) => {
 // Put a resolved throw or putt into the match: strokes, lie, trail, the record the other player watches, and what comes next.
 function record(gp, m, uid, disc, result, extra) {
   const { G } = gp;
-  const hole = gp.hole(m.round.holeId);
+  const hole = gp.holeFor(m, m.round.holeId);
   const r = m.round.rounds[uid];
   const work = { ...r, hole };
   const from = { ...r.lie };
@@ -183,7 +196,7 @@ function record(gp, m, uid, disc, result, extra) {
 
 // Put the hole just played on everyone's card.
 function cardHole(gp, m) {
-  const hole = gp.hole(m.round.holeId);
+  const hole = gp.holeFor(m, m.round.holeId);
   const results = [];
   for (const p of inPlay(m)) {
     const r = m.round.rounds[p.uid];
@@ -227,7 +240,7 @@ function endHole(gp, m, announce = true) {
 function throwMove(gp, m, uid, body) {
   const { G } = gp;
   needTurn(m, uid);
-  const hole = gp.hole(m.round.holeId);
+  const hole = gp.holeFor(m, m.round.holeId);
   const r = m.round.rounds[uid];
   const discId = discFor(m, uid, body.discId);
   if (G.distance(r.lie, hole.basket) <= G.PUTT_RANGE) throw new MatchError('Inside 50 feet you putt.');
@@ -243,7 +256,7 @@ function throwMove(gp, m, uid, body) {
 function puttMove(gp, m, uid, body) {
   const { G } = gp;
   needTurn(m, uid);
-  const hole = gp.hole(m.round.holeId);
+  const hole = gp.holeFor(m, m.round.holeId);
   const r = m.round.rounds[uid];
   const discId = discFor(m, uid, body.discId);
   if (G.distance(r.lie, hole.basket) > G.PUTT_RANGE) throw new MatchError('You are too far out to putt.');
@@ -336,6 +349,7 @@ function createMatchStore(file, { now = () => Date.now() } = {}) {
       status: m.status,
       holes: m.holes,
       holeIdx: m.holeIdx,
+      seed: m.seed,
       invite: m.invite,
       you: uid,
       host: m.players[0].uid,
@@ -406,6 +420,7 @@ function createMatchStore(file, { now = () => Date.now() } = {}) {
         cards: { [user.id]: [] },
         eaten: { [user.id]: [] },
         round: null,
+        seed: crypto.randomInt(1, 2147483647), // the day's conditions: wind, rain, pins and mandos come from this
         seq: 0,
         last: null,
         winner: null,

@@ -4,7 +4,7 @@
    same model the flight guide uses. Feet; x is east, y is north; heading 0 is north, positive is clockwise. */
 
 import { clamp, carryRaw, flightCurve, spinOf, spinsClockwise, angleDeg, armAt, ANGLE_MAX } from './flightmodel.js?v=1';
-import { surfaceAt, treesIn, elevAt, slopeAt } from './course.js?v=10';
+import { surfaceAt, treesIn, elevAt, slopeAt, routePosition } from './course.js?v=10';
 
 const DEG = Math.PI / 180;
 export const PUTT_RANGE = 50; // inside this you putt
@@ -299,6 +299,19 @@ export function samplePath(plan, from, n = 72, hole = null) {
   return pts;
 }
 
+// where (0..1) the segment a-b crosses a mando's ray (from its post, along its direction, for its length), or null
+function rayCross(a, b, m) {
+  const rx = b.x - a.x;
+  const ry = b.y - a.y;
+  const sx = m.dx * m.len;
+  const sy = m.dy * m.len;
+  const den = rx * sy - ry * sx;
+  if (Math.abs(den) < 1e-9) return null;
+  const u = ((m.x - a.x) * sy - (m.y - a.y) * sx) / den;
+  const v = ((m.x - a.x) * ry - (m.y - a.y) * rx) / den;
+  return u >= 0 && u <= 1 && v >= 0 && v <= 1 ? u : null;
+}
+
 // the nearest point on segment a-b to p: { d: distance, u: how far along a-b (0..1) }
 function nearest(p, a, b) {
   const dx = b.x - a.x;
@@ -321,7 +334,7 @@ const ROLL_CAP = 70;
 function rollOut(hole, disc, plan, from, tangent, surface) {
   const a = angleDeg(plan.t2);
   const flip = clamp(1 - 0.015 * a, 0.5, 1.7); // hyzer discs stick; anhyzer discs run
-  const feet = (2 + 0.8 * disc.speed) * flip * (ROLL[surface] ?? 0.35) * clamp(plan.feet / 200, 0.3, 1);
+  const feet = (2 + 0.8 * disc.speed) * flip * (ROLL[surface] ?? 0.35) * clamp(plan.feet / 200, 0.3, 1) * (hole.weather?.rain ? 1.7 : 1); // wet grass: a disc skids on
   const pts = [];
   let p = { ...from };
   let walked = 0;
@@ -371,6 +384,15 @@ export function resolveThrow(hole, disc, settings, aimDeg, ex, from) {
   const lo = { x: Math.min(...all.map((p) => p.x)) - 10, y: Math.min(...all.map((p) => p.y)) - 10 };
   const hi = { x: Math.max(...all.map((p) => p.x)) + 10, y: Math.max(...all.map((p) => p.y)) + 10 };
   const trees = treesIn(hole, lo, hi).filter((tr) => tr !== skip && distance(from, tr) >= tr.r + CLEAR_OF && tr.x >= lo.x && tr.x <= hi.x && tr.y >= lo.y && tr.y <= hi.y);
+  // a mando (on the days there is one): a first throw has to go on the right side of the post, or it is a stroke and a re-throw
+  let mandoHit = null;
+  const md = hole.mando;
+  if (md && routePosition(hole, from.x, from.y).s < md.s - 4) {
+    for (let i = 1; i < all.length && !mandoHit; i++) {
+      const u = rayCross(all[i - 1], all[i], md);
+      if (u !== null) mandoHit = { i, u, at: i + u };
+    }
+  }
   let hit = null;
   let basket = null;
   for (let i = 1; i < all.length; i++) {
@@ -394,6 +416,11 @@ export function resolveThrow(hole, disc, settings, aimDeg, ex, from) {
     const p = { x: a.x + (b.x - a.x) * g.u, y: a.y + (b.y - a.y) * g.u };
     return { pts: [...all.slice(0, g.i), { ...p, h: a.h + (b.h - a.h) * g.u, z: a.z + (b.z - a.z) * g.u, s: a.s + (b.s - a.s) * g.u }], p };
   };
+
+  if (mandoHit && (!hit || mandoHit.at < hit.at) && (!basket || mandoHit.at < basket.at)) {
+    const { pts, p } = cut(mandoHit);
+    return penalty(plan, pts, 'mando', p, from, { at: p });
+  }
 
   if (basket && (!hit || basket.at < hit.at)) {
     const { pts, p } = cut(basket);
@@ -503,6 +530,8 @@ export function sanitizeSwipe(raw) {
 
 /* The lay of the land at the basket. `rise` is how many feet the basket is above you (negative: below). Uphill a putt is easier (the
    disc comes in on a climb and stays in the basket) and needs more push; downhill it is harder, needs less push, and runs away more. */
+// wet grass is slicker: the target is a little smaller
+export const puttGrip = (hole) => (hole.weather?.rain ? 0.92 : 1);
 export const riseTo = (hole, lie) => elevAt(hole, hole.basket.x, hole.basket.y) - elevAt(hole, lie.x, lie.y);
 // how hard the putt is, as a distance: the real one, a little shorter uphill and longer downhill
 export function puttDist(hole, lie) {
@@ -523,7 +552,7 @@ export function resolvePutt(hole, lie, disc, shot, roll = 1, swipe = null) {
   const rise = riseTo(hole, lie);
   const dd = puttDist(hole, lie); // how hard it is: the hill counts
   let v = typeof shot === 'number' ? { x: shot, y: 0 } : { x: Number(shot?.x) || 0, y: Number(shot?.y) || 0 };
-  const radius = puttRadius(dd, disc);
+  const radius = puttRadius(dd, disc) * puttGrip(hole);
   const zone = puttZone(dd, disc);
   let why = null;
   if (swipe && dist > GIMME) {
@@ -543,7 +572,7 @@ export function resolvePutt(hole, lie, disc, shot, roll = 1, swipe = null) {
   }
   // a miss: a few feet from the basket, on the side the dot was: across is left or right, up is long, down is short
   const rim = off <= radius * 1.45; // just outside the target: it hits the cage and spits out
-  const nasty = roll < nastyChance(dd, disc, rim) + (why === 'strong' ? 0.22 : 0) + clamp(-rise * 0.012, 0, 0.1); // downhill, a miss runs away more // a putt hit too hard runs away more
+  const nasty = roll < nastyChance(dd, disc, rim) + (why === 'strong' ? 0.22 : 0) + clamp(-rise * 0.012, 0, 0.1) + (hole.weather?.rain ? 0.05 : 0); // downhill, or in the rain, a miss runs away more // a putt hit too hard runs away more
   let miss = clamp(2.5 + off * 10, 3, 14);
   if (nasty) miss = clamp((miss * 2.4 + 6) * (rise < -1 ? 1 + Math.min(0.5, -rise * 0.05) : 1), 14, 56); // and then it runs, farther downhill
   const hv = headingVec(headingTo(lie, hole.basket));

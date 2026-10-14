@@ -285,7 +285,7 @@ export function routeAhead(hole, x, y, feet) {
  *   creeks: { s, w, gap }  water straight across, with an optional dry ford [o0, o1]           oob: { s0, s1, o0, o1 }
  */
 function build(spec) {
-  const { id, name, note, par, path, wind, woods = [], trees: explicit = [], shrubs = [], groves = [], walls = [], rows = [], ponds = [], creeks = [], oob = [], backstop = true, teeWall = true, forest = true, front = 0, padBottom = 60, seed = id * 131, ground = GROUNDS[id] || {} } = spec;
+  const { id, name, note, par, path, wind, woods = [], trees: explicit = [], shrubs = [], groves = [], walls = [], rows = [], ponds = [], creeks = [], oob = [], backstop = true, teeWall = true, forest = true, front = 0, padBottom = 60, seed = id * 131, ground = GROUNDS[id] || {}, mando = null } = spec;
   const rnd = seeded(seed);
   const line = smooth(path);
   const route = { pts: line, s: [0] };
@@ -462,7 +462,13 @@ function build(spec) {
   // no trees growing in a pond, in out of bounds, or on the tee or basket
   const dry = trees.filter((t) => !water.some((w) => pointInPoly(w, t.x, t.y)) && !zones.some((w) => pointInPoly(w, t.x, t.y)) && Math.hypot(t.x, t.y) > t.r + 10 && Math.hypot(t.x - basket.x, t.y - basket.y) > t.r + 8);
   const terrain = { rise: ground.rise, bowl: ground.bowl, shelves: ground.shelves, water: hints, mounds: (ground.mounds || []).map((m) => { const f = frame(m.s, m.o); return { x: f.x, y: f.y, r: m.r, h: m.h }; }) };
-  return makeHole({ id, name, note, par, fairway: line, basket, wind, water, oob: zones, trees: dry, bounds, terrain });
+  // a mando: a post you must pass on one side of (side +1: the ray goes right of the post, so you may not pass on its right). It only counts on days a seed asks.
+  let mandoSpec;
+  if (mando) {
+    const f = frame(mando.s, mando.o);
+    mandoSpec = { x: r1(f.x), y: r1(f.y), dx: Math.round(f.ty * mando.side * 1000) / 1000, dy: Math.round(-f.tx * mando.side * 1000) / 1000, len: mando.len || 140, s: mando.s, side: mando.side };
+  }
+  return makeHole({ id, name, note, par, fairway: line, basket, wind, water, oob: zones, trees: dry, bounds, terrain, mandoSpec });
 }
 
 /* ---------- the ground of each hole ---------- */
@@ -503,11 +509,12 @@ const HOLE_SPECS = [
   // 3: a dogleg left: the inside of the corner is low shrubs you can cut over, the outside is wall to wall pine
   { id: 3, note: "A dogleg left. Follow the fairway round, or fly the shrubs on the inside of the corner.", name: 'Left Bender', par: 4, path: trail(0, 32, [[200, 0, 30], [220, -62, 24]]), wind: { mph: 7, from: 90 },
     woods: [{ side: 1, dense: 0.9, rows: 2, to: 330 }, { side: -1, dense: 0.75, from: 26, to: 150 }, { side: -1, dense: 0.7, from: 270 }],
-    shrubs: [[188, -30], [198, -34], [208, -29], [218, -36], [204, -44]], trees: [[236, -18, 4.6, 66]] },
+    shrubs: [[188, -30], [198, -34], [208, -29], [218, -36], [204, -44]], trees: [[236, -18, 4.6, 66]],
+    mando: { s: 196, o: -33, side: -1 } }, // some days, no flying the shrubs: the post is on the inside of the corner
   // 4: a long S, a creek across the middle with one dry ford on the right
   { id: 4, note: "A long S with a creek across it. The only dry crossing is the ford on the right.", name: 'Ford Crossing', par: 5, path: trail(0, 38, [[160, 0, 38], [170, 28, 34], [150, -50, 34], [130, 22, 30]]), wind: { mph: 8, from: 310 },
     woods: [{ side: -1, dense: 0.5 }, { side: 1, dense: 0.5 }], creeks: [{ s: 300, w: 24, gap: [8, 30] }],
-    trees: [[110, 14, 4.4, 60], [420, -12, 4.2, 58]], groves: [{ s: 360, o: 40, n: 4, spread: 14 }] },
+    trees: [[110, 14, 4.4, 60], [420, -12, 4.2, 58]], groves: [{ s: 360, o: 40, n: 4, spread: 14 }], mando: { s: 168, o: 38, side: 1 } },
   // 5: a pond between you and the basket: carry it, or play the long way round the right
   { id: 5, note: "The pond is in front of the basket. Carry it, or bend the throw out round the right.", name: 'Water Carry', par: 3, path: trail(-20, 28, [[115, 0, 28], [135, 38, 24]]), wind: { mph: 9, from: 250 },
     woods: [{ side: -1, dense: 0.4 }, { side: 1, dense: 0.4 }], ponds: [{ s: 170, o: -30, rx: 48, ry: 46 }], front: 2 },
@@ -538,7 +545,7 @@ const HOLE_SPECS = [
   // 12: a dogleg right with the pond on the inside of the corner: bite it off or play the safe line out left
   { id: 12, note: "A dogleg right with the pond on the inside of the corner. Bite it off, or play out left.", name: 'Right Hook', par: 4, path: trail(0, 34, [[210, 0, 32], [210, 64, 26]]), wind: { mph: 8, from: 280 },
     woods: [{ side: -1, dense: 0.85, rows: 2 }, { side: 1, dense: 0.6, from: 26, to: 150 }, { side: 1, dense: 0.8, from: 300 }],
-    ponds: [{ s: 222, o: 56, rx: 46, ry: 44 }], trees: [[250, -14, 4.6, 64]] },
+    ponds: [{ s: 222, o: 56, rx: 46, ry: 44 }], trees: [[250, -14, 4.6, 64]], mando: { s: 214, o: 34, side: 1 } },
   // 13: ponds all down the hole: pick the dry lane
   { id: 13, note: "Ponds all down the hole. Pick the dry lane and commit.", name: 'Archipelago', par: 3, path: trail(15, 40, [[140, 6, 38], [145, -6, 36]]), wind: { mph: 10, from: 330 },
     woods: [{ side: -1, dense: 0.3 }, { side: 1, dense: 0.3 }],

@@ -176,6 +176,26 @@ that way; don't introduce React/Vite/Tailwind here.
     `cam3d.js`) farthest first, with blocks of 2 and 4 cells at a distance, so a hill hides what is behind it. Colours per cell (`groundCells`)
     include the slope's light, a mown stripe and noise; close up there are patches (`mottle`), tufts and flowers (`drawGrass`), all
     from a hash of the cell so nothing flickers. Everything that stands on the ground (trees, basket, disc, trail, camera) is placed at `groundAt`.
+- **Marebear** is a big, loud older woman (leopard print, lavender bouffant, a great deal of make-up), drawn in `marebear.js`; she is not a bear.
+  When she has something to say about a throw (`say(text, mood)` in `game.js`) she **pops up from the bottom of the screen** like the dog
+  in Duck Hunt: she cackles at a bad throw (`laugh`), sulks with her arms crossed at a good one (`grudge`), smirks at a middling one
+  (`sly`), with her words in a balloon (`popUp`/`drawPop`; on a phone she comes up from behind the controls). At a triple bogey she waddles
+  on, takes a disc into her handbag and cackles (`drawBearScene`); internally those discs are still `eaten`. Keep her cheeky, never cruel.
+- **Sound** (`sound.js`): all synthesized with Web Audio, no files: throw, land, skip, thunk, splash, chains, clank, womp, fanfare, her cackle,
+  rain. A chip over the hole turns it off (`dj_sound`). Nothing plays before the first touch; every sound call is a no-op without audio.
+- **Conditions** (`conditions.js`, pure): a seed gives each hole a day: wind (shifted from the hole's own), rain (1 day in 5: discs skid
+  1.7x farther, putts have a 8% smaller target and run away more), dusk (the last 40% of a round of 9 or 18), a pin (A as built, or B/C a
+  few feet short and left/right, checked to be grass, clear of water and trees, and level) and, on holes with a `mandoSpec`
+  (holes 3, 4 and 12), a mando. `applyVariant(hole, v)` returns `Object.create(hole, ...)`, so the day's hole shares the land and trees with the real
+  one but has its own `wind`, `basket`, `weather` and `mando`. **Never spread (`{...hole}`) a hole**: that drops `field`. Solo rounds get a random seed
+  (a menu checkbox, `dj_cond`, asks for the classic course); a **match has a `seed`** (made by the server at create; the server and every page
+  derive the same day with `holeFor(m, id)` / `matchHole`; a match with no seed is classic, so older matches go on as they were).
+  A **mando** is a post with a ray on its forbidden side: a first throw (from before the post) that crosses the ray is `kind: 'mando'`: a
+  penalty stroke and a re-throw (`resolveThrow`, like out of bounds). The test bot plays every hole on rain, gale, pin and mando days.
+- **Quick start**: "Quick warm-up" is three holes (`WARMUP` in `course.js`: 1, 2, 5); "Play a friend now" signs in if need be, makes a 9-hole match
+  and opens the share sheet (or copies the link).
+- **Slow motion**: an ace (drive) or a long putt going in is slowed (flight 1.5x, the putt's film 1.4x) with letterbox bars (`drawCine`); a landing
+  skips (`hopH`, visual only).
 - **Marebear heckles** (`public/js/trash.js`): the game talking, not a chat. `eventFor` turns a throw into an event (shank,
   splash, tree, grip lock, ace...), `remark`/`holeRemark`/`matchRemark` pick a line; she never repeats the last one. The
   owner's own lines live in `public/data/heckles.json` (from their Heckles.csv; categories Birdie, Par, Bogey, Double Bogey,
@@ -231,7 +251,7 @@ that way; don't introduce React/Vite/Tailwind here.
   the server rolls them in a match; into water it costs a stroke). `puttScript` turns that into a film (where the disc is every
   millisecond, with marks for the drop, the rim lap, the spit and the roll) and `drawPuttFx` draws the reaction: CHAINS! with
   rings and confetti, a cold-washed RIMMED OUT, NASTY ROLL with the camera following the disc.
-- Modules import each other with `?v=N` (now `course.js` 10, `gamecore.js` 21, `cam3d.js` 12, `puttfx.js` 8, `ground.js` 2, `sound.js` 1, `marebear.js` 1, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
+- Modules import each other with `?v=N` (now `course.js` 10, `gamecore.js` 22, `cam3d.js` 14, `puttfx.js` 10, `ground.js` 3, `sound.js` 2, `marebear.js` 1, `conditions.js` 1, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 
 ## Deploy

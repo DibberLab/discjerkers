@@ -5,13 +5,14 @@
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=10';
-import * as G from './gamecore.js?v=21';
-import * as T from './trash.js?v=4';
-import * as C3 from './cam3d.js?v=12';
-import * as PF from './puttfx.js?v=8';
-import * as GR from './ground.js?v=2';
-import * as SND from './sound.js?v=1';
+import * as G from './gamecore.js?v=22';
+import * as T from './trash.js?v=5';
+import * as C3 from './cam3d.js?v=14';
+import * as PF from './puttfx.js?v=10';
+import * as GR from './ground.js?v=3';
+import * as SND from './sound.js?v=2';
 import * as MB from './marebear.js?v=1';
+import * as K from './conditions.js?v=1';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -157,6 +158,7 @@ function suggest() {
 
 // a new hole: a fresh round of it, with the discs Marebear has already pocketed staying gone
 function startHole() {
+  S.hole = holeNow(S.course.holes[S.course.idx]); // the day's conditions on this hole
   S.quip = '';
   S.round = G.newRound(S.hole);
   S.round.eaten = [...(S.course?.eaten || [])];
@@ -176,11 +178,28 @@ function startHole() {
   if (S.course.holes.length > 1) toast(`Hole ${S.hole.id}: ${S.hole.name}`, '', 1700);
 }
 
+/* ----- conditions: the day's wind, rain, light, pin and mando (conditions.js) come from a seed ----- */
+
+// "Varied conditions" is on unless the player has asked for the classic course (remembered)
+const condOn = () => { try { return localStorage.getItem('dj_cond') !== 'classic'; } catch { return true; } };
+const newSeed = () => Math.floor(Math.random() * 2e9) + 1;
+// the hole as this round plays it (the base hole, if it is the classic course)
+const holeNow = (base) => (S.course?.seed ? K.holeOn(S.course.seed, base, { idx: S.course.idx, n: S.course.holes.length }) : base);
+const matchDays = new Map();
+function matchHole(id, view = S.mp?.view) {
+  const base = holeById(id);
+  if (!view || view.seed === undefined || view.seed === null) return base;
+  const key = `${view.seed}:${id}:${view.holeIdx}:${view.holes}`;
+  if (!matchDays.has(key)) { if (matchDays.size > 60) matchDays.clear(); matchDays.set(key, K.holeOn(view.seed, base, { idx: view.holeIdx, n: view.holes })); }
+  return matchDays.get(key);
+}
+const tagBit = (h) => { const t = K.tags(h.variant); return t.length ? ` · ${t.join(' · ')}` : ''; };
+
 // a round: one practice hole, the front nine, or all eighteen
 function startSolo(length, practiceId) {
   const holes = length === 1 ? [holeById(practiceId) || HOLES[0]] : holesFor(length);
   S.mode = 'solo';
-  S.course = { length, holes, idx: 0, card: [], eaten: [] };
+  S.course = { length, holes, idx: 0, card: [], eaten: [], seed: condOn() ? newSeed() : null };
   S.hole = holes[0];
   startHole();
 }
@@ -222,7 +241,7 @@ function pickInfo(d, plan, putting) { // plan: { wind }
   const brand = DATA.brands[d.b].n;
   const nums = `${d.speed} / ${d.glide} / ${d.turn > 0 ? `+${d.turn}` : d.turn} / ${d.fade}`;
   const out = putting
-    ? `${Math.round(G.puttRadius(puttDd(), d) * 100)}%<small>target size</small>`
+    ? `${Math.round(G.puttRadius(puttDd(), d) * G.puttGrip(S.hole) * 100)}%<small>target size</small>`
     : plan.wind.mph ? `${Math.round(plan.wind.mph)} mph<small>${plan.wind.head > 1 ? 'headwind' : plan.wind.head < -1 ? 'tailwind' : 'crosswind'}</small>` : 'Calm<small>no wind</small>';
   return `<div class="gm-pick"><b>${esc(d.name)}</b><output>${out}</output><small>${esc(brand)} · ${nums}</small></div>`;
 }
@@ -294,7 +313,7 @@ function updateBubble() {
   let html = '';
   let key = '';
   if (isPhone() && !isMeter() && S.round) {
-    if (S.phase === 'pick' && S.round.strokes === 0 && S.hole.note) { key = `c${S.hole.id}`; html = `<b>${esc(S.hole.name)}.</b> ${esc(S.hole.note)}`; }
+    if (S.phase === 'pick' && S.round.strokes === 0 && S.hole.note) { key = `c${S.hole.id}`; html = `<b>${esc(S.hole.name)}.</b> ${esc(S.hole.note)}${K.briefing(S.hole.variant, S.hole) ? ` <b>Today:</b> ${esc(K.briefing(S.hole.variant, S.hole))}` : ''}`; }
     else if (S.quip) { key = `q${S.quip}`; html = `“${esc(S.quip)}”<small>Marebear${S.quipTo ? ` to ${esc(S.quipTo)}` : ''}</small>`; }
   }
   if (key === S.bubbleKey) return;
@@ -344,7 +363,7 @@ function panelPick() {
   const plan = { wind: G.windFor(S.hole, heading()) };
   const dist = toBasket();
   const strokes = S.round.strokes;
-  const caddy = S.round.strokes === 0 && S.hole.note ? `<p class="gm-caddy"><b>${esc(S.hole.name)}.</b> ${esc(S.hole.note)}</p>` : '';
+  const caddy = S.round.strokes === 0 && S.hole.note ? `<p class="gm-caddy"><b>${esc(S.hole.name)}.</b> ${esc(S.hole.note)}${K.briefing(S.hole.variant, S.hole) ? ` <b>Today:</b> ${esc(K.briefing(S.hole.variant, S.hole))}` : ''}</p>` : '';
   return `${roundBar()}${caddy || quipHtml()}${S.mode === 'match' ? boardHtml() : tipHtml()}${bagBar()}
     <div class="gm-block">
       <p class="gm-h">Your disc <span>· ${available().length} left in the bag</span></p>
@@ -374,6 +393,7 @@ function panelMenu() {
         <button class="btn" type="button" data-solo="18">Full 18<small>par ${parTotal(HOLES)}</small></button>
       </div>
       <button class="btn btn--ghost" type="button" data-versus>Play with friends <small>up to 8 players, turn by turn</small></button>
+      <label class="gm-check"><input type="checkbox" data-cond${condOn() ? ' checked' : ''}> <span>Varied conditions: each round has its own wind, rain, pin positions, a mando here and there, and dusk on the last holes.</span></label>
       <div class="gm-row">
         <label class="gm-practice"><span class="fg-wind__l">Practice a hole</span><select data-practice aria-label="Which hole">${options}</select></label>
         <button class="chip" type="button" data-solo="1">Play it</button>
@@ -490,6 +510,7 @@ function resultCopy(r) {
   if (r.kind === 'water' || r.kind === 'oob') {
     return { h: r.kind === 'water' ? 'Splash!' : 'Out of bounds', tone: 'bad', p: 'That is a penalty stroke. You throw again from the same spot.' };
   }
+  if (r.kind === 'mando') return { h: 'Missed the mando', tone: 'bad', p: 'You went the wrong side of the red post. That is a penalty stroke, and you throw again from the same spot.' };
   if (r.kind === 'tree') return { h: 'Thunk!', tone: 'bad', p: `It hit a tree and kicked out beside it. ${ft(dist)} to the basket.` };
   if (r.made === false) return { h: 'Missed', tone: 'bad', p: `It rattled out and sits ${ft(dist)} from the basket.` };
   return { h: surfaceName(r.surface), tone: r.surface === 'rough' ? 'bad' : 'good', p: `${ft(dist)} to the basket.` };
@@ -527,7 +548,7 @@ function panelDone() {
   const next = c.holes[c.idx + 1];
   const log = r.throws.map((t, i) => {
     const d = DISCS.get(t.disc);
-    return `<li><b>${i + 1}</b> · ${esc(splitName(d.name))} · ${t.kind === 'basket' ? 'in the basket' : t.kind === 'water' || t.kind === 'oob' ? 'out of bounds (+1)' : t.kind === 'tree' ? 'hit a tree' : `${ft(t.feet)}`}</li>`;
+    return `<li><b>${i + 1}</b> · ${esc(splitName(d.name))} · ${t.kind === 'basket' ? 'in the basket' : t.kind === 'water' || t.kind === 'oob' ? 'out of bounds (+1)' : t.kind === 'mando' ? 'missed the mando (+1)' : t.kind === 'tree' ? 'hit a tree' : `${ft(t.feet)}`}</li>`;
   }).join('');
   const total = c.card.reduce((n, h) => n + h.score, 0);
   const par = c.card.reduce((n, h) => n + h.par, 0);
@@ -590,7 +611,7 @@ function updateHud() {
     const up = v.players.find((p) => p.uid === v.round.turn);
     const turn = v.status !== 'active' || !up ? '' : up.uid === S.mp.me ? 'Your throw' : `${esc(up.name)}'s throw`;
     const rivals = S.others.length === 1 ? ` · ${esc(S.others[0].name)} <b>${S.others[0].strokes}</b>` : '';
-    $('#gm-hud').innerHTML = `<span>Hole ${v.holeIdx + 1}/${v.holes} · ${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}</small><span>You <b>${r.strokes}</b>${rivals}</span><small>${turn}${turn ? ' · ' : ''}${ft(G.distance(r.lie, h.basket))} to the basket${slopeBit(h, r.lie)}</small>`;
+    $('#gm-hud').innerHTML = `<span>Hole ${v.holeIdx + 1}/${v.holes} · ${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}${tagBit(h)}</small><span>You <b>${r.strokes}</b>${rivals}</span><small>${turn}${turn ? ' · ' : ''}${ft(G.distance(r.lie, h.basket))} to the basket${slopeBit(h, r.lie)}</small>`;
   } else if (!c && S.phase === 'menu' && h.id !== HOLES[0].id) { // the menu is previewing the hole picked for practice
     $('#gm-hud').innerHTML = `<span>${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}</small>`;
   } else if (!c) {
@@ -598,7 +619,7 @@ function updateHud() {
   } else {
     const total = c.card.reduce((n, x) => n + x.score, 0);
     const par = c.card.reduce((n, x) => n + x.par, 0);
-    $('#gm-hud').innerHTML = `<span>${c.length > 1 ? `Hole ${c.idx + 1}/${c.holes.length} · ` : ''}${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}</small><span>Strokes <b>${r.strokes}</b>${c.length > 1 && c.card.length ? ` · Round ${vsPar(total - par)}` : ''}</span><small>${ft(G.distance(r.lie, h.basket))} to the basket${slopeBit(h, r.lie)}</small>`;
+    $('#gm-hud').innerHTML = `<span>${c.length > 1 ? `Hole ${c.idx + 1}/${c.holes.length} · ` : ''}${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}${tagBit(h)}</small><span>Strokes <b>${r.strokes}</b>${c.length > 1 && c.card.length ? ` · Round ${vsPar(total - par)}` : ''}</span><small>${ft(G.distance(r.lie, h.basket))} to the basket${slopeBit(h, r.lie)}</small>`;
   }
   const from = COMPASS[Math.round(h.wind.from / 45) % 8];
   $('#gm-wind').innerHTML = h.wind.mph
@@ -620,7 +641,7 @@ function startMeter() {
   const d = curDisc();
   if (!d) return;
   if (inPutt()) {
-    S.meter = { kind: 'putt', start: now(), radius: G.puttRadius(puttDd(), d), speed: G.puttSpeed(puttDd()), params: G.makePuttSeed(Math.random) };
+    S.meter = { kind: 'putt', start: now(), radius: G.puttRadius(puttDd(), d) * G.puttGrip(S.hole), speed: G.puttSpeed(puttDd()), params: G.makePuttSeed(Math.random) };
     setPhase('putt');
   } else {
     // four taps: power, nose and angle each choose a value of the throw, then the release is graded
@@ -998,6 +1019,7 @@ function landSounds(result, ev) {
   if (S.last?.sfx) return;
   if (result.kind === 'tree') SND.play('thunk');
   else if (result.kind === 'water' || result.kind === 'oob') SND.play('splash');
+  else if (result.kind === 'mando') SND.play('womp');
   else if (result.kind === 'basket') { SND.play('chains'); if (!result.gimme) setTimeout(() => SND.play('fanfare'), 350); }
   else { SND.play('land'); if ((result.roll || []).length >= 3) setTimeout(() => SND.play('skip'), 90); }
   if (ev === 'pure') setTimeout(() => SND.play('ding'), 200);
@@ -1365,6 +1387,48 @@ function drawTrees() {
   }
 }
 
+// a mando on the map: a red post, the line you may not cross dashed out from it, and an arrow for the way round
+function drawMandoMap() {
+  const m = S.hole.mando;
+  if (!m) return;
+  const [px, py] = P(m.x, m.y);
+  const [ex, ey] = P(m.x + m.dx * m.len, m.y + m.dy * m.len);
+  ctx.save();
+  ctx.setLineDash([9, 7]);
+  ctx.strokeStyle = 'rgba(255,90,70,0.75)';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(px, py);
+  ctx.lineTo(ex, ey);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#d6342a';
+  ctx.strokeStyle = '#f4f1e6';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(px, py, Math.max(5, 2.2 * cam.s), 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  // the way round: away from the dashed line (world y runs up the screen, so it is flipped)
+  const tipX = px - m.dx * 28;
+  const tipY = py + m.dy * 28;
+  ctx.strokeStyle = '#f4f1e6';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(px, py);
+  ctx.lineTo(tipX, tipY);
+  const a0 = Math.atan2(tipY - py, tipX - px);
+  ctx.lineTo(tipX - Math.cos(a0 - 0.5) * 9, tipY - Math.sin(a0 - 0.5) * 9);
+  ctx.moveTo(tipX, tipY);
+  ctx.lineTo(tipX - Math.cos(a0 + 0.5) * 9, tipY - Math.sin(a0 + 0.5) * 9);
+  ctx.stroke();
+  ctx.restore();
+  ctx.fillStyle = '#f4f1e6';
+  ctx.font = '700 10px "Space Mono", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('MANDO', px, py - Math.max(10, 3.4 * cam.s));
+}
+
 function drawBasket() {
   const [x, y] = P(S.hole.basket.x, S.hole.basket.y);
   const r = Math.max(5, 2.6 * cam.s);
@@ -1690,6 +1754,43 @@ function drawPop(t) {
   ctx.restore();
 }
 
+const rainSound = (v) => SND.rain(v);
+// the day's weather over the whole picture: rain, and the dusk of the last holes
+function drawWeather(t) {
+  const w = S.round && S.mode !== 'menu' ? S.hole.weather : null;
+  rainSound(!!w?.rain);
+  if (!w) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (w.dusk > 0) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = `rgb(${Math.round(255 - 105 * w.dusk)},${Math.round(255 - 140 * w.dusk)},${Math.round(255 - 75 * w.dusk)})`;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+    const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.75);
+    g.addColorStop(0, 'rgba(8,4,24,0)');
+    g.addColorStop(1, `rgba(8,4,24,${0.5 * w.dusk})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+  if (w.rain) {
+    ctx.fillStyle = 'rgba(60,85,120,0.16)';
+    ctx.fillRect(0, 0, W, H);
+    const slant = clamp((S.hole.wind?.mph || 0) * 0.9, 2, 16) * (Math.sin(((S.hole.wind?.from || 0) * Math.PI) / 180) > 0 ? -1 : 1);
+    ctx.strokeStyle = 'rgba(200,220,240,0.38)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    for (let i = 0; i < 120; i++) {
+      const sp = 0.7 + ((i * 37) % 10) / 14;
+      const x = (((i * 97.3) % W) + (t * 0.02 * slant)) % W;
+      const y = (((i * 61.7) % H) + t * 0.55 * sp) % H;
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + slant * 0.9, y + 16 * sp);
+    }
+    ctx.stroke();
+  }
+}
+
 function drawFlight(t) {
   const a = S.anim;
   if (!a) return;
@@ -1775,7 +1876,7 @@ function drawPutt3D(t) {
   const view = C3.viewOf(W, H, c, S.dockV);
   const baseFov = 64 * (Math.PI / 180);
   c.fov += ((baseFov + (S.pfov || 0)) - c.fov) * (1 - Math.exp(-dt * 6));
-  C3.drawScene(ctx, { hole: S.hole, cam: c, view, disc, trail, dz: 1, chain, color: (a ? discLook(S.last.disc.id, S.last.who) : discLook(curDisc()?.id ?? S.last?.disc.id, 'me')).color, t });
+  C3.drawScene(ctx, { hole: S.hole, cam: c, view, disc, trail, dz: 1, chain, dusk: S.hole.weather?.dusk || 0, color: (a ? discLook(S.last.disc.id, S.last.who) : discLook(curDisc()?.id ?? S.last?.disc.id, 'me')).color, t });
   S.pfov = sc ? PF.drawPuttFx(ctx, { cam: c, view, hole: S.hole, W, H }, sc, ms, a.result).fov : 0;
   if (sc) { if (ms >= sc.total + sc.tail) finishThrow(); } else if (a && t - a.t0 >= a.dur + 250) finishThrow();
 }
@@ -1805,7 +1906,7 @@ function draw3D(t) {
   const kind = a.result.kind;
   const landed = Math.max(0, (t - a.t0 - a.dur) / 700);
   C3.drawScene(ctx, {
-    hole: S.hole, cam: a.cam, view: C3.viewOf(W, H, a.cam, S.dock), disc, trail,
+    hole: S.hole, cam: a.cam, view: C3.viewOf(W, H, a.cam, S.dock), disc, trail, dusk: S.hole.weather?.dusk || 0,
     color: discLook(S.last.disc.id, S.last.who).color, t,
     splash: (kind === 'water' || kind === 'oob') && p >= 1 ? { at: a.pts.at(-1), age: landed } : null,
     shake: kind === 'tree' && p >= 0.97 && landed < 0.6 ? 7 * (1 - landed / 0.6) : 0,
@@ -1820,6 +1921,7 @@ function draw3D(t) {
 
 function draw(t) {
   drawWorld(t);
+  drawWeather(t);
   drawCine(t);
   drawPop(t);
   if (S.phase === 'swipe') drawSwipeGuide();
@@ -1841,6 +1943,7 @@ function drawWorld(t) {
   drawCourse(t);
   drawTrail();
   drawTrees();
+  drawMandoMap();
   drawBasket();
   drawPreview();
   drawOpp(t);
@@ -2059,7 +2162,6 @@ function onPanelClick(e) {
     startSolo(length, length === 1 ? Number($('[data-practice]', panel())?.value) || 1 : undefined);
   } else if (t.closest('[data-next-hole]')) {
     S.course.idx += 1;
-    S.hole = S.course.holes[S.course.idx];
     startHole();
   } else if (t.closest('[data-summary]')) {
     finishCourse();
@@ -2085,6 +2187,7 @@ function onPanelChange(e) {
   if (rangeEvent(e)) return;
   if (e.target.matches('[data-bag]')) setActive(e.target.value);
   else if (e.target.matches('[data-practice]') && S.phase === 'menu') previewHole(Number(e.target.value));
+  else if (e.target.matches('[data-cond]')) { try { localStorage.setItem('dj_cond', e.target.checked ? 'varied' : 'classic'); } catch { /* not saved */ } }
 }
 
 // the menu shows whichever hole is picked for practice
@@ -2333,7 +2436,7 @@ function applyView(view) {
   mp.view = view;
   const me = mp.me;
   if (view.round) {
-    S.hole = holeById(view.round.holeId);
+    S.hole = matchHole(view.round.holeId, view);
     const r = view.round.rounds[me] || { lie: { ...S.hole.tee }, strokes: 0, throws: [], eaten: [], bearCame: false, done: true, holed: false }; // someone who left has no place on this hole
     S.round = { hole: S.hole, lie: { ...r.lie }, strokes: r.strokes, throws: r.throws, eaten: [...r.eaten], bearCame: r.bearCame, done: r.done, holed: r.holed };
     const path = (tr) => tr.map((t) => ({ pts: t.pts.map(([x, y]) => ({ x, y })), kind: t.kind, n: t.n }));
@@ -2402,7 +2505,7 @@ function startMoveAnim(view, last, who) {
   mp.shownSeq = last.seq;
   mp.view = view;
   const disc = DISCS.get(last.discId);
-  const hole = holeById(last.holeId);
+  const hole = matchHole(last.holeId, view);
   S.hole = hole;
   const to = last.made ? hole.basket : last.lie;
   const pts = last.putt

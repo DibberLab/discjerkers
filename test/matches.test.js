@@ -24,7 +24,7 @@ const gameplay = () => (gpPromise ||= loadGameplay());
 // a player who can get round a hole: the best landing from a coarse search, then a putt
 function plan(gp, view, uid) {
   const { G } = gp;
-  const hole = gp.hole(view.round.holeId);
+  const hole = gp.holeFor({ seed: view.seed, holeIdx: view.holeIdx, holes: view.holes }, view.round.holeId);
   const me = view.round.rounds[uid];
   const player = view.players.find((p) => p.uid === uid);
   const have = player.discs.map((d) => gp.discs.get(d.id)).filter((d) => !me.eaten.includes(d.id));
@@ -522,7 +522,7 @@ test('you can aim any way at all, including straight back', async () => {
   const who = m.round.turn;
   const user = who === ANA.id ? ANA : BEN;
   const body = { ...plan(gp, store.view(m, who), who).body, aimOff: 180 };
-  const hole = gp.hole(m.round.holeId);
+  const hole = gp.holeFor(m, m.round.holeId);
   const toBasket = gp.G.headingTo(m.round.rounds[who].lie, hole.basket);
   const out = store.move(user, id, 'throw', body, gp);
   const from = out.last.from;
@@ -537,7 +537,7 @@ test('a putt in a match comes back with how it finished, so everyone watching se
   const m = store.get(id);
   const who = m.round.turn;
   const user = who === ANA.id ? ANA : BEN;
-  const hole = gp.hole(m.round.holeId);
+  const hole = gp.holeFor(m, m.round.holeId);
   m.round.rounds[who].lie = { x: hole.basket.x - 18, y: hole.basket.y - 10 }; // ~20 ft out
   const disc = m.players.find((p) => p.uid === who).discs[0].id;
   const out = store.move(user, id, 'putt', { discId: disc, x: 0.9, y: 0.4 }, gp); // well off center: a miss
@@ -551,7 +551,7 @@ test('a putt in a match comes back with how it finished, so everyone watching se
 test('a putt in a match takes the swipe: a true one lets the radar decide, a bad one is always a miss', async () => {
   const { gp, store, id } = await seated();
   begin(store, gp, id);
-  const hole = gp.hole(store.get(id).round.holeId);
+  const hole = gp.holeFor(store.get(id), store.get(id).round.holeId);
   const putt = (swipe) => {
     const m = store.get(id);
     const who = m.round.turn;
@@ -574,7 +574,7 @@ test('a putt in a match takes the swipe: a true one lets the radar decide, a bad
 test('a drive in a match takes the swipe: the server steers and slows the throw by it', async () => {
   const { gp, store, id } = await seated();
   begin(store, gp, id);
-  const hole = gp.hole(store.get(id).round.holeId);
+  const hole = gp.holeFor(store.get(id), store.get(id).round.holeId);
   const m = store.get(id);
   const who = m.round.turn;
   const user = who === ANA.id ? ANA : BEN;
@@ -594,3 +594,21 @@ test('a drive in a match takes the swipe: the server steers and slows the throw 
   }
 });
 const G_distanceOk = (gp, m, uid, hole) => gp.G.distance(m.round.rounds[uid].lie, hole.basket) > gp.G.PUTT_RANGE;
+
+test('a match has a seed, and the server plays every hole on that seed\'s day: the same wind and the same pin the pages will show', async () => {
+  const { gp, store, id } = await seated();
+  begin(store, gp, id);
+  const m = store.get(id);
+  assert.ok(Number.isInteger(m.seed) && m.seed > 0, 'made at create');
+  assert.strictEqual(store.view(m, ANA.id).seed, m.seed);
+  assert.strictEqual(store.view(m, BEN.id).seed, m.seed, 'everyone sees the same seed');
+  const day = gp.holeFor(m, m.round.holeId);
+  const again = gp.holeFor(m, m.round.holeId);
+  assert.strictEqual(day, again, 'the day is worked out once');
+  const v = gp.G.variantFor(m.seed, gp.hole(m.round.holeId), { idx: m.holeIdx, n: m.holes });
+  assert.deepStrictEqual(day.wind, v.wind);
+  assert.strictEqual(day.variant.pin, v.pin);
+  // a match with no seed (one begun before this existed) is the classic hole
+  const old = { ...m, seed: undefined };
+  assert.strictEqual(gp.holeFor(old, old.round.holeId), gp.hole(old.round.holeId));
+});

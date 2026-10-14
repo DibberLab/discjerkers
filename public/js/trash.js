@@ -8,6 +8,7 @@ const MINE = {
   early: ['Early release. The disc left before you did.', 'You let go of that like it was hot. It was not.', 'Early release. The disc was in a hurry to get away from you.', 'That one slipped out. Maybe your arm needs a minute.'],
   shank: ['That was not a throw, that was a cry for help.', 'A shank! I have seen leaves with better aim.', 'Bold choice, letting go at that exact moment.', 'The disc did what it could with what you gave it.'],
   tree: ['Thunk. The tree did not even move.', 'That tree has been there for eighty years. You have been here for two minutes.', 'You and that tree are going to be great friends.', 'The tree says thanks for stopping by.', 'Trees do not move. I keep telling people.'],
+  mando: ['You missed the mando. The big red post. With the arrow on it.', 'That was the wrong side of the post, sweetheart. They put an arrow on it for you.', 'A mando is a rule, not a suggestion. One stroke, and do it again.'],
   water: ['Splash! The fish are thrilled.', 'You threw a perfectly good disc into a pond. I will remember this.', 'That disc is now a pond decoration.', 'The water was thirsty. Now it has a disc.', 'Did you think it could swim? It cannot.'],
   oob: ['Out of bounds. The boundary was right there. It was dashed. It was orange.', 'You found the part of the course where discs go to be forgotten.', 'Nobody told you there was an edge? There is an edge.'],
   rough: ['Rough. Like your day.', 'That is what the fairway looked like from far away.', 'The rough thanks you for visiting.'],
@@ -27,6 +28,7 @@ const THEIRS = {
   early: ['{name} released early. The disc left without them.', '{name} let go too soon, and the disc said goodbye.'],
   shank: ['{name} shanked it. Please clap, but quietly.', 'That is a shank from {name}. A glorious one.'],
   tree: ['{name} found a tree. They are old friends now.', 'Thunk. {name} lost to a tree.', '{name} hit a tree. The tree won.'],
+  mando: ['{name} missed the mando. There was a sign.', '{name} went the wrong side of the post. Rules are rules.'],
   water: ['{name} threw a disc into the water. A moment of silence.', 'Splash. {name} is feeding the fish.', '{name} went for a swim. The disc, not {name}.'],
   oob: ['{name} went out of bounds. The boundary is orange, {name}.', '{name} found out where the course ends.'],
   rim: ['{name} rimmed out. The basket said no.', '{name} was one inch from glory and could not be bothered.'],
@@ -95,6 +97,7 @@ export function eventFor({ kind, putt, made, gimme, ex, strokes, dist, surface, 
   if (ex?.slip === 'early') return 'early';
   if (kind === 'basket') return strokes === 1 ? 'ace' : 'chains';
   if (ex?.grade === 'Shank') return 'shank';
+  if (kind === 'mando') return 'mando';
   if (kind === 'tree') return 'tree';
   if (kind === 'water') return 'water';
   if (kind === 'oob') return 'oob';
@@ -107,7 +110,7 @@ export function eventFor({ kind, putt, made, gimme, ex, strokes, dist, surface, 
 // so she stays funny instead of constant.
 export function remark(event, { who = 'me', name = '' } = {}, rnd = Math.random, avoid = '') {
   if (!event) return { text: '', to: '' };
-  const chance = { grip: 1, early: 1, shank: 1, tree: 0.85, water: 1, oob: 1, nasty: 1, soft: 1, hard: 1, wide: 1, rim: 0.7, longMiss: 0.8, pure: 0.5, ace: 1, chains: 0.8, sunk: 1, rough: 0.2 }[event] ?? 0.5;
+  const chance = { mando: 1, grip: 1, early: 1, shank: 1, tree: 0.85, water: 1, oob: 1, nasty: 1, soft: 1, hard: 1, wide: 1, rim: 0.7, longMiss: 0.8, pure: 0.5, ace: 1, chains: 0.8, sunk: 1, rough: 0.2 }[event] ?? 0.5;
   const own = CSV[THROW_KEY[event]];
   if (own && own.length) {
     if (rnd() > chance) return { text: '', to: '' };

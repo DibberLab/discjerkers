@@ -168,7 +168,7 @@ export function mapLayer(hole) {
       const gy = (fieldAt(f, x, y + d) - fieldAt(f, x, y - d)) / (2 * d);
       const l = lightOf(gx, gy) - 1;
       const o = (py * sw + px) * 4;
-      if (l >= 0) { img.data[o] = 255; img.data[o + 1] = 250; img.data[o + 2] = 205; img.data[o + 3] = Math.min(120, l * 330); } else { img.data[o] = 3; img.data[o + 1] = 10; img.data[o + 2] = 6; img.data[o + 3] = Math.min(150, -l * 400); }
+      if (l >= 0) { img.data[o] = 255; img.data[o + 1] = 250; img.data[o + 2] = 205; img.data[o + 3] = Math.min(70, l * 230); } else { img.data[o] = 3; img.data[o + 1] = 10; img.data[o + 2] = 6; img.data[o + 3] = Math.min(130, -l * 360); }
     }
   }
   sx.putImageData(img, 0, 0);

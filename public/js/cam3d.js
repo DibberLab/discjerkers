@@ -5,7 +5,7 @@
    state: callers hand it a hole, a camera and a disc. */
 
 import { fieldAt } from './terrain.js?v=1';
-import { groundCells, PALETTE } from './ground.js?v=2';
+import { groundCells, PALETTE } from './ground.js?v=3';
 
 export const ZS = 0.72; // heights are drawn a little squashed: a real arc looks like a rocket when you ride it
 const NEAR = 1; // nothing nearer than this (feet) is drawn
@@ -351,15 +351,15 @@ function drawGround(ctx, cam, b, view, hole) {
   drawGrass(ctx, cam, b, view, hole);
 }
 
-function sky(ctx, cam, b, view) {
+function sky(ctx, cam, b, view, dusk = 0) {
   const { W, H } = view;
   // the horizon is where a far point straight ahead lands
   const far = project(cam, view, cam.x + b.fwd[0] * 6000, cam.y + b.fwd[1] * 6000, cam.z);
   const hy = far ? far.y : view.cy - Math.tan(cam.pitch) * view.focal;
   const g = ctx.createLinearGradient(0, hy - H * 0.9, 0, hy);
-  g.addColorStop(0, '#09131c');
-  g.addColorStop(0.6, '#1b3a46');
-  g.addColorStop(1, '#6f9a8a');
+  g.addColorStop(0, dusk ? mixTo(hex('#09131c'), hex('#1c1036'), dusk) : '#09131c');
+  g.addColorStop(0.6, dusk ? mixTo(hex('#1b3a46'), hex('#7a3b5e'), dusk) : '#1b3a46');
+  g.addColorStop(1, dusk ? mixTo(hex('#6f9a8a'), hex('#f0985a'), dusk) : '#6f9a8a');
   ctx.fillStyle = g;
   ctx.fillRect(-W, -H, W * 3, H * 3);
   return hy;
@@ -420,6 +420,72 @@ function drawTree(ctx, cam, b, view, t) {
   const turning = autumn(t);
   blob(turning ? '#a85a17' : '#2b7a37', sx, base.y - th * 0.66 * s, rx, th * 0.36 * s);
   blob(turning ? '#d98a2b' : '#3f9b4b', sx - rx * 0.22, base.y - th * 0.74 * s, rx * 0.65, th * 0.24 * s);
+}
+
+// A mando: a red and white post with a sign that points the way you must go round it, and a dashed line on the ground showing where
+// you may not pass. (The ray goes out from the post on the side that is forbidden.)
+function drawMandoLine(ctx, cam, view, hole) {
+  const m = hole.mando;
+  ctx.save();
+  ctx.setLineDash([10, 8]);
+  ctx.strokeStyle = 'rgba(255,90,70,0.65)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  let pen = false;
+  for (let d = 0; d <= m.len; d += 8) {
+    const x = m.x + m.dx * d;
+    const y = m.y + m.dy * d;
+    const q = project(cam, view, x, y, groundAt(hole, x, y) + 0.2);
+    if (!q) { pen = false; continue; }
+    if (pen) ctx.lineTo(q.x, q.y); else ctx.moveTo(q.x, q.y);
+    pen = true;
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+function drawMando(ctx, cam, b, view, hole) {
+  const m = hole.mando;
+  const zg = groundAt(hole, m.x, m.y);
+  const g = project(cam, view, m.x, m.y, zg);
+  const top = project(cam, view, m.x, m.y, zg + 8);
+  if (!g || !top || g.d > 900) return;
+  const w = Math.max(2, 0.42 * g.s);
+  for (let i = 0; i < 4; i++) { // the post, in stripes
+    const a = { x: g.x + (top.x - g.x) * (i / 4), y: g.y + (top.y - g.y) * (i / 4) };
+    const c = { x: g.x + (top.x - g.x) * ((i + 1) / 4), y: g.y + (top.y - g.y) * ((i + 1) / 4) };
+    ctx.strokeStyle = i % 2 ? '#f4f1e6' : '#d6342a';
+    ctx.lineWidth = w;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(c.x, c.y);
+    ctx.stroke();
+  }
+  // the sign: an arrow pointing the way to go (away from the forbidden side)
+  const tip = project(cam, view, m.x - m.dx * 4, m.y - m.dy * 4, zg + 7);
+  const tail = project(cam, view, m.x + m.dx * 0.1, m.y + m.dy * 0.1, zg + 7);
+  if (tip && tail) {
+    const ang = Math.atan2(tip.y - tail.y, tip.x - tail.x);
+    const len = Math.max(10, Math.hypot(tip.x - tail.x, tip.y - tail.y));
+    const hw = Math.max(5, 0.9 * g.s);
+    ctx.save();
+    ctx.translate(top.x, top.y - hw);
+    ctx.rotate(ang);
+    ctx.fillStyle = '#d6342a';
+    ctx.strokeStyle = '#f4f1e6';
+    ctx.lineWidth = Math.max(1, hw * 0.18);
+    ctx.beginPath();
+    ctx.moveTo(-len * 0.1, -hw * 0.4);
+    ctx.lineTo(len * 0.55, -hw * 0.4);
+    ctx.lineTo(len * 0.55, -hw);
+    ctx.lineTo(len * 1.05, 0);
+    ctx.lineTo(len * 0.55, hw);
+    ctx.lineTo(len * 0.55, hw * 0.4);
+    ctx.lineTo(-len * 0.1, hw * 0.4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 // the basket: a pole, a ring with its chains, and a tall flag so you can find it from a long way off
@@ -626,10 +692,11 @@ export function drawScene(ctx, scene) {
   ctx.translate(view.cx, view.cy);
   ctx.rotate(cam.roll);
   ctx.translate(-view.cx, -view.cy);
-  const hy = sky(ctx, cam, b, view);
+  const hy = sky(ctx, cam, b, view, scene.dusk || 0);
   drawGround(ctx, cam, b, view, hole);
   haze(ctx, view, hy);
   const dz = scene.dz ?? ZS; // a putt is drawn at its true height, so it meets the cage where the cage is
+  if (hole.mando) drawMandoLine(ctx, cam, view, hole);
   drawTrail(ctx, cam, view, trail, dz, hole);
   if (scene.splash) drawSplash(ctx, cam, view, scene.splash.at, scene.splash.age, groundAt(hole, scene.splash.at.x, scene.splash.at.y));
   // everything that stands up, farthest first
@@ -638,6 +705,7 @@ export function drawScene(ctx, scene) {
     const c = toCam(cam, b, tr.x, tr.y, 0);
     if (c[2] >= NEAR && c[2] <= FAR) things.push({ d: c[2], draw: () => drawTree(ctx, cam, b, view, tr) });
   }
+  if (hole.mando) things.push({ d: toCam(cam, b, hole.mando.x, hole.mando.y, 0)[2], draw: () => drawMando(ctx, cam, b, view, hole) });
   const dB = toCam(cam, b, hole.basket.x, hole.basket.y, 0)[2];
   things.push({ d: dB + 1.6, draw: () => drawBasket(ctx, cam, b, view, hole, scene.chain || 0, t, 'base') });
   things.push({ d: dB + 1.4, draw: () => drawBasket(ctx, cam, b, view, hole, scene.chain || 0, t, 'back') });
