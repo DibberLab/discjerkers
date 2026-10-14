@@ -348,6 +348,10 @@ const ROLL = { fairway: 1, tee: 1, rough: 0.35 };
 // a tree you are standing beside is behind you, not in your way, and a disc that hits one kicks out to the open side.
 export const TREE_FORGIVE = 0.9; // a trunk stops a disc within this share of the tree's radius
 const CLEAR_OF = 2; // a tree touching where you stand does not count (woods are otherwise solid)
+// Once you have been in a patch of trees (you hit one, or came to rest among them) the next throw goes through that patch: every tree within this many
+// feet of the one the lie remembers is out of the way, once. The next patch down the hole is still there to be hit.
+export const PATCH = 30;
+const IN_TREES = 14; // a disc that comes to rest within this of a real tree is in the trees
 const BASKET_RADIUS = 1.5;
 const BASKET_TOP = 5.5;
 
@@ -403,9 +407,10 @@ export function resolveThrow(hole, disc, settings, aimDeg, ex, from, samples = 7
   const zBasket = elevAt(hole, hole.basket.x, hole.basket.y);
   // the trees that could matter: not the one you just bounced off (a lie remembers it as `t`), nor one touching you, and only those near the path
   const skip = from.t !== undefined ? hole.trees[from.t] : null;
+  const patch = (tr) => !!skip && (tr === skip || Math.hypot(tr.x - skip.x, tr.y - skip.y) <= PATCH);
   const lo = { x: Math.min(...all.map((p) => p.x)) - 10, y: Math.min(...all.map((p) => p.y)) - 10 };
   const hi = { x: Math.max(...all.map((p) => p.x)) + 10, y: Math.max(...all.map((p) => p.y)) + 10 };
-  const trees = treesIn(hole, lo, hi).filter((tr) => tr !== skip && distance(from, tr) >= tr.r + CLEAR_OF && tr.x >= lo.x && tr.x <= hi.x && tr.y >= lo.y && tr.y <= hi.y);
+  const trees = treesIn(hole, lo, hi).filter((tr) => !patch(tr) && distance(from, tr) >= tr.r + CLEAR_OF && tr.x >= lo.x && tr.x <= hi.x && tr.y >= lo.y && tr.y <= hi.y);
   // a mando (on the days there is one): a first throw has to go on the right side of the post, or it is a stroke and a re-throw
   let mandoHit = null;
   const md = hole.mando;
@@ -480,7 +485,15 @@ export function resolveThrow(hole, disc, settings, aimDeg, ex, from, samples = 7
   const roll = rollOut(hole, disc, plan, end, { x: (end.x - prev.x) / len, y: (end.y - prev.y) / len }, surface);
   if (roll.kind === 'basket') return { kind: 'basket', plan, pts: all, roll: roll.pts, end: hole.basket, lie: hole.basket, strokes: 1, surface: 'basket', hit: { at: roll.end } };
   if (roll.kind === 'water' || roll.kind === 'oob') return penalty(plan, all, roll.kind, roll.end, from, null, roll.pts);
-  return { kind: 'landed', plan, pts: all, roll: roll.pts, end: roll.end, lie: roll.end, strokes: 1, surface: surfaceAt(hole, roll.end.x, roll.end.y) };
+  // come to rest among trees: the next throw goes through that patch (the lie remembers the nearest trunk, as it does when you hit one)
+  let lie = roll.end;
+  let near = null;
+  for (const tr of treesIn(hole, { x: roll.end.x - IN_TREES - 8, y: roll.end.y - IN_TREES - 8 }, { x: roll.end.x + IN_TREES + 8, y: roll.end.y + IN_TREES + 8 })) {
+    const d = distance(roll.end, tr) - tr.r;
+    if (tr.h >= 30 && d <= IN_TREES && (!near || d < near.d)) near = { tr, d };
+  }
+  if (near) lie = { x: roll.end.x, y: roll.end.y, t: hole.trees.indexOf(near.tr) };
+  return { kind: 'landed', plan, pts: all, roll: roll.pts, end: roll.end, lie, strokes: 1, surface: surfaceAt(hole, roll.end.x, roll.end.y) };
 }
 
 // out of bounds: the throw counts, plus a stroke, and you play again from where you threw

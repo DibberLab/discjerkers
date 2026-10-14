@@ -144,6 +144,35 @@ test('a tree is never a trap: you play on from beside it, and the same trunk doe
   assert.ok(farthest > tree.y + 40, `three throws and still behind the tree: ${farthest}`);
 });
 
+test('a patch of trees you have been in is out of the way once; the next patch down the hole is not', async () => {
+  const G = await load();
+  const hole0 = await field();
+  const open = G.resolveThrow(hole0, DRIVER, RIGHT, 0, CLEAN, { x: 0, y: 0 });
+  const mid = open.pts[Math.floor(open.pts.length / 2)];
+  const wall = (y) => Array.from({ length: 9 }, (_, i) => ({ x: -21 + i * 5.2, y, r: 4.4, h: 200 })); // a row of trunks across the fairway
+  const hole = await field({ trees: [...wall(mid.y), ...wall(mid.y + 110)], basket: { x: 0, y: 1500 }, bounds: { minX: -300, maxX: 300, minY: -50, maxY: 1600 } });
+  const first = G.resolveThrow(hole, DRIVER, RIGHT, 0, CLEAN, { x: 0, y: 0 });
+  assert.strictEqual(first.kind, 'tree', 'the first throw hits the first row');
+  assert.ok(Math.abs(first.hit.tree.y - mid.y) < 1, 'in the first row');
+  assert.ok(first.lie.t !== undefined, 'the lie remembers the tree');
+  // from there the same throw goes through the rest of that row, and the next row is where it stops
+  const second = G.resolveThrow(hole, DRIVER, RIGHT, 0, CLEAN, first.lie);
+  assert.strictEqual(second.kind, 'tree', 'and it hits the next row');
+  assert.ok(second.hit.tree.y > mid.y + 100, `the second row, not the first: ${second.hit.tree.y} vs ${mid.y}`);
+  // it is only for one throw: from the second row's lie, the third throw goes through that one, too
+  const third = G.resolveThrow(hole, DRIVER, RIGHT, 0, CLEAN, second.lie);
+  assert.ok(!(third.kind === 'tree' && Math.abs(third.hit.tree.y - second.hit.tree.y) < 30), 'never stuck behind the patch you are in');
+  // a lie with no memory (a fresh throw from the tee) meets the first row as before
+  assert.strictEqual(G.resolveThrow(hole, DRIVER, RIGHT, 0, CLEAN, { x: 0, y: 0 }).kind, 'tree');
+  // and coming to rest among trees counts as being in them
+  const beside = { x: open.lie.x + 6.5, y: open.lie.y - 1, r: 4, h: 60 };
+  const rested = await field({ trees: [beside], basket: { x: 0, y: 1500 }, bounds: { minX: -300, maxX: 300, minY: -50, maxY: 1600 } });
+  const r = G.resolveThrow(rested, DRIVER, RIGHT, 0, CLEAN, { x: 0, y: 0 });
+  assert.strictEqual(r.kind, 'landed');
+  assert.strictEqual(r.lie.t, 0, 'resting beside a real tree: the lie remembers it');
+  assert.strictEqual(G.resolveThrow(hole0, DRIVER, RIGHT, 0, CLEAN, { x: 0, y: 0 }).lie.t, undefined, 'in the open it remembers nothing');
+});
+
 test('water is out of bounds: the throw and a stroke, and you throw again from where you were', async () => {
   const G = await load();
   const open = G.resolveThrow(await field(), DRIVER, RIGHT, 0, CLEAN, { x: 0, y: 0 });

@@ -177,8 +177,9 @@ that way; don't introduce React/Vite/Tailwind here.
   mistake falls back to the map (`draw()` catches it) and `frame()` can never stop the loop.
 - **The woods are solid.** A disc is a point and a trunk stops it within 0.9 of its radius, so `woods` put a tree every
   6-8 ft (a wall) and the tee is boxed in behind: you play down the fairway, not any way you like. Only features you
-  design (`gaps`, `shrubs`, low guard trees) are ways through. A tree you hit is out of the way of your next throw (the
-  lie remembers it as `t`), so nobody is stuck. `test/gamecore.test.js` throws every way off the tee and checks the
+  design (`gaps`, `shrubs`, low guard trees) are ways through. **A patch of trees you have been in is out of the way of your next throw**: the lie remembers the tree you hit, or the nearest real trunk when you
+  came to rest within 14 ft of one, as `t`, and the next throw ignores every tree within `PATCH` (30 ft) of it, once; the next patch down the hole (a stagger row, a grove, the forest
+  past 30 ft) still stops it. The pick panel says so ("You are in a patch of trees"). Nobody is stuck. `test/gamecore.test.js` throws every way off the tee and checks the
   woods stop nearly all of it.
 - **Hills.** Every hole has ground (`terrain.js`, `buildField` in `course.js`): a grid of heights every 8 ft, in feet above the tee, made
   from `GROUNDS` (per hole): a `rise` profile along the route (`[s, z]` knots, flat at the tee and at the basket), `mounds` (hills and
@@ -331,7 +332,7 @@ that way; don't introduce React/Vite/Tailwind here.
   the server rolls them in a match; into water it costs a stroke). `puttScript` turns that into a film (where the disc is every
   millisecond, with marks for the drop, the rim lap, the spit and the roll) and `drawPuttFx` draws the reaction: CHAINS! with
   rings and confetti, a cold-washed RIMMED OUT, NASTY ROLL with the camera following the disc.
-- Modules import each other with `?v=N` (now `course.js` 12, `gamecore.js` 30, `cam3d.js` 20, `puttfx.js` 16, `player.js` 1, `foliage.js` 1, `ground.js` 6, `sound.js` 4, `marebear.js` 2, `conditions.js` 4, `daily.js` 1, `gamepanels.js` 3, `progress.js` 2, `trash.js` 11, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
+- Modules import each other with `?v=N` (now `course.js` 12, `gamecore.js` 31, `cam3d.js` 20, `puttfx.js` 16, `player.js` 1, `foliage.js` 1, `ground.js` 6, `sound.js` 4, `marebear.js` 2, `conditions.js` 4, `daily.js` 1, `gamepanels.js` 3, `progress.js` 2, `trash.js` 11, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 
 ## Deploy

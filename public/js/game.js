@@ -5,7 +5,7 @@
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=12';
-import * as G from './gamecore.js?v=30';
+import * as G from './gamecore.js?v=31';
 import * as T from './trash.js?v=11';
 import * as C3 from './cam3d.js?v=20';
 import * as FO from './foliage.js?v=1';
@@ -172,11 +172,13 @@ const puttDd = () => G.puttDist(S.hole, lieOf()); // how hard the putt is: the h
 // how the basket sits against you: nothing on the level, else "▲ 12 ft uphill" or "▼ 8 ft downhill"
 const slopeBit = (hole, lie) => { const t = slopeText(hole, lie); return t ? ` · ${t}` : ''; };
 // a line for the pick panel about the hill, with what it does to this throw or putt
+// you are in a patch of trees (you hit one, or came to rest among them): this throw goes through that patch
+const patchNote = () => (lieOf().t !== undefined && !inPutt() ? '<p class="gm-note">You are in a patch of trees: this throw goes through them. The next patch is still there.</p>' : '');
 function slopeNote() {
   const t = slopeText(S.hole, lieOf());
-  if (!t) return '';
-  if (isPhone()) return `<p class="gm-note">${t}.</p>`;
-  return `<p class="gm-note">${t}. ${inPutt() ? (G.riseTo(S.hole, lieOf()) > 0 ? 'Uphill putts are easier, but swipe a little harder.' : 'Downhill putts are harder and run away: swipe softer.') : (G.riseTo(S.hole, lieOf()) > 0 ? 'The basket is above you: throws come down short.' : 'The basket is below you: throws run on.')}</p>`;
+  if (!t) return patchNote();
+  if (isPhone()) return `<p class="gm-note">${t}.</p>${patchNote()}`;
+  return `<p class="gm-note">${t}. ${inPutt() ? (G.riseTo(S.hole, lieOf()) > 0 ? 'Uphill putts are easier, but swipe a little harder.' : 'Downhill putts are harder and run away: swipe softer.') : (G.riseTo(S.hole, lieOf()) > 0 ? 'The basket is above you: throws come down short.' : 'The basket is below you: throws run on.')}</p>${patchNote()}`;
 }
 const slopeText = (hole, lie) => { const r = G.riseTo(hole, lie); return Math.abs(r) < 1 ? '' : `${r > 0 ? '▲' : '▼'} ${Math.round(Math.abs(r))} ft ${r > 0 ? 'uphill' : 'downhill'}`; };
 const baseHeading = () => G.headingTo(lieOf(), S.hole.basket);
