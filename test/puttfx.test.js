@@ -25,7 +25,7 @@ test('a putt is a swish, a rattle, a rim-out, a miss or a nasty roll, depending 
   assert.ok(!rim.made && rim.rim && rim.finish === 'rim', 'just outside: it hits the cage and spits out');
   const far = at(3);
   assert.ok(!far.made && !far.rim && far.finish === 'miss', 'well outside: a plain miss');
-  assert.strictEqual(G.resolvePutt(hole, { x: 0, y: 39 }, PUTTER, { x: 0.9, y: 0 }).finish, 'tapin', 'a tap-in is a tap-in');
+  assert.strictEqual(G.resolvePutt(hole, { x: 0, y: 39 }, PUTTER, { x: 0.99, y: 0 }).finish, 'tapin', 'a tap-in is a tap-in');
 
   // the dice: by default never, and a low one makes a miss run away
   assert.ok(!far.nasty);

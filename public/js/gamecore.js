@@ -502,7 +502,14 @@ const beyond = (dist) => clamp((dist - LONG_PUTT) / (PUTT_RANGE - LONG_PUTT), 0,
 // A short putt should go in unless you really mess it up: inside about 30 feet the target is much bigger than the long-range curve says
 // (a bit over half the green at 10 ft, a third at 20), and it settles into the old size by the time the long putts begin.
 const closeBoost = (dist) => clamp(0.36 * (1 - dist / 32), 0, 0.36);
-export const puttRadius = (dist, disc) => Math.max(0.022, Math.min(0.62, clamp(puttZone(dist, disc) * 0.9, 0.05, 0.34) + closeBoost(dist)) * (1 - 0.82 * beyond(dist))); // of the grid's radius
+const midRadius = (dist, disc) => Math.max(0.022, Math.min(0.62, clamp(puttZone(dist, disc) * 0.9, 0.05, 0.34) + closeBoost(dist)) * (1 - 0.82 * beyond(dist)));
+// Inside 10 feet a putt goes in about 95% of the time even for a tap at a random moment (the dot is inside 0.94 of the grid's radius that often), and a
+// good player misses only by really messing up the swipe (10 to 15 feet: 90 to 95%). Out to 15 feet it stays big enough for 90 to 95%, and by 22 feet it is down to the mid-range size.
+export const CLOSE_PUTT = 10;
+export const CLOSE_RADIUS = 0.94;
+// how much of the close-range help a putt of this length gets: all of it to 10 ft, most of it (so 90% or so go in) at 15, none from 22
+const closeEase = (dist) => (dist <= CLOSE_PUTT ? 1 : dist <= 15 ? 1 - 0.18 * ((dist - CLOSE_PUTT) / 5) : clamp(0.82 * (22 - dist) / 7, 0, 0.82));
+export const puttRadius = (dist, disc) => { const w = closeEase(dist); return CLOSE_RADIUS * w + midRadius(dist, disc) * (1 - w); }; // of the grid's radius
 export const puttSpeed = (dist) => 1.2 + 1.1 * clamp(dist / PUTT_RANGE, 0, 1) + 1.7 * beyond(dist);
 
 // The wandering dot: it spirals out from the middle and back through it, its distance from the center the size of two slow
@@ -536,7 +543,13 @@ export const nastyChance = (dist, disc, rim) => clamp((0.06 + 0.1 * clamp(dist /
 /* The swipe that follows the radar: a flick toward the basket. How true it was (aim: degrees off the line, + is right) and how hard
    (power: 1 is just enough). Outside these tolerances it cannot go in; the tolerance tightens the farther out you are. */
 // (inside 25 ft it is more forgiving still: about 14 degrees and 30% at 10 ft, so a short putt is only missed by a swipe that is really off)
-export const swipeTolerance = (dist) => ({ aim: clamp(10 - dist * 0.14, 3.2, 10) + Math.max(0, 25 - dist) * 0.34, power: clamp(0.22 - dist * 0.0025, 0.1, 0.22) + Math.max(0, 25 - dist) * 0.006 });
+export const swipeTolerance = (dist) => {
+  const w = closeEase(dist); // 1 inside 10 feet: about 26 degrees and 50% of the power, so only a really bad swipe misses
+  return {
+    aim: (clamp(10 - dist * 0.14, 3.2, 10) + Math.max(0, 25 - dist) * 0.34) * (1 - w) + 26 * w,
+    power: (clamp(0.22 - dist * 0.0025, 0.1, 0.22) + Math.max(0, 25 - dist) * 0.006) * (1 - w) + 0.5 * w,
+  };
+};
 export function swipeQuality(dist, swipe) {
   const tol = swipeTolerance(dist);
   const aimErr = swipe.aim;

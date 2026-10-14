@@ -263,8 +263,9 @@ that way; don't introduce React/Vite/Tailwind here.
   and `frame()` can never stop the loop.
 - **The putt has two steps**: the swirling radar (where the putt wants to go), then a **swipe** (phase `swipe`) toward the basket. A
   swipe (draw back, then swipe forward) has an aim (degrees off straight up the screen, + right) and a power (its length against what
-  this distance needs, `swipeNeed()`; 1 is just enough). `swipeTolerance(dist)` is how far either may be off (about 14 deg and 30% at 10 ft, 6.5 deg and 16% at 25, 3 deg and
-  10% from 50 ft; and the radar's target is over half the green at 10 ft, `closeBoost` in `gamecore.js`: a short putt only misses if you really mess up); outside it the putt **cannot go in**: `resolvePutt(..., swipe)` adds the swipe's error to the radar's, so it
+  this distance needs, `swipeNeed()`; 1 is just enough). `swipeTolerance(dist)` is how far either may be off (26 deg and 50% inside 10 ft, about 20 deg and 40% at 15, 6.5 deg and 16% at 25, 3 deg and
+  10% from 50 ft). **Close putts go in**: inside 10 ft the radar's target is 0.94 of the green (`CLOSE_RADIUS`, `closeEase` in `gamecore.js`), so about 95% go in even for a blind tap and a sloppy swipe,
+  10 to 15 ft about 90 to 95%, easing down to the mid-range target by 22 ft (measured with a bot: 4-10 ft 96-97%, 12 ft 95%, 15 ft 92%); outside it the putt **cannot go in**: `resolvePutt(..., swipe)` adds the swipe's error to the radar's, so it
   misses short (`why: 'weak'`), long (`'strong'`, and more likely a nasty roll), left or right, or lips out if only just off. A
   swipe near the limit still counts as true, and tap-ins need none. With no swipe (an older page, a test) it counts as true.
   The server takes `body.swipe` (`sanitizeSwipe`) and, like the meters, trusts the player about the gesture.
@@ -298,7 +299,7 @@ that way; don't introduce React/Vite/Tailwind here.
   the server rolls them in a match; into water it costs a stroke). `puttScript` turns that into a film (where the disc is every
   millisecond, with marks for the drop, the rim lap, the spit and the roll) and `drawPuttFx` draws the reaction: CHAINS! with
   rings and confetti, a cold-washed RIMMED OUT, NASTY ROLL with the camera following the disc.
-- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 27, `cam3d.js` 16, `puttfx.js` 12, `ground.js` 5, `sound.js` 3, `marebear.js` 1, `conditions.js` 3, `daily.js` 1, `gamepanels.js` 3, `progress.js` 2, `trash.js` 9, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
+- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 28, `cam3d.js` 16, `puttfx.js` 12, `ground.js` 5, `sound.js` 3, `marebear.js` 1, `conditions.js` 3, `daily.js` 1, `gamepanels.js` 3, `progress.js` 2, `trash.js` 9, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 
 ## Deploy

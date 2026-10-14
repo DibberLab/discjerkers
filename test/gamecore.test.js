@@ -773,11 +773,14 @@ test('short putts are forgiving: inside 25 feet they go in unless you really mes
   const P = { id: 4, speed: 3, glide: 3, turn: 0, fade: 1 };
   assert.ok(G.puttRadius(10, P) >= 0.45, `half the green at 10 ft: ${G.puttRadius(10, P)}`);
   assert.ok(G.puttRadius(20, P) >= 0.3 && G.puttRadius(25, P) >= 0.22, 'and still a good target at 20 and 25');
-  assert.ok(G.puttRadius(5, P) <= 0.62, 'never more than most of the green');
+  assert.ok(G.puttRadius(5, P) <= 0.95, 'never more than the whole green');
   assert.ok(G.puttRadius(10, P) > G.puttRadius(20, P) && G.puttRadius(20, P) > G.puttRadius(30, P), 'smaller as it gets longer');
   assert.ok(G.puttRadius(40, P) < 0.08, 'a 40 footer is still a long shot');
   assert.ok(G.swipeTolerance(10).aim >= 13 && G.swipeTolerance(10).power >= 0.28, 'a wide swipe is fine close in');
   assert.ok(G.swipeTolerance(50).aim <= 3.3 && G.swipeTolerance(50).power <= 0.1 + 1e-9, 'the same as before from 50 ft');
+  // inside 10 ft about 95% go in (a tap at a random moment, a sloppy swipe), and 10 to 15 ft is 90 to 95%
+  assert.ok(G.puttRadius(10, P) >= 0.93 && G.puttRadius(15, P) >= 0.8 && G.puttRadius(15, P) < G.puttRadius(10, P), 'a big target out to 15 ft');
+  assert.ok(G.swipeTolerance(10).aim >= 25 && G.swipeTolerance(10).power >= 0.49, 'and a very wide swipe');
   // a putt from 12 ft with the dot in the middle third and a sloppy-but-honest swipe goes in
   const hole = await (async () => { const { makeHole } = await load(); return makeHole({ id: 9, name: 'T', par: 3, fairway: [[0, 0, 60], [0, 300, 60]], basket: { x: 0, y: 300 }, wind: { mph: 0, from: 0 } }); })();
   const spot = { x: 0, y: 288 };
