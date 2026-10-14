@@ -927,14 +927,14 @@ function panelSwipe() {
   const drive = !!S.meter?.throwEx;
   const brief = isPhone() && tipSeen(); // once you know it, a phone gets one line, so the hole (and your swipe) has the room
   const text = pullInput()
-    ? `Press on the disc and trace the line up the screen, as steadily as you can, and let go in the gold band: how far you go is the power, the way your stroke ends is the aim, and a wobbly trace loses power. On a trackpad you can click once, trace the line, and click again. Or use the arrow keys (left and right to aim, up and down for power) and Enter, or a controller: right stick up, or left stick and A.`
+    ? `Press on the disc (either mouse button), drag straight down to wind up (how far is the power: reach the gold mark for full power), then drag back up and let go. Where your way back up leaves from decides the aim, so keep it straight; a wobbly or short way back loses power. On a trackpad you can click once, wind up and swing back with no button held, and click again. Or use the arrow keys and Enter, or a controller: right stick back then forward.`
     : brief
     ? 'Draw back, then swipe up in one motion. Stay in the lime lines and stop in the band.'
     : drive
       ? 'Draw back down the screen, then swipe forward up it, in one smooth motion, from anywhere. The forward swipe is the throw: stay inside the lime lines and stop in the lime band. A short draw back costs power; off line steers the throw, too soft loses distance, too hard makes it loose.'
       : 'Draw back down the screen, then swipe forward up it, in one smooth motion, from anywhere. The forward swipe is the putt: stay inside the lime lines and stop in the lime band. A short draw back costs power; too soft dies short, too hard runs long, and off line misses.';
   return `<div class="gm-meter ${drive ? '' : 'gm-meter--putt'}">
-      <p class="gm-meter__t"><span>${drive ? 5 : 2} ·</span> ${pullInput() ? 'Trace the line' : 'Draw back, swipe'}</p>
+      <p class="gm-meter__t"><span>${drive ? 5 : 2} ·</span> ${pullInput() ? 'Wind up, swing' : 'Draw back, swipe'}</p>
       <div class="gm-meter__h"><p>${text}</p></div>
     </div>`;
 }
@@ -953,19 +953,19 @@ function beginSwipe(e) {
   const p = swipePoint(e);
   const t = now2();
   const m = S.meter;
-  const trace = e.pointerType === 'mouse' || e.pointerType === 'pen'; // a mouse or trackpad traces the line; a finger draws back and swipes
-  if (trace && m.trace?.armed) { // the second click of a click-trace-click throw (for a trackpad, where holding and dragging is awkward)
-    const tr = m.trace;
-    tr.pts.push({ x: p.x, y: p.y });
-    m.trace = null;
-    commitTrace(tr.pts);
+  const swing = e.pointerType === 'mouse' || e.pointerType === 'pen'; // a mouse or trackpad swings down and back up; a finger draws back and swipes
+  if (swing && m.swing?.armed) { // the second click of a click-swing-click throw (for a trackpad, where holding and dragging is awkward)
+    const sw = m.swing;
+    sw.pts.push({ x: p.x, y: p.y });
+    m.swing = null;
+    commitSwing(sw.pts);
     return;
   }
-  if (trace) {
+  if (swing) {
     const an = swipeAnchor();
-    if (Math.hypot(p.x - an.x, p.y - an.y) > TRACE.startR) { swipeNote('START ON THE DISC'); return; }
-    m.trace = { pts: [{ x: p.x, y: p.y }], held: true, armed: false };
-    S.meter.drag = { mode: 'trace', x0: p.x, y0: p.y, x: p.x, y: p.y, lastMove: t };
+    if (Math.hypot(p.x - an.x, p.y - an.y) > SWING.startR) { swipeNote('PRESS ON THE DISC'); return; }
+    m.swing = { pts: [{ x: p.x, y: p.y }], held: true, armed: false };
+    S.meter.drag = { mode: 'swing', x0: p.x, y0: p.y, x: p.x, y: p.y, lastMove: t };
     try { cv.setPointerCapture?.(e.pointerId); } catch { /* a pointer that is already gone */ }
     return;
   }
@@ -974,9 +974,9 @@ function beginSwipe(e) {
 }
 function moveSwipe(e) {
   const d = S.meter?.drag;
-  if (!d) { // armed (clicked once): the trace follows the pointer without a button held
-    const tr = S.meter?.trace;
-    if (tr?.armed) { const q = swipePoint(e); addTracePoint(tr, q); }
+  if (!d) { // armed (clicked once): the swing follows the pointer without a button held
+    const sw = S.meter?.swing;
+    if (sw?.armed) { const q = swipePoint(e); addSwingPoint(sw, q); }
     return;
   }
   const p = swipePoint(e);
@@ -984,7 +984,7 @@ function moveSwipe(e) {
   d.x = p.x;
   d.y = p.y;
   d.lastMove = t;
-  if (d.mode === 'trace') { addTracePoint(S.meter.trace, p); return; } // a trace has no timing: only where it goes
+  if (d.mode === 'swing') { addSwingPoint(S.meter.swing, p); return; } // a swing has no timing: only where it goes
   d.samples.push({ x: p.x, y: p.y, t });
   while (d.samples.length > 2 && t - d.samples[0].t > 400) d.samples.shift();
   const fromStart = Math.hypot(p.x - d.x0, p.y - d.y0);
@@ -1013,7 +1013,7 @@ function moveSwipe(e) {
 // every frame: a finger that has stopped (or is holding still, so sends nothing) ends the forward stroke where it stopped
 function tickSwipe() {
   const d = S.phase === 'swipe' ? S.meter?.drag : null;
-  if (!d || d.mode === 'trace') return;
+  if (!d || d.mode === 'swing') return;
   const t = now2();
   if (d.phase === 'back' && t - d.lastMove > SWIPE.holdMs) { S.meter.drag = null; swipeNote('NO HOLDING: DRAW BACK AND GO'); return; }
   if (d.phase !== 'forward' || d.peak < SWIPE.minPeak) return;
@@ -1024,11 +1024,11 @@ function endSwipe() {
   const d = S.meter?.drag;
   if (S.phase !== 'swipe' || !d) return;
   S.meter.drag = null;
-  if (d.mode === 'trace') { // let go: a trace is done; a plain click (no movement) arms it, for a trackpad
-    const tr = S.meter.trace;
-    if (tr && traceExtent(tr.pts) < TRACE.minLen && tr.pts.length < 6) { tr.armed = true; tr.held = false; swipeNote('NOW TRACE THE LINE, THEN CLICK'); return; }
-    S.meter.trace = null;
-    if (tr) commitTrace(tr.pts);
+  if (d.mode === 'swing') { // let go: the swing is done; a plain click (no movement) arms it instead, for a trackpad
+    const sw = S.meter.swing;
+    if (sw && sw.pts.length < 6 && Math.hypot(d.x - d.x0, d.y - d.y0) < 12) { sw.armed = true; sw.held = false; swipeNote('NOW DRAG DOWN AND BACK UP, THEN CLICK'); return; }
+    S.meter.swing = null;
+    if (sw) commitSwing(sw.pts);
     return;
   }
   if (d.phase === 'forward') {
@@ -1049,44 +1049,53 @@ function commitSwipe(pt) {
   if (len < SWIPE.minLen) return; // a tap, not a swipe: try again
   finishSwipe({ aim: Math.round(((Math.atan2(dx, -dy) * 180) / Math.PI) * 10) / 10, power: Math.round(swipePower(len, d.backLen) * 1000) / 1000 });
 }
-/* Tracing the line (a mouse, a trackpad, a pen, a controller's stick): put the pointer on the disc and move it up along the line as precisely as you can,
-   and stop at the band. How far you go is the power, the direction of the end of your stroke is the aim, and a wobbly or wandering trace loses power: it is a
-   test of a steady hand, like the real thing. The same {aim, power} goes to the rules as a swipe does, so nothing else cares how it was made. */
-const TRACE = { startR: 90, minLen: 40, step: 2 };
-const traceHalfWidth = () => clamp(swipeNeed() * 0.07, 12, 24); // how far either side of the line counts as on it, in pixels
-const traceExtent = (pts) => (pts.length ? pts[0].y - pts.at(-1).y : 0);
-function addTracePoint(tr, p) {
-  const last = tr.pts.at(-1);
-  if (Math.hypot(p.x - last.x, p.y - last.y) >= TRACE.step) tr.pts.push({ x: p.x, y: p.y });
+/* The mouse swing (a mouse, a trackpad, a pen): press on the disc, drag straight down to wind up, then drag back up and let go. How far down you went is
+   the power; where your stroke comes back up (the line from the bottom of the wind-up to where it gets back level with the disc) is the aim, so a crooked way
+   back sends it crooked; a wobbly way back and a stroke that does not get all the way back up both lose power. There is no timing. It is the way Disc Golf
+   Masters' mouse throw is described (press the ball, drag it down and back up). The same {aim, power} goes to the rules as a swipe does. */
+const SWING = { startR: 90, minBack: 30, ratio: 0.8, step: 2 }; // ratio: a wind-up this fraction of the swipe's length is exactly enough
+const swingHalfWidth = () => clamp(swipeNeed() * 0.07, 12, 24); // how far off the straight way back still counts as straight, in pixels
+function addSwingPoint(sw, p) {
+  const last = sw.pts.at(-1);
+  if (Math.hypot(p.x - last.x, p.y - last.y) >= SWING.step) sw.pts.push({ x: p.x, y: p.y });
 }
-// how a trace comes out: { ext (pixels up), aim (degrees), wobble (average pixels off the straight line), out (share of it outside the corridor), power }
-function traceStats(pts) {
-  const hw = traceHalfWidth();
+// how a swing comes out: { depth, phase ('back' while still winding up, 'up' once on the way back), aim, power, reach, wobble, bottom, top }
+function swingStats(pts) {
   const a = pts[0];
-  const b = pts.at(-1);
-  const ext = a.y - b.y;
-  const f = pts[Math.min(pts.length - 1, Math.floor(pts.length * 0.6))]; // the last stretch of the stroke is the direction it leaves in
-  const tail = Math.hypot(b.x - f.x, b.y - f.y) > 6 ? f : a;
-  const aim = Math.round(((Math.atan2(b.x - tail.x, -(b.y - tail.y)) * 180) / Math.PI) * 10) / 10;
-  const chord = Math.hypot(b.x - a.x, b.y - a.y) || 1;
-  let sq = 0;
-  let out = 0;
-  for (const q of pts) {
-    const dev = Math.abs((b.x - a.x) * (a.y - q.y) - (a.x - q.x) * (b.y - a.y)) / chord; // distance from the straight line start to end
-    sq += dev * dev;
-    if (Math.abs(q.x - a.x) > hw) out++;
+  let bi = 0;
+  for (let i = 1; i < pts.length; i++) if (pts[i].y > pts[bi].y) bi = i;
+  const bottom = pts[bi];
+  const depth = bottom.y - a.y;
+  const end = pts.at(-1);
+  const turned = depth >= SWING.minBack && bottom.y - end.y > 10; // it has come back up from the bottom
+  if (!turned) return { depth, phase: 'back', bottom, top: bottom, aim: 0, power: Math.round((Math.max(0, depth) / (swipeNeed() * SWING.ratio)) * 1000) / 1000, reach: 0, wobble: 0 };
+  let top = end;
+  for (let i = bi + 1; i < pts.length; i++) { // where the way back gets level with the disc
+    if (pts[i].y <= a.y) { const q = pts[i - 1]; const f = (q.y - a.y) / Math.max(0.001, q.y - pts[i].y); top = { x: q.x + (pts[i].x - q.x) * f, y: a.y }; break; }
   }
-  const wobble = Math.sqrt(sq / pts.length);
-  const outFrac = out / pts.length;
-  const steady = clamp(wobble / hw - 0.4, 0, 1); // a little wander is free; a lot costs up to a quarter of the power
-  const power = Math.max(0, (ext / swipeNeed()) * (1 - 0.25 * steady - 0.25 * outFrac));
-  return { ext, aim, wobble, out: outFrac, power: Math.round(power * 1000) / 1000, hw };
+  const reach = clamp((bottom.y - top.y) / depth, 0, 1); // 1: all the way back up to where it started
+  const aim = Math.round(((Math.atan2(top.x - bottom.x, Math.max(1, bottom.y - top.y)) * 180) / Math.PI) * 10) / 10;
+  const chord = Math.hypot(top.x - bottom.x, top.y - bottom.y) || 1;
+  let sq = 0;
+  let n = 0;
+  for (let i = bi; i < pts.length; i++) {
+    const q = pts[i];
+    if (q.y < top.y - 2) break;
+    const dev = Math.abs((top.x - bottom.x) * (bottom.y - q.y) - (bottom.x - q.x) * (top.y - bottom.y)) / chord; // off the straight way back
+    sq += dev * dev;
+    n++;
+  }
+  const wobble = Math.sqrt(sq / Math.max(1, n));
+  const steady = clamp(wobble / swingHalfWidth() - 0.4, 0, 1); // a little wander is free; a lot costs up to a quarter of the power
+  const power = Math.max(0, (depth / (swipeNeed() * SWING.ratio)) * (reach < 1 ? reach : 1) * (1 - 0.25 * steady));
+  return { depth, phase: 'up', bottom, top, aim, power: Math.round(power * 1000) / 1000, reach, wobble };
 }
-function commitTrace(pts) {
+function commitSwing(pts) {
   if (!pts || pts.length < 2) return;
-  if (traceExtent(pts) < TRACE.minLen) { swipeNote('TRACE UP THE LINE'); return; }
-  const r = traceStats(pts);
-  if (Math.abs(r.aim) > 60) { swipeNote('TRACE UP THE LINE'); return; }
+  const r = swingStats(pts);
+  if (r.depth < SWING.minBack) { swipeNote('DRAG DOWN FIRST'); return; }
+  if (r.phase === 'back') { swipeNote('NOW DRAG BACK UP, THEN LET GO'); return; }
+  if (Math.abs(r.aim) > 60) { swipeNote('DRAG STRAIGHT BACK UP'); return; }
   finishSwipe({ aim: r.aim, power: r.power });
 }
 // the throw (or putt) itself, from an aim and a power however they were made
@@ -1095,7 +1104,8 @@ function finishSwipe(swipe) {
   if (!m || S.phase !== 'swipe') return;
   m.drag = null;
   m.kb = null;
-  m.trace = null;
+  m.swing = null;
+  m.padSwing = null;
   if (m.throwEx) {
     const ex = G.withSwipe(m.throwEx, swipe);
     // solo rolls the slip here; in a match the server does, and the throw comes back with it
@@ -1152,7 +1162,7 @@ function drawSwipeGuide() {
   ctx.setLineDash([]);
   // how far to draw back: a mark below the disc
   const backTo = ay + 0.6 * need;
-  if (!pullInput()) { // (a mouse traces the line instead, and has no draw back to mark)
+  if (!pullInput()) { // (a mouse winds up and swings back with its own gold mark, and has no draw back to mark here)
     ctx.strokeStyle = 'rgba(242,193,78,0.8)';
     ctx.lineWidth = 3;
     ctx.setLineDash([4, 6]);
@@ -1168,7 +1178,7 @@ function drawSwipeGuide() {
   }
   // a swipe set with the keys or a stick: shown as the throw it would make, coloured by how true it is
   const vec = m.kb ? { aim: m.kb.aim, power: m.kb.power } : null;
-  const tr = m.trace;
+  const sw = m.swing;
   if (vec) {
     const q = Math.max(Math.abs(vec.aim) / tol.aim, Math.abs(vec.power - 1) / tol.power);
     const c = q <= 1 ? '#a3e635' : q <= 1.5 ? '#f2c14e' : '#ff6a3a';
@@ -1198,70 +1208,105 @@ function drawSwipeGuide() {
     ctx.restore();
     return;
   }
-  if (tr || pullInput()) { // tracing the line: a corridor from the disc, your trail inside it (lime) or out of it (orange), and what it adds up to
-    const hw = traceHalfWidth();
-    const sx = tr ? tr.pts[0].x : ax; // the corridor starts where the trace did, or at the disc if it has not begun
-    const sy = tr ? tr.pts[0].y : ay;
-    ctx.setLineDash([]);
-    ctx.fillStyle = 'rgba(163,230,53,0.08)';
-    ctx.fillRect(sx - hw, sy - need * 1.2, hw * 2, need * 1.2);
-    ctx.strokeStyle = 'rgba(163,230,53,0.7)';
-    ctx.lineWidth = 2;
-    for (const sg of [-1, 1]) { ctx.beginPath(); ctx.moveTo(sx + sg * hw, sy); ctx.lineTo(sx + sg * hw, sy - need * 1.2); ctx.stroke(); }
-    ctx.strokeStyle = 'rgba(163,230,53,0.5)';
+  if (sw || pullInput()) { // the mouse swing: down to wind up, back up to throw; shown as the throw it is making, coloured by how true it is
+    const hw = swingHalfWidth();
+    const sx = sw ? sw.pts[0].x : ax;
+    const sy = sw ? sw.pts[0].y : ay;
+    const target = sy + need * SWING.ratio; // how far down is exactly enough
     ctx.setLineDash([6, 8]);
+    ctx.strokeStyle = 'rgba(163,230,53,0.5)';
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(sx, sy);
-    ctx.lineTo(sx, sy - need * 1.2);
+    ctx.moveTo(sx, sy - need * 0.2);
+    ctx.lineTo(sx, target + 14);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.strokeStyle = 'rgba(242,193,78,0.95)'; // where the band is: stop here
+    ctx.strokeStyle = 'rgba(242,193,78,0.95)'; // the gold mark: wind up this far for full power
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(sx - hw - 10, sy - need);
-    ctx.lineTo(sx + hw + 10, sy - need);
+    ctx.moveTo(sx - hw - 12, target);
+    ctx.lineTo(sx + hw + 12, target);
     ctx.stroke();
-    if (!tr) {
+    if (!sw) {
       const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
       ctx.beginPath();
-      ctx.arc(ax, ay, TRACE.startR * 0.5 + pulse * 4, 0, Math.PI * 2);
+      ctx.arc(ax, ay, SWING.startR * 0.5 + pulse * 4, 0, Math.PI * 2);
       ctx.strokeStyle = `rgba(238,241,232,${0.35 + 0.4 * pulse})`;
       ctx.lineWidth = 3;
       ctx.stroke();
-      if (m.note && m.note.until > now2()) label(m.note.text, W / 2, Math.min(ay + need * 0.6 + 44, H - S.dock - 14), '#f2c14e', 22);
-      else label('PRESS ON THE DISC, TRACE THE LINE', W / 2, Math.min(ay + need * 0.6 + 44, H - S.dock - 14), '#eef1e8', Math.min(22, W / 15));
+      if (m.note && m.note.until > now2()) label(m.note.text, W / 2, Math.min(target + 44, H - S.dock - 14), '#f2c14e', 22);
+      else label('PRESS THE DISC, DRAG DOWN, THEN UP', W / 2, Math.min(target + 44, H - S.dock - 14), '#eef1e8', Math.min(22, W / 17));
       ctx.restore();
       return;
     }
-    const st = traceStats(tr.pts);
+    const st = swingStats(sw.pts);
     ctx.lineWidth = 6;
     ctx.lineJoin = 'round';
-    for (let i = 1; i < tr.pts.length; i++) {
-      const a = tr.pts[i - 1];
-      const b = tr.pts[i];
+    for (let i = 1; i < sw.pts.length; i++) {
+      const a0 = sw.pts[i - 1];
+      const b0 = sw.pts[i];
+      const way = st.phase === 'up' && b0.y <= st.bottom.y && i > sw.pts.indexOf(st.bottom); // the way back up is graded; the wind-up is just drawn
+      let col = 'rgba(242,193,78,0.85)';
+      if (way) {
+        const chord = Math.hypot(st.top.x - st.bottom.x, st.top.y - st.bottom.y) || 1;
+        const dev = Math.abs((st.top.x - st.bottom.x) * (st.bottom.y - b0.y) - (st.bottom.x - b0.x) * (st.top.y - st.bottom.y)) / chord;
+        col = dev > hw ? '#ff6a3a' : '#a3e635';
+      }
       ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.strokeStyle = Math.abs(b.x - sx) > hw ? '#ff6a3a' : '#a3e635';
+      ctx.moveTo(a0.x, a0.y);
+      ctx.lineTo(b0.x, b0.y);
+      ctx.strokeStyle = col;
       ctx.stroke();
     }
-    const e = tr.pts.at(-1);
-    const q = Math.max(Math.abs(st.aim) / tol.aim, Math.abs(st.power - 1) / tol.power);
+    const e = sw.pts.at(-1);
+    const q = st.phase === 'up' ? Math.max(Math.abs(st.aim) / tol.aim, Math.abs(st.power - 1) / tol.power) : Math.abs(st.power - 1) / tol.power;
     const c = q <= 1 ? '#a3e635' : q <= 1.5 ? '#f2c14e' : '#ff6a3a';
+    if (st.phase === 'up') { // what the throw would be, from the disc
+      const ex = ax + Math.sin(rad(st.aim)) * need * st.power;
+      const ey = ay - Math.cos(rad(st.aim)) * need * st.power;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(ex, ey);
+      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+      ctx.lineWidth = 11;
+      ctx.stroke();
+      ctx.strokeStyle = c;
+      ctx.lineWidth = 6;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(ex, ey, 11, 0, Math.PI * 2);
+      ctx.fillStyle = c;
+      ctx.fill();
+    }
     ctx.beginPath();
-    ctx.arc(e.x, e.y, 11, 0, Math.PI * 2);
-    ctx.fillStyle = c;
+    ctx.arc(e.x, e.y, 9, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(238,241,232,0.9)';
     ctx.fill();
     ctx.font = '700 14px "Space Mono", monospace';
     ctx.textAlign = 'left';
     ctx.fillStyle = '#fff';
     ctx.strokeStyle = 'rgba(0,0,0,0.8)';
     ctx.lineWidth = 4;
-    ctx.strokeText(`${Math.round(st.power * 100)}%`, e.x + 18, e.y + 5);
-    ctx.fillText(`${Math.round(st.power * 100)}%`, e.x + 18, e.y + 5);
-    if (tr.armed) label('CLICK WHERE IT ENDS', W / 2, Math.min(ay + need * 0.6 + 44, H - S.dock - 14), '#f2c14e', Math.min(22, W / 15));
+    ctx.strokeText(`${Math.round(st.power * 100)}%`, e.x + 16, e.y + 5);
+    ctx.fillText(`${Math.round(st.power * 100)}%`, e.x + 16, e.y + 5);
+    const hint = sw.armed ? 'CLICK TO LET GO' : st.depth < SWING.minBack ? 'DRAG DOWN' : st.phase === 'back' ? 'NOW BACK UP' : 'LET GO';
+    label(hint, W / 2, Math.min(target + 44, H - S.dock - 14), '#f2c14e', Math.min(22, W / 15));
     ctx.restore();
     return;
+  }
+  if (m.padSwing && m.padSwing.peak > 0.1) { // a controller: the stick pulled back sets the power
+    const mark = ay + m.padSwing.peak * need;
+    ctx.strokeStyle = 'rgba(242,193,78,0.9)';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(ax, mark);
+    ctx.stroke();
+    ctx.fillStyle = '#f2c14e';
+    ctx.beginPath();
+    ctx.arc(ax, mark, 9, 0, Math.PI * 2);
+    ctx.fill();
+    label(`${Math.round((m.padSwing.peak / PAD_SWING_RATIO) * 100)}%  NOW PUSH FORWARD`, W / 2, Math.min(ay + need + 44, H - S.dock - 14), '#f2c14e', Math.min(22, W / 15));
   }
   if (!d) {
     const pulse = (performance.now() / 700) % 1;
@@ -2643,8 +2688,21 @@ function setInput(kind) { // 'touch' | 'mouse' | 'key' | 'pad': what the player 
   S.input = kind;
   showKeys();
 }
-const KEYMAP = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down', Enter: 'confirm', ' ': 'confirm', Escape: 'back', Backspace: 'back', PageUp: 'prev', PageDown: 'next', '[': 'prev', ']': 'next' };
+const KEYMAP = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down', Enter: 'confirm', ' ': 'confirm', Escape: 'back', Backspace: 'back', PageUp: 'prev', PageDown: 'next', '[': 'prev', ']': 'next', a: 'prev', d: 'next', w: 'catPrev', s: 'catNext' }; // (A and D change disc, W and S change kind of disc, as in Disc Golf Masters)
 
+// the first disc of the next (or previous) kind in the bag: putters, midranges, fairway and distance drivers
+function selectKind(step) {
+  const list = available().map((x) => x.disc).sort((p, q) => p.speed - q.speed || p.name.localeCompare(q.name));
+  if (!list.length) return;
+  const cur = DISCS.get(S.discId);
+  const kinds = [...new Set(list.map((d) => (d.speed <= 4 ? 'p' : d.speed <= 6 ? 'm' : d.speed <= 9 ? 'f' : 'd')))];
+  const kindOf = (d) => (d.speed <= 4 ? 'p' : d.speed <= 6 ? 'm' : d.speed <= 9 ? 'f' : 'd');
+  const i = kinds.indexOf(kindOf(cur));
+  const k = kinds[(i + step + kinds.length) % kinds.length];
+  S.discId = list.find((d) => kindOf(d) === k).id;
+  renderPanel(`[data-disc="${S.discId}"]`);
+  retarget(false);
+}
 function selectDisc(step) {
   const list = available();
   if (!list.length) return;
@@ -2687,7 +2745,7 @@ function act(name, o = {}) {
     else if (name === 'up') kb().power = clamp(Math.round((kb().power + 0.03 * amt) * 100) / 100, 0.15, 2);
     else if (name === 'down') kb().power = clamp(Math.round((kb().power - 0.03 * amt) * 100) / 100, 0.15, 2);
     else if (name === 'confirm') { finishSwipe({ aim: kb().aim, power: kb().power }); return true; }
-    else if (name === 'back') { m.kb = null; m.trace = null; return true; }
+    else if (name === 'back') { m.kb = null; m.swing = null; m.padSwing = null; return true; }
     else return false;
     return true;
   }
@@ -2695,6 +2753,7 @@ function act(name, o = {}) {
     if (name === 'left' || name === 'right') { if (inPutt()) return false; setAim(S.aimOff + (name === 'left' ? -amt : amt)); return true; }
     if (name === 'up' || name === 'prev') { selectDisc(-1); return true; }
     if (name === 'down' || name === 'next') { selectDisc(1); return true; }
+    if (name === 'catPrev' || name === 'catNext') { selectKind(name === 'catPrev' ? -1 : 1); return true; }
     if (name === 'confirm') { panel().querySelector('[data-go], [data-next-step]')?.click(); return true; }
     if (name === 'back' && isPhone() && S.step !== 'disc') { S.step = S.step === 'aim' ? 'grip' : 'disc'; renderPanel(); return true; }
     return false;
@@ -2718,6 +2777,7 @@ function onKey(e) {
 
 // a controller, polled every frame: buttons act once, the d-pad repeats while held, and a stick moves things smoothly
 const pad = { prev: {}, hold: {}, last: 0, aimF: 0, name: '' };
+const PAD_SWING_RATIO = 0.8; // the stick pulled this far back (0 to 1) is exactly enough power
 const PAD_BUTTONS = { confirm: 0, back: 1, prev: 4, next: 5, up: 12, down: 13, left: 14, right: 15 };
 function pollPad(t) {
   const list = navigator.getGamepads ? navigator.getGamepads() : [];
@@ -2744,20 +2804,23 @@ function pollPad(t) {
   const ry = Math.abs(g.axes[3] ?? 0) > 0.2 ? g.axes[3] : 0;
   const rmag = Math.hypot(rx, ry);
   if (lx || ly || rmag) used = true;
-  if (S.phase === 'swipe' && S.meter && !S.meter.trace?.armed && !S.meter.drag) { // the right stick traces the line: push it up and let it come back (it counts at its farthest)
+  if (S.phase === 'swipe' && S.meter && !S.meter.swing && !S.meter.drag) { // the right stick swings: pull it back (down), then push it forward (up): the pull is the power, the side it points on the way up is the aim
     const m = S.meter;
-    const an = swipeAnchor();
-    if (!m.trace && rmag > 0.35) m.trace = { pts: [{ x: an.x, y: an.y }], held: true, armed: false, pad: true, peak: 0, peakI: 1 };
-    const tr = m.trace;
-    if (tr?.pad) {
-      if (rmag > tr.peak) { tr.peak = rmag; tr.pts.push({ x: an.x + rx * swipeNeed() * 1.2, y: an.y + ry * swipeNeed() * 1.2 }); tr.peakI = tr.pts.length; }
-      else if (rmag < tr.peak * 0.6) { const pts = tr.pts.slice(0, tr.peakI); m.trace = null; commitTrace(pts); return; }
+    const ps = (m.padSwing ||= { peak: 0 });
+    if (ry > 0.3) ps.peak = Math.max(ps.peak, ry);
+    else if (rmag < 0.12) ps.peak = 0; // let go without pushing forward: start again
+    if (ps.peak > 0.3 && ry < -0.35) {
+      const aim = clamp(Math.round(rx * 35 * 10) / 10, -45, 45);
+      const power = Math.round((ps.peak / PAD_SWING_RATIO) * 1000) / 1000;
+      m.padSwing = null;
+      finishSwipe({ aim, power });
+      return;
     }
   }
   if (S.phase === 'pick' && lx && !inPutt()) {
     pad.aimF += lx * dt * 45;
     if (Math.abs(pad.aimF) >= 1) { const n = Math.trunc(pad.aimF); pad.aimF -= n; setAim(S.aimOff + n); }
-  } else if (S.phase === 'swipe' && S.meter && (lx || ly) && !S.meter.trace) {
+  } else if (S.phase === 'swipe' && S.meter && (lx || ly) && !S.meter.swing && !S.meter.padSwing?.peak) {
     const kb = (S.meter.kb ||= { aim: 0, power: 1 });
     kb.aim = clamp(kb.aim + lx * dt * 40, -45, 45);
     kb.power = clamp(kb.power - ly * dt * 0.7, 0.15, 2);
@@ -2776,7 +2839,7 @@ function showKeys() {
   if (!(S.input === 'key' || isPad) || !S.round) { el.hidden = true; return; }
   const [L, R, U, D, OK] = isPad ? ['◀', '▶', '▲', '▼', 'A'] : ['←', '→', '↑', '↓', 'Enter'];
   const text = isMeter() ? `${isPad ? 'A' : 'Space or Enter'}: tap`
-    : S.phase === 'swipe' ? (isPad ? `right stick up: trace · left stick: aim, power · ${OK}: throw` : `${L} ${R} aim · ${U} ${D} power · ${OK}: throw`)
+    : S.phase === 'swipe' ? (isPad ? `right stick: pull back, push forward · left stick: aim, power · ${OK}: throw` : `${L} ${R} aim · ${U} ${D} power · ${OK}: throw`)
       : S.phase === 'pick' ? `${L} ${R} aim · ${U} ${D} disc · ${OK}: ${inPutt() ? 'putt' : 'next / throw'}`
         : S.phase === 'flight' ? `${OK}: skip` : isPad ? `${U} ${D} choose · A: select` : '';
   el.textContent = text;
@@ -3568,6 +3631,7 @@ async function boot() {
   p.addEventListener('pointerdown', (e) => { if (e.target.closest('[data-tap], .gm-bar, #gm-putt') && isMeter()) { e.preventDefault(); tap(); } });
   p.addEventListener('keydown', (e) => { if (e.target.matches('[data-tap]') && (e.key === ' ' || e.key === 'Enter')) e.preventDefault(); });
   document.addEventListener('keydown', onKey);
+  cv.addEventListener('contextmenu', (e) => e.preventDefault()); // a right click is a throw, not a menu
   document.addEventListener('pointerdown', (e) => { S.pointerKind = e.pointerType; setInput(e.pointerType === 'touch' ? 'touch' : 'mouse'); }, true);
   cv.addEventListener('pointerdown', (e) => {
     if (riding()) { S.anim.t0 -= 1e7; return; } // tap to skip the ride
