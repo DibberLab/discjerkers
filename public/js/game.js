@@ -4,15 +4,17 @@
 
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
-import { HOLES, holeById, holesFor } from './course.js?v=10';
-import * as G from './gamecore.js?v=22';
-import * as T from './trash.js?v=5';
-import * as C3 from './cam3d.js?v=14';
-import * as PF from './puttfx.js?v=10';
-import * as GR from './ground.js?v=3';
+import { HOLES, holeById, holesFor } from './course.js?v=11';
+import * as G from './gamecore.js?v=24';
+import * as T from './trash.js?v=6';
+import * as C3 from './cam3d.js?v=15';
+import * as PF from './puttfx.js?v=11';
+import * as GR from './ground.js?v=4';
 import * as SND from './sound.js?v=2';
 import * as MB from './marebear.js?v=1';
-import * as K from './conditions.js?v=1';
+import * as K from './conditions.js?v=2';
+import * as DLY from './daily.js?v=1';
+import * as GP from './gamepanels.js?v=1';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -103,6 +105,11 @@ const S = {
   trail: [],
   fx: [],
   bear: null,
+  daily: { data: null, loading: false, msg: '' }, // the daily course screen
+  standings: { data: null, loading: false, msg: '' },
+  dailyPost: null, // what happened when a finished daily run was posted
+  bet: null, // Marebear's bet on this hole: { key, holeId, kind, text, status: 'offer' | 'taken' | 'declined', settled }
+  replay: null, // a throw being watched again: { phase, hole }
   pop: null, // Marebear popping up from the bottom of the screen to comment: { t0, text, to, mood, dur, side }
   toast: { text: '', until: 0 },
   best: null,
@@ -159,6 +166,7 @@ function suggest() {
 // a new hole: a fresh round of it, with the discs Marebear has already pocketed staying gone
 function startHole() {
   S.hole = holeNow(S.course.holes[S.course.idx]); // the day's conditions on this hole
+  S.bet = null;
   S.quip = '';
   S.round = G.newRound(S.hole);
   S.round.eaten = [...(S.course?.eaten || [])];
@@ -176,6 +184,51 @@ function startHole() {
   setPhase('pick');
   retarget(true);
   if (S.course.holes.length > 1) toast(`Hole ${S.hole.id}: ${S.hole.name}`, '', 1700);
+}
+
+/* ----- Marebear Bucks and her bets ----- */
+
+// Her bets are a game of their own: a stake in Marebear Bucks (kept in this browser), won or lost on how a hole goes. They do not touch the match.
+const bucks = () => { try { return Math.max(0, Number(localStorage.getItem('dj_bucks')) || 0); } catch { return 0; } };
+const setBucks = (n) => { try { localStorage.setItem('dj_bucks', String(Math.max(0, Math.round(n)))); } catch { /* not saved */ } };
+const betKey = () => (S.mode === 'match' && S.mp ? `m${S.mp.view.id}:${S.mp.view.holeIdx}` : `s${S.course?.seed ?? 'c'}:${S.course?.idx ?? 0}:${S.hole.id}`);
+// this hole's bet (made the first time it is looked at, before your first throw)
+function betNow() {
+  if (!S.round || !S.course) return null;
+  const key = betKey();
+  if (S.bet?.key === key) return S.bet;
+  if (S.round.strokes > 0 || S.round.throws.length) return null;
+  const kind = T.betKind(S.hole.par);
+  S.bet = { key, holeId: S.hole.id, kind, text: T.betOffer(kind, Math.random, S.lastQuip), status: 'offer', settled: false };
+  return S.bet;
+}
+function betHtml() {
+  const b = betNow();
+  if (!b || b.status === 'declined') return '';
+  const t = T.BETS[b.kind];
+  if (b.status === 'taken') return `<p class="gm-note gm-bet-on">Bet on with Marebear: you ${t.text}. Win +${t.win}, lose −${t.lose}.</p>`;
+  return `<div class="gm-bet"><p><b>Marebear's bet:</b> “${esc(b.text)}”<small>You ${t.text}: win +${t.win}, lose −${t.lose} (you have ${bucks()} Marebear Bucks).</small></p><div class="gm-bet__go"><button class="chip" type="button" data-bet="take">Take it</button><button class="chip" type="button" data-bet="no">No thanks</button></div></div>`;
+}
+function answerBet(take) {
+  const b = S.bet;
+  if (!b || b.status !== 'offer') return;
+  b.status = take ? 'taken' : 'declined';
+  say(T.betRemark(take ? 'taken' : 'declined', Math.random, S.lastQuip), 'bad');
+  renderPanel();
+}
+// the hole is over: who won the bet
+function settleBet(strokes, par, holed, holeId) {
+  const b = S.bet;
+  if (!b || b.status !== 'taken' || b.settled || b.holeId !== holeId) return;
+  b.settled = true;
+  const t = T.BETS[b.kind];
+  const won = T.betWon(b.kind, strokes, par, holed);
+  const before = bucks();
+  const delta = won ? t.win : -Math.min(t.lose, before);
+  setBucks(before + delta);
+  toast(won ? `Bet won: +${t.win} Marebear Bucks` : `Bet lost: −${-delta} Marebear Bucks`, won ? 'good' : 'bad', 2600);
+  setTimeout(() => { if (S.round) say(T.betRemark(won ? 'won' : 'lost', Math.random, S.lastQuip), won ? 'good' : 'bad'); }, 2800); // after her word on the hole itself
+  SND.play(won ? 'ding' : 'womp');
 }
 
 /* ----- conditions: the day's wind, rain, light, pin and mando (conditions.js) come from a seed ----- */
@@ -339,7 +392,7 @@ function panelPickPhone() {
   const leave = S.mode === 'match' ? '<button class="chip" type="button" data-mp-leave>Forfeit</button>' : '<button class="chip" type="button" data-quit>Quit</button>';
   let body;
   if (S.step === 'disc') {
-    body = `${bagBar()}${discRow()}${pickInfo(d, { wind: G.windFor(S.hole, heading()) }, putting)}${putting && puttDd() > G.LONG_PUTT ? '<p class="gm-note">Past 30 feet the target is a pinprick.</p>' : ''}${slopeNote()}`;
+    body = `${betHtml()}${bagBar()}${discRow()}${pickInfo(d, { wind: G.windFor(S.hole, heading()) }, putting)}${putting && puttDd() > G.LONG_PUTT ? '<p class="gm-note">Past 30 feet the target is a pinprick.</p>' : ''}${slopeNote()}`;
   } else if (S.step === 'grip') {
     body = `${gripChips()}<p class="gm-note">Backhand or forehand, and which hand. The flight bends the other way for a lefty.</p>`;
   } else {
@@ -371,6 +424,7 @@ function panelPick() {
       ${pickInfo(d, plan, putting)}
       ${slopeNote()}
     </div>
+    ${betHtml()}
     ${putting
       ? `<p class="gm-sub"><b>${ft(dist)}</b> from the basket. One tap: catch the dot inside the green circle as it swirls past. Short putts get a big target and a slow dot; a faster disc shrinks it.${dist > G.LONG_PUTT ? ' <b>Past 30 feet it is a long shot: the target is a pinprick and the dot flies.</b>' : ''}</p>`
       : settingsBlock()}
@@ -386,6 +440,7 @@ function panelMenu() {
     <div class="gm-card">
       <h2>Play the course</h2>
       <p>Eighteen holes of woods, hills, water and wind. Pick a round, bring your bag, and try not to triple bogey: Marebear is watching, and she has a handbag.</p>
+      <button class="btn" type="button" data-daily>Daily course<small>nine holes, the same for everyone today · a leaderboard</small></button>
       <button class="btn" type="button" data-solo="3">Quick warm-up<small>3 holes, about 5 minutes</small></button>
       <button class="btn btn--ghost" type="button" data-quick-friend>Play a friend now<small>one tap: a 9-hole match and a link to send</small></button>
       <div class="gm-menu">
@@ -393,6 +448,7 @@ function panelMenu() {
         <button class="btn" type="button" data-solo="18">Full 18<small>par ${parTotal(HOLES)}</small></button>
       </div>
       <button class="btn btn--ghost" type="button" data-versus>Play with friends <small>up to 8 players, turn by turn</small></button>
+      <p class="gm-note">Marebear Bucks: <b>${bucks()}</b> · she bets on every hole.</p>
       <label class="gm-check"><input type="checkbox" data-cond${condOn() ? ' checked' : ''}> <span>Varied conditions: each round has its own wind, rain, pin positions, a mando here and there, and dusk on the last holes.</span></label>
       <div class="gm-row">
         <label class="gm-practice"><span class="fg-wind__l">Practice a hole</span><select data-practice aria-label="Which hole">${options}</select></label>
@@ -574,12 +630,15 @@ function panelSummary() {
   const unfinished = c.card.some((h) => !h.holed) || c.card.length < c.holes.length;
   const best = S.best;
   return `<div class="gm-card">
-      <h2 class="${total <= par ? 'is-good' : 'is-bad'}">${c.length === 1 ? 'Hole done' : c.length === 3 ? 'Warm-up done' : c.length === 9 ? 'Front nine' : 'Round complete'}</h2>
+      <h2 class="${total <= par ? 'is-good' : 'is-bad'}">${c.daily ? 'Daily course' : c.length === 1 ? 'Hole done' : c.length === 3 ? 'Warm-up done' : c.length === 9 ? 'Front nine' : 'Round complete'}</h2>
       <div class="gm-score"><div><b>${total}</b><span>Strokes</span></div><div><b>${par}</b><span>Par</span></div><div><b>${vsPar(total - par)}</b><span>To par</span></div></div>
+      ${c.daily ? dailyPostHtml() : ''}
+      ${highlightHtml(c.best && { move: c.best.move, hole: c.best.hole.name })}
       ${best ? `<p>Best ${c.length === 1 ? 'on this hole' : `${c.length}-hole round`}: <b>${best}</b>${!unfinished && total <= best ? ' (that is you, right now)' : ''}</p>` : ''}
       <ol class="gm-card-list">${rows}</ol>
       ${unfinished ? '<p>* Marebear took your bag, so the rest of the round does not count for much.</p>' : ''}
       <button class="btn" type="button" data-again>Play it again</button>
+      ${c.daily ? '<button class="btn btn--ghost" type="button" data-daily>The daily board</button>' : ''}
       <button class="btn btn--ghost" type="button" data-menu>Back to the menu</button>
     </div>`;
 }
@@ -588,7 +647,7 @@ function renderPanel(focusSel) {
   const p = panel();
   if (!p) return;
   const keepScroll = p.dataset.phase === S.phase ? p.scrollTop : 0;
-  const views = { menu: panelMenu, pick: panelPick, power: panelMeter, nose: panelMeter, angle: panelMeter, release: panelMeter, putt: panelMeter, swipe: panelSwipe, flight: panelFlight, result: panelResult, bear: panelBear, done: panelDone, summary: panelSummary, lobby: panelLobby, mwait: panelMwait, mturn: panelMturn, mhole: panelMhole, mdone: panelMdone };
+  const views = { menu: panelMenu, pick: panelPick, power: panelMeter, nose: panelMeter, angle: panelMeter, release: panelMeter, putt: panelMeter, swipe: panelSwipe, flight: panelFlight, result: panelResult, bear: panelBear, done: panelDone, summary: panelSummary, lobby: panelLobby, mwait: panelMwait, mturn: panelMturn, mhole: panelMhole, mdone: panelMdone, daily: panelDaily, standings: panelStandings };
   p.innerHTML = (views[S.phase] || (() => ''))();
   p.dataset.phase = S.phase;
   p.scrollTop = keepScroll;
@@ -1052,11 +1111,17 @@ function puttReaction(result, who, name = '') {
 }
 
 function finishThrow() {
+  if (S.replay) { endReplay(); return; }
   if (S.mode === 'match') { finishMove(); return; }
   const { result, disc, from } = S.last;
   const out = G.applyResult(S.round, disc, result);
   const ev = T.eventFor({ kind: result.kind, putt: !result.plan, made: result.made, gimme: result.gimme, ex: S.last.ex, strokes: S.round.strokes, dist: result.dist, surface: result.surface, rim: result.rim, nasty: result.nasty, why: result.why });
   landSounds(result, ev);
+  if (S.course) { // keep the best throw of the round, to watch again
+    const mv = moveOf(result, disc, from, S.last.ex);
+    const sc = G.highlightScore(mv);
+    if (sc > (S.course.best?.score || 0)) S.course.best = { score: sc, move: mv, hole: S.hole };
+  }
   say(T.remark(ev, { who: 'me' }, Math.random, S.lastQuip), GOOD_EVENTS.has(ev) ? 'good' : 'bad');
   S.trail.push({ pts: [...result.pts ?? [], ...(result.roll ?? [])], kind: result.kind, n: S.round.throws.length, from });
   const at = result.end ?? result.lie;
@@ -1086,6 +1151,7 @@ function finishHole() {
   c.eaten = [...r.eaten];
   if (r.holed) toast(G.scoreName(r.strokes, S.hole.par), r.strokes <= S.hole.par ? 'good' : 'bad', 2400);
   say(T.holeRemark(r.strokes, S.hole.par, r.holed, Math.random, S.lastQuip), holeMood(r.strokes, S.hole.par, r.holed));
+  settleBet(r.strokes, S.hole.par, r.holed, S.hole.id);
   if (r.holed && r.strokes <= S.hole.par - 2) SND.play('fanfare'); else if (r.holed && r.strokes < S.hole.par) SND.play('ding');
   setPhase('done');
   retarget(false);
@@ -1096,6 +1162,7 @@ function finishCourse() {
   const c = S.course;
   const total = c.card.reduce((n, h) => n + h.score, 0);
   const complete = c.card.length === c.holes.length && c.card.every((h) => h.holed);
+  if (c.daily) { postDaily(); S.best = null; setPhase('summary'); retarget(false); return; } // the daily has a board, not a personal best
   try {
     const prev = Number(localStorage.getItem(bestKey())) || null;
     if (complete && (!prev || total < prev)) localStorage.setItem(bestKey(), String(total));
@@ -2124,6 +2191,16 @@ function onPanelClick(e) {
     startMeter();
   } else if (t.closest('[data-next]')) {
     next();
+  } else if (t.closest('[data-daily-play]')) {
+    playDaily();
+  } else if (t.closest('[data-daily]')) {
+    openDaily();
+  } else if (t.closest('[data-standings]')) {
+    openStandings();
+  } else if (t.closest('[data-bet]')) {
+    answerBet(t.closest('[data-bet]').dataset.bet === 'take');
+  } else if (t.closest('[data-replay]')) {
+    replayBest();
   } else if (t.closest('[data-quick-friend]')) {
     quickFriend();
   } else if (t.closest('[data-versus]') || t.closest('[data-lobby]')) {
@@ -2174,7 +2251,7 @@ function onPanelClick(e) {
     btn.textContent = 'Really?';
     setTimeout(() => { if (btn.isConnected) { delete btn.dataset.armed; btn.textContent = 'Quit'; } }, 3000);
   } else if (t.closest('[data-again]')) {
-    startSolo(S.course?.length || 18, S.course?.holes[0].id);
+    if (S.course?.daily) playDaily(); else startSolo(S.course?.length || 18, S.course?.holes[0].id);
   } else if (t.closest('[data-tip-close]')) {
     try { localStorage.setItem('dj_game_tip', '1'); } catch { /* shown again */ }
     renderPanel();
@@ -2265,6 +2342,71 @@ function resetStage() {
   S.discId = null;
   try { history.replaceState(null, '', '/game'); } catch { /* fine */ }
 }
+
+/* ----- the daily course, and the season ----- */
+
+const dailyPlanNow = () => { const plan = DLY.dailyPlan(DLY.dayKey()); return { ...plan, holes: plan.holeIds.map((id) => holeById(id)) }; };
+
+function openDaily() {
+  resetStage();
+  S.mode = 'lobby';
+  S.daily = { data: null, loading: !!account.user, msg: '' };
+  setPhase('daily');
+  retarget(true);
+  if (account.user) refreshDaily();
+}
+async function refreshDaily() {
+  try { S.daily.data = await gapi('/daily'); S.daily.msg = ''; } catch (err) { S.daily.msg = err.message; }
+  S.daily.loading = false;
+  if (S.phase === 'daily') renderPanel();
+}
+const panelDaily = () => {
+  const plan = dailyPlanNow();
+  return GP.dailyHtml({ plan: { day: plan.day, holes: plan.holes }, data: S.daily.data, signedIn: !!account.user, loading: S.daily.loading, msg: S.daily.msg, closesIn: DLY.nextDailyAt() - Date.now() });
+};
+// play today's nine: the same holes, in the same order, on the same seed, for everyone
+function playDaily() {
+  const plan = dailyPlanNow();
+  S.mode = 'solo';
+  S.dailyPost = null;
+  S.course = { length: 9, holes: plan.holes, idx: 0, card: [], eaten: [], seed: plan.seed, daily: plan.day };
+  S.hole = plan.holes[0];
+  startHole();
+}
+// a finished daily run goes on the board (the first one each day counts)
+async function postDaily() {
+  const c = S.course;
+  if (!account.user) { S.dailyPost = { state: 'signin' }; return; }
+  const card = c.holes.map((h, i) => { const e = c.card[i]; return { hole: h.id, strokes: e ? e.strokes : 1, holed: e ? e.holed : false }; }); // a hole not played is the worst a hole can be
+  S.dailyPost = { state: 'posting' };
+  try {
+    const r = await gapi('/daily/score', { method: 'POST', body: { day: c.daily, card } });
+    S.dailyPost = { state: 'done', ...r };
+  } catch (err) {
+    S.dailyPost = { state: err.status === 409 ? 'already' : 'error', msg: err.message };
+  }
+  if (S.phase === 'summary') renderPanel();
+}
+const dailyPostHtml = () => {
+  const d = S.dailyPost;
+  if (!d) return '';
+  if (d.state === 'posting') return '<p class="gm-note">Posting your score…</p>';
+  if (d.state === 'signin') return '<p class="gm-note">Sign in and play again to post a score to the board. <button class="chip" type="button" data-signin>Sign in</button></p>';
+  if (d.state === 'already') return '<p class="gm-note">You already have a score on today\'s board: your first run counts.</p>';
+  if (d.state === 'error') return `<p class="gm-error">${esc(d.msg)}</p>`;
+  const you = d.board.you;
+  return `<p>Posted: <b>${d.total}</b>, <b>${you.rank}</b> of ${d.board.entries} on today's board.</p>${GP.dailyHtml ? `<ol class="gm-vs-list gm-board">${d.board.top.slice(0, 5).map((e) => `<li class="${e.you ? 'is-me' : ''}"><span>${e.rank}. ${esc(e.name)}${e.you ? ' (you)' : ''}</span><span>${vsPar(e.total - e.par)}</span><b>${e.total}</b></li>`).join('')}</ol>` : ''}`;
+};
+
+function openStandings() {
+  resetStage();
+  S.mode = 'lobby';
+  S.standings = { data: null, loading: true, msg: '' };
+  setPhase('standings');
+  retarget(true);
+  gapi('/standings').then((d) => { S.standings.data = d; }).catch((err) => { S.standings.msg = err.message; }).finally(() => { S.standings.loading = false; if (S.phase === 'standings') renderPanel(); });
+}
+const panelStandings = () => GP.standingsHtml(S.standings);
 
 /* ----- the lobby ----- */
 
@@ -2441,6 +2583,17 @@ function applyView(view) {
     S.round = { hole: S.hole, lie: { ...r.lie }, strokes: r.strokes, throws: r.throws, eaten: [...r.eaten], bearCame: r.bearCame, done: r.done, holed: r.holed };
     const path = (tr) => tr.map((t) => ({ pts: t.pts.map(([x, y]) => ({ x, y })), kind: t.kind, n: t.n }));
     S.trail = path(view.round.trails[me] || []);
+    const stoleKey = `${view.id}:${view.holeIdx}`;
+    if (mp.stoleKey !== stoleKey) { // Marebear borrows the leader's fastest disc for a hole
+      mp.stoleKey = stoleKey;
+      for (const p of view.players) {
+        const sid = view.round.rounds[p.uid]?.stolen;
+        if (!sid) continue;
+        const nm = splitName(DISCS.get(sid)?.name || 'disc');
+        if (p.uid === me) setTimeout(() => popUp(`Sorry, sugar, I am borrowing your ${nm} for this hole. You are doing far too well.`, '', 'bad'), 1900);
+        else setTimeout(() => toast(`Marebear took ${p.name}'s ${nm} for this hole`, '', 2600), 1900);
+      }
+    }
     S.others = view.players.filter((p) => p.uid !== me && !p.left && view.round.rounds[p.uid]).map((p) => {
       const o = view.round.rounds[p.uid];
       return { uid: p.uid, name: p.name, color: colorOf(p.uid, view), lie: { ...o.lie }, strokes: o.strokes, done: o.done, holed: o.holed, trail: path(view.round.trails[p.uid] || []) };
@@ -2500,13 +2653,9 @@ function drainQueue() {
 }
 
 // show a move on the course: mine the moment the server answers, theirs the moment it reaches me
-function startMoveAnim(view, last, who) {
-  const mp = S.mp;
-  mp.shownSeq = last.seq;
-  mp.view = view;
+// the animation of a move the server recorded (or one of ours kept for a replay): where the disc goes, and the result it comes to
+function buildMoveAnim(last, hole, who) {
   const disc = DISCS.get(last.discId);
-  const hole = matchHole(last.holeId, view);
-  S.hole = hole;
   const to = last.made ? hole.basket : last.lie;
   const pts = last.putt
     ? Array.from({ length: 21 }, (_, i) => { const t = i / 20; return { x: last.from.x + (to.x - last.from.x) * t, y: last.from.y + (to.y - last.from.y) * t, h: 3 + 5 * 4 * t * (1 - t), s: t }; })
@@ -2514,17 +2663,73 @@ function startMoveAnim(view, last, who) {
   const roll = last.roll.map(([x, y]) => ({ x, y }));
   const result = { kind: last.kind, pts, roll, end: last.end, lie: last.lie, strokes: last.strokes, made: last.made, gimme: last.gimme, finish: last.finish, rim: last.rim, nasty: last.nasty, why: last.why, dist: last.dist, plan: last.putt ? undefined : { feet: last.feet } };
   S.last = { result, ex: last.ex, disc, from: last.from, who };
-  const name = who === 'me' ? '' : `${playerOf(who, view).name}: `;
   if (last.putt) {
     S.anim = puttAnim(last.from, result, last.lie, who);
-    puttReaction(result, who, name);
   } else {
     S.anim = { type: 'flight', t0: now(), dur: camDur(clamp(900 + last.feet * 4.2, 1200, 3300)) * (last.kind === 'basket' ? 1.5 : 1), pts, roll, result, putt: false, cine: last.kind === 'basket' };
     SND.play('throw', 0.6);
-    toast(`${name}${last.ex?.grade || ''}`, last.ex?.pure ? 'good' : last.ex?.slip || last.ex?.grade === 'Shank' ? 'bad' : '', 1400);
   }
+  return { result, pts };
+}
+
+function startMoveAnim(view, last, who) {
+  const mp = S.mp;
+  mp.shownSeq = last.seq;
+  mp.view = view;
+  const hole = matchHole(last.holeId, view);
+  S.hole = hole;
+  const { result, pts } = buildMoveAnim(last, hole, who);
+  const name = who === 'me' ? '' : `${playerOf(who, view).name}: `;
+  if (last.putt) puttReaction(result, who, name);
+  else toast(`${name}${last.ex?.grade || ''}`, last.ex?.pure ? 'good' : last.ex?.slip || last.ex?.grade === 'Shank' ? 'bad' : '', 1400);
   setPhase('flight');
   retarget(false, pts);
+}
+
+/* ----- the throw of the round (or the match), to watch again ----- */
+
+const r1n = (n) => Math.round(n * 10) / 10;
+// one of my throws, in the shape a match records, so it can be kept and played back the same way
+function moveOf(result, disc, from, ex) {
+  const putt = !result.plan;
+  const at = result.end ?? result.lie;
+  return {
+    seq: 0, discId: disc.id, holeId: S.hole.id, from: { x: from.x, y: from.y }, kind: result.kind, putt,
+    ex: ex ? { grade: ex.grade, pure: ex.pure, slip: ex.slip, swipe: ex.swipe, swipeAim: ex.swipeAim, swipeSpeed: ex.swipeSpeed } : null,
+    feet: putt ? null : Math.round(result.plan.feet), pts: putt ? [] : result.pts.map((p) => [r1n(p.x), r1n(p.y), r1n(p.h)]), roll: (result.roll || []).map((p) => [r1n(p.x), r1n(p.y)]),
+    end: { x: r1n(at.x), y: r1n(at.y) }, lie: { x: r1n(result.lie.x), y: r1n(result.lie.y) }, strokes: result.strokes, made: result.made, gimme: result.gimme, zone: result.zone, finish: result.finish, rim: result.rim, nasty: result.nasty, why: result.why, dist: result.dist,
+  };
+}
+function highlightHtml(h) {
+  if (!h?.move || !G.highlightScore(h.move)) return '';
+  return `<p class="gm-note gm-replay">Throw of the ${S.mode === 'match' ? 'match' : 'round'}: ${h.who ? `${esc(h.who)}, ` : ''}${esc(GP.highlightLabel(h.move, h.hole))}. <button class="chip" type="button" data-replay>Watch it</button></p>`;
+}
+function replayBest() {
+  if (S.mode === 'match' && S.mp?.view.best) {
+    const v = S.mp.view;
+    const b = v.best.last;
+    replayMove(b, K.holeOn(v.seed, holeById(b.holeId), { idx: b.holeId - 1, n: v.holes }));
+  } else if (S.course?.best) {
+    replayMove(S.course.best.move, S.course.best.hole);
+  }
+}
+function replayMove(last, hole) {
+  if (S.anim) return;
+  S.replay = { phase: S.phase, hole: S.hole };
+  S.hole = hole;
+  const { pts } = buildMoveAnim(last, hole, 'me');
+  setPhase('flight');
+  retarget(false, pts);
+}
+function endReplay() {
+  const r = S.replay;
+  S.replay = null;
+  if (S.last) landSounds(S.last.result, null);
+  S.anim = null;
+  S.last = null;
+  S.hole = r.hole;
+  setPhase(r.phase);
+  retarget(true);
 }
 
 // the disc has landed
@@ -2557,6 +2762,11 @@ function afterMove() {
   const last = mp.view.last;
   if (last && last.holeEnd && mp.holeSeen !== last.seq) {
     mp.holeSeen = last.seq;
+    const he = last.holeEnd;
+    const kp = he.par === 3 ? GP.closestToPin(he.results, (u) => playerOf(u, mp.view)?.name || '') : null;
+    if (kp) { mp.kps = mp.kps || {}; mp.kps[kp.uid] = (mp.kps[kp.uid] || 0) + 1; }
+    const mineHole = he.results.find((r) => r.uid === mp.me);
+    if (mineHole) settleBet(mineHole.strokes, he.par, mineHole.holed, he.holeId);
     say(matchHoleRemark(last.holeEnd, mp.view), 'sly');
     setPhase('mhole');
     return;
@@ -2677,6 +2887,11 @@ function matchEndRemark(v) {
   return T.matchRemark(winners[0] === me ? 'win' : 'lose', { name: winners[0] === me ? (other?.name || '') : playerOf(winners[0], v)?.name || '' }, Math.random, S.lastQuip);
 }
 
+// closest to the pin, on a par 3
+function kpLine(he, v) {
+  const kp = he.par === 3 ? GP.closestToPin(he.results, (u) => playerOf(u, v)?.name || '') : null;
+  return kp ? `<p class="gm-note">Closest to the pin: <b>${esc(kp.name)}</b>, ${Math.round(kp.feet)} ft.</p>` : '';
+}
 function panelMhole() {
   const v = S.mp.view;
   const he = v.last.holeEnd;
@@ -2693,6 +2908,7 @@ function panelMhole() {
   return `<div class="gm-card">
       <h2 class="${winners.length === 1 && winners[0].uid === S.mp.me ? 'is-good' : ''}">${title}</h2>
       <p>${esc(hole.name)}, par ${hole.par}.</p>
+      ${kpLine(he, v)}
       ${quipHtml()}
       <ol class="gm-vs-list">${rows}</ol>
       ${he.matchDone
@@ -2701,6 +2917,12 @@ function panelMhole() {
     </div>`;
 }
 
+function kpTally(v) {
+  const k = S.mp?.kps;
+  if (!k || !Object.keys(k).length) return '';
+  const parts = Object.entries(k).sort((a, b) => b[1] - a[1]).map(([uid, n]) => `${esc(playerOf(uid, v)?.name || '?')} ${n}`);
+  return `<p class="gm-note">Closest to the pin on the par 3s: ${parts.join(' · ')}.</p>`;
+}
 function panelMdone() {
   const v = S.mp.view;
   const me = S.mp.me;
@@ -2734,6 +2956,8 @@ function panelMdone() {
       <h2 class="${tone}">${headline}</h2>
       ${note ? `<p>${note}</p>` : ''}
       ${quipHtml()}
+      ${highlightHtml(v.best && { move: v.best.last, hole: holeById(v.best.last.holeId).name, who: playerOf(v.best.last.uid, v)?.name })}
+      ${kpTally(v)}
       <div class="gm-score"><div><b>${total(me)}</b><span>You</span></div><div><b>${rival ? total(rival.uid) : '–'}</b><span>${rival ? esc(rival.name.slice(0, 10)) : ''}${v.players.length > 2 ? ' (best of the rest)' : ''}</span></div><div><b>${vsPar(total(me) - par)}</b><span>You to par</span></div></div>
       ${board}
       ${rows ? `<ol class="gm-vs-list gm-vs-list--card"><li class="gm-vs-list__h"><span>Hole</span><span></span><b>You</b><b>${esc(rival ? rival.name.slice(0, 5) : '')}</b></li>${rows}</ol>` : ''}
@@ -2838,6 +3062,7 @@ async function boot() {
   cv.addEventListener('pointercancel', () => { if (S.meter) S.meter.drag = null; });
 
   onAccountChange(() => {
+    if (S.phase === 'daily') { if (account.user) { S.daily.loading = true; refreshDaily(); } renderPanel(); return; }
     if (!S.round) return;
     if (!account.user && (S.mode === 'match' || S.mode === 'lobby')) { showMenu(); return; }
     if (S.mode === 'match') return; // a match keeps the bag it started with

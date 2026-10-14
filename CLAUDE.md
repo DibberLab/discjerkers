@@ -192,6 +192,23 @@ that way; don't introduce React/Vite/Tailwind here.
   derive the same day with `holeFor(m, id)` / `matchHole`; a match with no seed is classic, so older matches go on as they were).
   A **mando** is a post with a ray on its forbidden side: a first throw (from before the post) that crosses the ray is `kind: 'mando'`: a
   penalty stroke and a re-throw (`resolveThrow`, like out of bounds). The test bot plays every hole on rain, gale, pin and mando days.
+- **The daily course** (`daily.js`, shared): one 9-hole round per UTC day, the same for everyone: `dailyPlan(day)` shuffles nine of the eighteen
+  holes by a seed made from the date, and that seed is the round's conditions seed (so everyone gets the same wind, rain, pins and mandos).
+  `GET /api/game/daily` gives the plan and the board; `POST /api/game/daily/score` takes `{ day, card: [{ hole, strokes, holed }] }`: the card is
+  checked for sense (right holes, 1-14 strokes each; an unfinished hole counts as par + 4), **the first run each day counts**, today's or
+  yesterday's day only. The meters are honor system, so this is a board for friends, not proof. Scores live in `data/game-ledger.json`
+  (`server/lib/ledger.js`, gitignored, atomic, kept 45 days). Not signed in you can still play it; you just cannot post.
+- **Standings**: finished matches (not forfeits) are put in the ledger once (`recordMatch`, hooked on the match store's `change`), kept 130 days;
+  `GET /api/game/standings?month=YYYY-MM`: a win is 3 points, a tie 1, ranked by points then strokes under par per hole.
+- **Throw of the match** (`highlightScore` in `gamecore.js`: an ace > a long putt going in > a long pure drive): the server keeps the best move of a
+  match as `best` (in the view when the match is done) and the page replays it (`replayMove`, which reuses `buildMoveAnim`); a solo round keeps its own
+  (`S.course.best`) and shows it on the scorecard.
+- **Closest to the pin** on a par 3 in a match: each hole's results carry `kp` (how near a clean first throw finished), the page names the winner
+  (`closestToPin` in `gamepanels.js`) and keeps a tally. **Marebear borrows a disc**: from hole 3 of a match, when one player leads by 3 strokes or
+  more, she takes their fastest disc for that hole (`steal` in `matches.js`; `round.rounds[uid].stolen`, in `eaten` for the hole only, not carried).
+- **Marebear's bets** (`BETS`, `betKind`, `betWon` in `trash.js`): before your first throw on a hole she bets you cannot make par (+3/-2),
+  cannot make bogey (+1/-3) or cannot birdie (+8/-1) and you can take it or not. The stake is Marebear Bucks (`dj_bucks`, in this browser only,
+  never negative). It is a game of its own: it does not change the match or the score.
 - **Quick start**: "Quick warm-up" is three holes (`WARMUP` in `course.js`: 1, 2, 5); "Play a friend now" signs in if need be, makes a 9-hole match
   and opens the share sheet (or copies the link).
 - **Slow motion**: an ace (drive) or a long putt going in is slowed (flight 1.5x, the putt's film 1.4x) with letterbox bars (`drawCine`); a landing
@@ -251,7 +268,7 @@ that way; don't introduce React/Vite/Tailwind here.
   the server rolls them in a match; into water it costs a stroke). `puttScript` turns that into a film (where the disc is every
   millisecond, with marks for the drop, the rim lap, the spit and the roll) and `drawPuttFx` draws the reaction: CHAINS! with
   rings and confetti, a cold-washed RIMMED OUT, NASTY ROLL with the camera following the disc.
-- Modules import each other with `?v=N` (now `course.js` 10, `gamecore.js` 22, `cam3d.js` 14, `puttfx.js` 10, `ground.js` 3, `sound.js` 2, `marebear.js` 1, `conditions.js` 1, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
+- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 24, `cam3d.js` 15, `puttfx.js` 11, `ground.js` 4, `sound.js` 2, `marebear.js` 1, `conditions.js` 2, `daily.js` 1, `gamepanels.js` 1, `trash.js` 6, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 
 ## Deploy

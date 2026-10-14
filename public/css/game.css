@@ -299,3 +299,12 @@
 
 .gm-check { display: flex; gap: 10px; align-items: flex-start; font-size: 0.8rem; line-height: 1.4; color: var(--bone-dim); cursor: pointer; }
 .gm-check input { margin-top: 3px; accent-color: var(--lime); }
+
+/* Marebear's bet, the throw to watch again, and the boards */
+.gm-bet { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid rgba(212, 18, 42, 0.5); border-left-width: 4px; border-radius: var(--radius); background: rgba(212, 18, 42, 0.08); }
+.gm-bet p { margin: 0; font-size: 0.86rem; line-height: 1.4; color: var(--bone); }
+.gm-bet small { display: block; margin-top: 3px; font: 0.62rem/1.4 var(--mono); letter-spacing: 0.06em; color: var(--bone-dim); }
+.gm-bet__go { display: flex; gap: 8px; }
+.gm-bet-on { color: var(--rust-lift); }
+.gm-replay { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.gm-board li small, .gm-standings li small { display: block; font: 0.6rem/1.3 var(--mono); letter-spacing: 0.06em; color: var(--bone-faint); }

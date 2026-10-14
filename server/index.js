@@ -11,6 +11,7 @@ const { createAccountStore } = require('./lib/accounts');
 const { createAccountRouter } = require('./routes/account');
 const { createMatchStore, loadGameplay } = require('./lib/matches');
 const { createGameRouter } = require('./routes/game');
+const { createLedger } = require('./lib/ledger');
 
 const changes = createChangesRouter({ store: createChangeStore(path.join(__dirname, '..', 'data', 'changes.json')) });
 
@@ -28,7 +29,7 @@ const accounts = createAccountRouter({ store: accountStore, knownDiscs });
 // head-to-head matches: the rules and course are the browser's own modules, loaded once
 const gameplay = loadGameplay();
 gameplay.catch((err) => console.error('[game] could not load the game rules:', err.message));
-const game = createGameRouter({ accounts: accountStore, matches: createMatchStore(path.join(__dirname, '..', 'data', 'matches.json')), gameplay });
+const game = createGameRouter({ accounts: accountStore, matches: createMatchStore(path.join(__dirname, '..', 'data', 'matches.json')), gameplay, ledger: createLedger(path.join(__dirname, '..', 'data', 'game-ledger.json')) });
 
 const app = express();
 app.disable('x-powered-by');

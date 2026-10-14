@@ -4,7 +4,7 @@
    same model the flight guide uses. Feet; x is east, y is north; heading 0 is north, positive is clockwise. */
 
 import { clamp, carryRaw, flightCurve, spinOf, spinsClockwise, angleDeg, armAt, ANGLE_MAX } from './flightmodel.js?v=1';
-import { surfaceAt, treesIn, elevAt, slopeAt, routePosition } from './course.js?v=10';
+import { surfaceAt, treesIn, elevAt, slopeAt, routePosition } from './course.js?v=11';
 
 const DEG = Math.PI / 180;
 export const PUTT_RANGE = 50; // inside this you putt
@@ -587,6 +587,18 @@ export function resolvePutt(hole, lie, disc, shot, roll = 1, swipe = null) {
   const lieAfter = wet ? { x: hole.basket.x - hv.ux * 3, y: hole.basket.y - hv.uy * 3 } : spot;
   // a nasty roll into the water costs a stroke on top of the putt
   return { kind: 'landed', made: false, finish: nasty ? 'nasty' : rim ? 'rim' : 'miss', rim, nasty, why, strokes: nasty && wet ? 2 : 1, lie: lieAfter, dist, zone, radius, miss, rise };
+}
+
+/* ---------- highlights ---------- */
+
+// How good a throw was to watch, for the "throw of the match": an ace is the best, then a long putt going in, then a long pure drive.
+// `move` is what a match records of a throw ({ kind, putt, made, gimme, feet, dist, ex }), or the same from a solo throw.
+export function highlightScore(move) {
+  if (!move || move.gimme) return 0;
+  if (move.kind === 'basket' && !move.putt) return 1000 + (move.feet || 0);
+  if (move.putt) return move.made ? 100 + (move.dist || 0) * 6 : move.nasty ? 20 : 0;
+  if (move.kind === 'landed') return (move.feet || 0) * 0.5 + (move.ex?.pure ? 40 : 0);
+  return 0;
 }
 
 /* ---------- the round ---------- */

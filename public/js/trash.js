@@ -62,6 +62,29 @@ const MATCH = {
   tie: ['A tie! The most boring result there is.'],
   left: ['You left. The discs are still out there, judging you.'],
 };
+// Marebear's bets: she bets against you, and you can take it or not. What each is worth is in BETS below.
+export const BETS = {
+  par: { text: 'make par or better', win: 3, lose: 2, offer: ['I bet you cannot make par on this one, sweetheart.', 'Par? You? On this hole? Put your bucks where your mouth is.', 'Three bucks says you do not make par. Go on.'] },
+  bogey: { text: 'make bogey or better', win: 1, lose: 3, offer: ['I bet you cannot even make bogey. Easy money.', 'Bogey or better, honey? I am not so sure. Care to wager?', 'Bet you blow up on this one. Bogey or better, or you pay me.'] },
+  birdie: { text: 'make birdie or better', win: 8, lose: 1, offer: ['A birdie? From you? Eight bucks says you can not. One buck says you wish you could.', 'Ha! Birdie or better and I will pay you handsomely. Not that I ever have to.'] },
+};
+const BETTING = {
+  taken: ['Ooh, she is brave. I like that.', 'You are on, sweetheart. Do not cry when I take it.', 'Okay! Shake on it. I do not shake. Just throw.'],
+  declined: ['Chicken. Bawk bawk.', 'Smart. Cowardly, but smart.', 'No bet? Fine. I will just laugh at you for free.'],
+  won: ['Oh, you got me. I will not forget this. Here.', 'Fine, fine, take it. Beginner\'s luck.', 'You won the bet. I hate you a little. Here is your money.'],
+  lost: ['Pay up, buttercup!', 'Hand it over, darling. A deal is a deal.', 'And that is how Marebear gets rich.'],
+};
+export const betOffer = (kind, rnd = Math.random, avoid = '') => pick(BETS[kind]?.offer || [], {}, rnd, avoid);
+export const betRemark = (what, rnd = Math.random, avoid = '') => pick(BETTING[what], {}, rnd, avoid);
+// which bet she offers on a hole of this par: a dare for a good player, an insult for a nervous one
+export function betKind(par, rnd = Math.random) {
+  const u = rnd();
+  if (par === 3) return u < 0.5 ? 'par' : u < 0.8 ? 'bogey' : 'birdie';
+  return u < 0.42 ? 'par' : u < 0.8 ? 'bogey' : 'birdie';
+}
+// did you win it? (the hole's strokes against its par)
+export const betWon = (kind, strokes, par, holed = true) => holed && strokes <= par + (kind === 'bogey' ? 1 : kind === 'par' ? 0 : -1);
+
 const BEAR = { mine: ['Do not look at me. You earned it.'], theirs: ['{name} is at a triple bogey. Marebear is reaching for her handbag.'] };
 
 // Lines from public/data/heckles.json (the ones the owner wrote), by their own category names. They are in the second person,
@@ -138,4 +161,4 @@ export function matchRemark(kind, { name = '' } = {}, rnd = Math.random, avoid =
 }
 export const bearRemark = (mine, name, rnd = Math.random) => pick(mine ? BEAR.mine : BEAR.theirs, { name }, rnd);
 
-export const LINES = { MINE, THEIRS, HOLE, MATCH, BEAR }; // for tests
+export const LINES = { MINE, THEIRS, HOLE, MATCH, BEAR, BETTING }; // for tests

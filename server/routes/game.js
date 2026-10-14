@@ -27,6 +27,8 @@ function createGameRouter({
   accounts,
   matches,
   gameplay,
+  ledger = null,
+  posting = { windowMs: HOUR, max: 20 },
   creating = { windowMs: HOUR, max: 20 },
   joining = { windowMs: HOUR, max: 60 },
   moving = { windowMs: HOUR, max: 800 },
@@ -35,6 +37,7 @@ function createGameRouter({
   const createLimit = createLimiter(creating);
   const joinLimit = createLimiter(joining);
   const moveLimit = createLimiter(moving);
+  const postLimit = createLimiter(posting);
   const watchers = new Map(); // match id -> Set of { res, uid }
   let watching = 0;
 
@@ -48,6 +51,7 @@ function createGameRouter({
   }
 
   matches.on('change', (m) => {
+    if (ledger && m.status === 'done') ledger.recordMatch(m); // finished matches go on the season's record, once
     const set = watchers.get(m.id);
     if (!set) return;
     for (const w of [...set]) send(w, 'state', matches.view(m, w.uid));
@@ -149,6 +153,52 @@ function createGameRouter({
 
   router.post('/matches/:id/leave', wrap(async (req, res, user, gp) => {
     res.json({ match: matches.leave(user, req.params.id, gp) });
+  }));
+
+  /* ----- the daily course and the standings ----- */
+
+  // today's course, and who has done best
+  router.get('/daily', wrap(async (req, res, user, gp) => {
+    if (!ledger) throw new MatchError('Not available.', 404);
+    const plan = gp.daily.dailyPlan(gp.daily.dayKey());
+    res.json({ ...plan, closesAt: gp.daily.nextDailyAt(), played: ledger.hasPlayed(plan.day, user.id), board: ledger.board(plan.day, user.id) });
+  }));
+
+  // post a finished run: the first one each day counts. The meters are honor system, so the card is checked for sense, not for proof.
+  router.post('/daily/score', wrap(async (req, res, user, gp) => {
+    if (!ledger) throw new MatchError('Not available.', 404);
+    gate(postLimit, user.id, 'That is a lot of scores.');
+    const { G, daily } = gp;
+    const body = req.body || {};
+    const today = daily.dayKey();
+    const yesterday = daily.dayKey(new Date(Date.now() - 24 * 3600 * 1000));
+    if (![today, yesterday].includes(body.day)) throw new MatchError('That is not a course you can post to.');
+    const plan = daily.dailyPlan(body.day);
+    const card = Array.isArray(body.card) ? body.card : [];
+    if (card.length !== plan.holeIds.length) throw new MatchError('A daily card has nine holes.');
+    let total = 0;
+    let par = 0;
+    const strokes = [];
+    for (const [i, c] of card.entries()) {
+      const hole = gp.hole(plan.holeIds[i]);
+      const s = Number(c && c.strokes);
+      if (Number(c && c.hole) !== hole.id || !Number.isInteger(s) || s < 1 || s > 14) throw new MatchError('That card does not add up.');
+      const score = G.holeScore(s, hole.par, !!c.holed);
+      total += score;
+      par += hole.par;
+      strokes.push(score);
+    }
+    if (ledger.hasPlayed(body.day, user.id)) throw new MatchError('You already posted a score for that day.', 409);
+    const r = ledger.addDaily(body.day, { uid: user.id, name: user.name, total, par, card: strokes });
+    if (!r.ok) throw new MatchError(r.reason === 'already' ? 'You already posted a score for that day.' : 'Scores are unavailable right now.', r.reason === 'already' ? 409 : 503);
+    res.status(201).json({ day: body.day, total, par, board: ledger.board(body.day, user.id) });
+  }));
+
+  // the season (a calendar month): who has won the most matches
+  router.get('/standings', wrap(async (req, res, user, gp) => {
+    if (!ledger) throw new MatchError('Not available.', 404);
+    const month = /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? String(req.query.month) : gp.daily.dayKey().slice(0, 7);
+    res.json({ month, table: ledger.standings(month).slice(0, 25).map((t, i) => ({ rank: i + 1, ...t, you: t.uid === user.id, uid: undefined })) });
   }));
 
   // on shutdown, release open streams so the container can stop promptly (browsers reconnect on their own)

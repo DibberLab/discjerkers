@@ -44,6 +44,7 @@ async function loadGameplay() {
   const core = await import(pathToFileURL(path.join(dir, 'gamecore.js')).href);
   const course = await import(pathToFileURL(path.join(dir, 'course.js')).href);
   const cond = await import(pathToFileURL(path.join(dir, 'conditions.js')).href);
+  const daily = await import(pathToFileURL(path.join(dir, 'daily.js')).href);
   const guide = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'public', 'data', 'flightguide.json'), 'utf8'));
   const discs = new Map(guide.discs.map((r) => [r[0], { id: r[0], name: r[1], speed: r[4], glide: r[5], turn: r[6], fade: r[7], col: r[8] }]));
   const starter = STARTER.map((n) => [...discs.values()].find((d) => d.name === n)?.id).filter(Boolean);
@@ -59,7 +60,7 @@ async function loadGameplay() {
     }
     return days.get(key);
   };
-  return { G: { ...core, ...course, ...cond }, discs, starter, hole: base, holeFor };
+  return { G: { ...core, ...course, ...cond }, discs, starter, hole: base, holeFor, daily };
 }
 
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I/L
@@ -100,8 +101,23 @@ function startHole(gp, m) {
     order = (m.round.order || []).filter((uid) => rounds[uid]).sort((x, y) => score(x) - score(y));
     for (const p of players) if (!order.includes(p.uid)) order.push(p.uid);
   }
+  if (m.holeIdx >= 2) steal(gp, m, rounds, players);
   m.round = { holeId: hole.id, rounds, trails: Object.fromEntries(players.map((p) => [p.uid, []])), order, lastSeq: {}, turn: null };
   chooseTurn(gp, m);
+}
+
+// Marebear gets bored of a runaway: when one player leads by three strokes or more, she takes their fastest disc for this one hole
+// (it is in `eaten` for the hole, and `stolen` says which, so it is not carried to the next one)
+function steal(gp, m, rounds, players) {
+  const totals = players.map((p) => ({ p, t: m.cards[p.uid].reduce((n, c) => n + c.score, 0) })).sort((a, b) => a.t - b.t);
+  if (totals.length < 2 || totals[1].t - totals[0].t < 3) return;
+  const lead = totals[0].p;
+  const r = rounds[lead.uid];
+  const have = lead.discs.filter((d) => !r.eaten.includes(d.id));
+  if (have.length < 3) return;
+  const fastest = have.map((d) => ({ d, sp: gp.discs.get(d.id)?.speed ?? 0 })).sort((a, b) => b.sp - a.sp)[0].d;
+  r.eaten.push(fastest.id);
+  r.stolen = fastest.id;
 }
 
 // The farthest player from the basket throws next. When some are as far as each other (everyone, on the tee), it goes to
@@ -184,6 +200,8 @@ function record(gp, m, uid, disc, result, extra) {
     bear: out.bear ? { discId: out.bear.discId, at: { x: r1(out.bear.at.x), y: r1(out.bear.at.y) } } : undefined,
   };
   m.last = last;
+  const hl = G.highlightScore(last); // the throw of the match, kept for the replay
+  if (hl > (m.best?.score ?? 0)) m.best = { score: Math.round(hl), last: { ...last } };
 
   // a player with no discs left is finished, whatever their score was
   const p = m.players.find((x) => x.uid === uid);
@@ -202,8 +220,11 @@ function cardHole(gp, m) {
     const r = m.round.rounds[p.uid];
     const score = gp.G.holeScore(r.strokes, hole.par, r.holed);
     m.cards[p.uid].push({ hole: hole.id, par: hole.par, strokes: r.strokes, score, holed: r.holed });
-    m.eaten[p.uid] = [...r.eaten];
-    results.push({ uid: p.uid, strokes: r.strokes, score, holed: r.holed });
+    m.eaten[p.uid] = r.eaten.filter((id) => id !== r.stolen); // a disc she only borrowed for the hole comes back
+    // closest to the pin: how near the first throw (if it was a clean one) finished to the basket
+    const first = r.throws[0];
+    const kp = first && first.strokes === 1 ? (first.kind === 'basket' ? 0 : r1(gp.G.distance(first.lie, hole.basket))) : null;
+    results.push({ uid: p.uid, strokes: r.strokes, score, holed: r.holed, kp });
   }
   return { holeId: hole.id, par: hole.par, results };
 }
@@ -358,6 +379,7 @@ function createMatchStore(file, { now = () => Date.now() } = {}) {
       cards: m.cards,
       round: m.round ? { holeId: m.round.holeId, turn: m.round.turn, rounds: m.round.rounds, trails: m.round.trails } : null,
       eaten: m.eaten,
+      best: m.status === 'done' && m.best ? m.best : null,
       seq: m.seq,
       last: m.last,
       winner: m.winner,
@@ -511,4 +533,4 @@ function createMatchStore(file, { now = () => Date.now() } = {}) {
   };
 }
 
-module.exports = { createMatchStore, loadGameplay, MatchError, LIMITS };
+module.exports = { createMatchStore, loadGameplay, MatchError, LIMITS, _steal: steal };
