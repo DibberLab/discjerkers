@@ -225,9 +225,11 @@ that way; don't introduce React/Vite/Tailwind here.
 - **Switched off (kept in the code): Marebear's bets** (`BETTING_ON` in `game.js`; no offer, no Bucks, no skin buying: skins come from goals) and
   the **rain sound** (gone). **Rain is opt-in**: `variantFor(seed, hole, { rain: true })` only; the menu has an "Allow rain" checkbox (`dj_rain`, off), a match
   never has rain unless its `m.rain` is set (nothing sets it), the daily course has none. The seed's other dice are the same with or without rain.
-- **Input: touch, mouse, keyboard, controller.** One throw takes `{ aim, power }` whichever made it (`finishSwipe`). A finger **draws back and swipes**; a mouse,
-  trackpad or pen **pulls back and lets go** (hold and drag down: the throw goes the opposite way, `pullVector`, `PULL_RATIO`), or **clicks once, moves back and
-  clicks again** (`armed`, for a trackpad). `pullInput()` says which (the last pointer used). Keys and a controller go through `act(name)` (left, right, up, down,
+- **Input: touch, mouse, keyboard, controller.** One throw takes `{ aim, power }` whichever made it (`finishSwipe`). A finger **draws back and swipes**; a mouse, trackpad or pen **traces the line** (press on the disc and move up a corridor
+  as steadily as you can: how far is the power, the way the last 40% of the stroke leaves is the aim, a wobbly or wandering trace loses up to half the power,
+  `traceStats`; the idea is from Disc Golf Masters, whose mouse and right-stick throws are "move along a line as precisely as possible"), or **clicks once, traces
+  the line with no button held, and clicks again** (`trace.armed`, for a trackpad). A controller's **right stick** traces it too (push up, let it come back: it counts at
+  its farthest). `pullInput()` says which (the last pointer used). Keys and a controller go through `act(name)` (left, right, up, down,
   confirm, back, prev, next): on the pick screen left/right aim, up/down change disc, Enter or A throws; on the meters Space, Enter or A taps; in the swipe, left/right
   aim and up/down power (`m.kb`) and Enter or A throws; in menus a controller's d-pad or stick moves focus and A presses it. `pollPad` reads the Gamepad API every
   frame (stick aim, d-pad repeat, right trigger throws, LB/RB discs). A strip over the hole (`#gm-keys`) says what the keys do once they are used.
