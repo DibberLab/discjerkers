@@ -320,6 +320,7 @@ test('the course: eighteen holes, each laid out sensibly', async () => {
   assert.strictEqual(G.holesFor(9).length, 9);
   assert.strictEqual(G.holesFor(18).length, 18);
   assert.strictEqual(G.holesFor(1).length, 1);
+  assert.deepStrictEqual(G.holesFor(3).map((h) => h.id), [1, 2, 5], 'a warm-up is three of the gentler holes');
   assert.ok(G.holeById(7).name);
   assert.ok(new Set(G.HOLES.map((h) => h.name)).size === 18, 'every hole has its own name');
   const par = G.HOLES.reduce((n, h) => n + h.par, 0);

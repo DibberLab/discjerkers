@@ -5,7 +5,7 @@
    state: callers hand it a hole, a camera and a disc. */
 
 import { fieldAt } from './terrain.js?v=1';
-import { groundCells, PALETTE } from './ground.js?v=1';
+import { groundCells, PALETTE } from './ground.js?v=2';
 
 export const ZS = 0.72; // heights are drawn a little squashed: a real arc looks like a rocket when you ride it
 const NEAR = 1; // nothing nearer than this (feet) is drawn

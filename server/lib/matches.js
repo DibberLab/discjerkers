@@ -110,7 +110,7 @@ function discFor(m, uid, discId) {
   const p = m.players.find((x) => x.uid === uid);
   const id = Number(discId);
   if (!p.discs.some((d) => d.id === id)) throw new MatchError('That disc is not in your bag.');
-  if (m.round.rounds[uid].eaten.includes(id)) throw new MatchError('Marebear ate that one.');
+  if (m.round.rounds[uid].eaten.includes(id)) throw new MatchError('Marebear has that one in her handbag.');
   return id;
 }
 

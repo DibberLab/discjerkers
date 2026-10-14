@@ -4,12 +4,14 @@
 
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
-import { HOLES, holeById, holesFor } from './course.js?v=9';
-import * as G from './gamecore.js?v=20';
-import * as T from './trash.js?v=3';
-import * as C3 from './cam3d.js?v=11';
-import * as PF from './puttfx.js?v=7';
-import * as GR from './ground.js?v=1';
+import { HOLES, holeById, holesFor } from './course.js?v=10';
+import * as G from './gamecore.js?v=21';
+import * as T from './trash.js?v=4';
+import * as C3 from './cam3d.js?v=12';
+import * as PF from './puttfx.js?v=8';
+import * as GR from './ground.js?v=2';
+import * as SND from './sound.js?v=1';
+import * as MB from './marebear.js?v=1';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -100,6 +102,7 @@ const S = {
   trail: [],
   fx: [],
   bear: null,
+  pop: null, // Marebear popping up from the bottom of the screen to comment: { t0, text, to, mood, dur, side }
   toast: { text: '', until: 0 },
   best: null,
   zoom: 1,
@@ -152,7 +155,7 @@ function suggest() {
   return list.reduce((best, x) => (Math.abs(x.disc.speed - want) < Math.abs(best.disc.speed - want) ? x : best)).disc.id;
 }
 
-// a new hole: a fresh round of it, with the discs Marebear has already eaten staying eaten
+// a new hole: a fresh round of it, with the discs Marebear has already pocketed staying gone
 function startHole() {
   S.quip = '';
   S.round = G.newRound(S.hole);
@@ -211,7 +214,7 @@ function bagBar() {
 function discRow() {
   return `<div class="gm-discs" role="group" aria-label="Your discs">${S.bag.discs.map(({ disc, item }) => {
     const eaten = S.round.eaten.includes(disc.id);
-    return `<button class="gm-disc" type="button" data-disc="${disc.id}" aria-pressed="${disc.id === S.discId}"${eaten ? ' disabled' : ''} title="${esc(disc.name)}${eaten ? ' (eaten by Marebear)' : ''}">${discChip(disc, item)}<small>${esc(splitName(disc.name))}${eaten ? ' 🐻' : ''}</small></button>`;
+    return `<button class="gm-disc" type="button" data-disc="${disc.id}" aria-pressed="${disc.id === S.discId}"${eaten ? ' disabled' : ''} title="${esc(disc.name)}${eaten ? ' (in Marebear\'s handbag)' : ''}">${discChip(disc, item)}<small>${esc(splitName(disc.name))}${eaten ? ' 🐻' : ''}</small></button>`;
   }).join('')}</div>`;
 }
 
@@ -258,15 +261,17 @@ function settingsBlock() {
 }
 
 const tipSeen = () => { try { return localStorage.getItem('dj_game_tip') === '1'; } catch { return false; } };
-const tipHtml = () => (tipSeen() ? '' : `<div class="gm-tip"><p><b>How to play:</b> pick a disc, choose forehand or backhand, and aim (drag on the hole). Then <b>Throw</b> and tap four times: where you stop the power, nose and angle bars is your arm speed, how high the nose is tipped and your hyzer; the last tap is the release. A slow arm can grip lock or let go early, so watch the slip percentage. Trees stop low throws, water costs a stroke, and a triple bogey draws Marebear.</p><button type="button" data-tip-close aria-label="Got it">×</button></div>`);
+const tipHtml = () => (tipSeen() ? '' : `<div class="gm-tip"><p><b>How to play:</b> pick a disc, choose forehand or backhand, and aim (drag on the hole). Then <b>Throw</b> and tap four times: where you stop the power, nose and angle bars is your arm speed, how high the nose is tipped and your hyzer; the last tap is the release. A slow arm can grip lock or let go early, so watch the slip percentage. Trees stop low throws, water costs a stroke, and a triple bogey brings Marebear, who takes a disc.</p><button type="button" data-tip-close aria-label="Got it">×</button></div>`);
 
 // Marebear's remark, in a card of its own under whatever it is about
-function say(r) {
+function say(r, mood = 'bad') { // mood: 'bad' (she laughs), 'good' (she sulks, grudgingly) or 'sly'
   const text = typeof r === 'string' ? r : r?.text || '';
   S.quip = text;
   S.quipTo = (typeof r === 'object' && r?.to) || '';
-  if (text) S.lastQuip = text;
+  if (text) { S.lastQuip = text; popUp(text, S.quipTo, mood); }
 }
+const GOOD_EVENTS = new Set(['pure', 'ace', 'chains', 'sunk']);
+const holeMood = (strokes, par, holed) => (!holed || strokes > par ? 'bad' : strokes === par ? 'sly' : 'good');
 const phoneQuery = window.matchMedia('(max-width: 900px)');
 const isPhone = () => phoneQuery.matches;
 const quipHtml = () => (S.quip && !isPhone() ? `<p class="gm-quip">“${esc(S.quip)}”<small>Marebear${S.quipTo ? ` to ${esc(S.quipTo)}` : ''}</small></p>` : '');
@@ -361,7 +366,9 @@ function panelMenu() {
   return `${bagBar()}
     <div class="gm-card">
       <h2>Play the course</h2>
-      <p>Eighteen holes of woods, water and wind. Pick a round, bring your bag, and try not to triple bogey: Marebear is watching.</p>
+      <p>Eighteen holes of woods, hills, water and wind. Pick a round, bring your bag, and try not to triple bogey: Marebear is watching, and she has a handbag.</p>
+      <button class="btn" type="button" data-solo="3">Quick warm-up<small>3 holes, about 5 minutes</small></button>
+      <button class="btn btn--ghost" type="button" data-quick-friend>Play a friend now<small>one tap: a 9-hole match and a link to send</small></button>
       <div class="gm-menu">
         <button class="btn" type="button" data-solo="9">Front 9<small>par ${parTotal(HOLES.slice(0, 9))}</small></button>
         <button class="btn" type="button" data-solo="18">Full 18<small>par ${parTotal(HOLES)}</small></button>
@@ -393,7 +400,7 @@ function roundBar() {
 }
 
 function panelNoDiscs() {
-  return `<div class="gm-card"><h2 class="is-bad">No discs left</h2><p>Marebear ate your whole bag. Round over.</p><button class="btn" type="button" data-again>Play again</button></div>`;
+  return `<div class="gm-card"><h2 class="is-bad">No discs left</h2><p>Marebear has your whole bag in her handbag. Round over.</p><button class="btn" type="button" data-again>Play again</button></div>`;
 }
 
 // a slider with a green zone in the middle, for the stages that read "how far off the middle were you"
@@ -505,9 +512,9 @@ function panelBear() {
   const disc = DISCS.get(S.bear.discId);
   if (S.bear.owner !== 'me') {
     const name = S.mp?.view.players.find((p) => p.uid === S.bear.owner)?.name || 'They';
-    return `<div class="gm-card"><h2 class="is-bad">Marebear!</h2><p>${esc(name)} is at a triple bogey, and Marebear smelled it. She is eating their ${esc(splitName(disc.name))}.</p></div>`;
+    return `<div class="gm-card"><h2 class="is-bad">Marebear!</h2><p>${esc(name)} is at a triple bogey, and Marebear heard about it. She is slipping their ${esc(splitName(disc.name))} into her handbag.</p></div>`;
   }
-  return `<div class="gm-card"><h2 class="is-bad">Marebear!</h2><p>Triple bogey, and Marebear smelled it. She is eating your ${esc(splitName(disc.name))}.</p></div>`;
+  return `<div class="gm-card"><h2 class="is-bad">Marebear!</h2><p>Triple bogey, and Marebear heard about it. She is slipping your ${esc(splitName(disc.name))} into her handbag.</p></div>`;
 }
 
 function panelDone() {
@@ -530,7 +537,7 @@ function panelDone() {
       <div class="gm-score"><div><b>${r.holed ? r.strokes : entry.score}</b><span>${r.holed ? 'Strokes' : 'Scored'}</span></div><div><b>${S.hole.par}</b><span>Par</span></div><div><b>${vsPar(entry.score - S.hole.par)}</b><span>To par</span></div></div>
       ${c.length > 1 ? `<p>Round so far: <b>${total}</b> (${vsPar(total - par)}) after ${c.card.length} ${c.card.length === 1 ? 'hole' : 'holes'}.</p>` : (S.best ? `<p>Best on this hole: <b>${S.best}</b></p>` : '')}
       <ol class="gm-log">${log}</ol>
-      ${r.eaten.length ? `<p>Marebear has eaten ${r.eaten.map((id) => esc(splitName(DISCS.get(id).name))).join(', ')}. She does not give them back.</p>` : ''}
+      ${r.eaten.length ? `<p>Marebear has pocketed ${r.eaten.map((id) => esc(splitName(DISCS.get(id).name))).join(', ')}. She does not give them back.</p>` : ''}
       ${lastHole
         ? `<button class="btn" type="button" data-summary>${c.length > 1 ? 'See the scorecard' : 'Finish'}</button>`
         : `<button class="btn" type="button" data-next-hole>Next: hole ${next.id}, ${esc(next.name)} <small>par ${next.par}</small></button>`}
@@ -546,11 +553,11 @@ function panelSummary() {
   const unfinished = c.card.some((h) => !h.holed) || c.card.length < c.holes.length;
   const best = S.best;
   return `<div class="gm-card">
-      <h2 class="${total <= par ? 'is-good' : 'is-bad'}">${c.length === 1 ? 'Hole done' : c.length === 9 ? 'Front nine' : 'Round complete'}</h2>
+      <h2 class="${total <= par ? 'is-good' : 'is-bad'}">${c.length === 1 ? 'Hole done' : c.length === 3 ? 'Warm-up done' : c.length === 9 ? 'Front nine' : 'Round complete'}</h2>
       <div class="gm-score"><div><b>${total}</b><span>Strokes</span></div><div><b>${par}</b><span>Par</span></div><div><b>${vsPar(total - par)}</b><span>To par</span></div></div>
       ${best ? `<p>Best ${c.length === 1 ? 'on this hole' : `${c.length}-hole round`}: <b>${best}</b>${!unfinished && total <= best ? ' (that is you, right now)' : ''}</p>` : ''}
       <ol class="gm-card-list">${rows}</ol>
-      ${unfinished ? '<p>* Marebear ate your bag, so the rest of the round does not count for much.</p>' : ''}
+      ${unfinished ? '<p>* Marebear took your bag, so the rest of the round does not count for much.</p>' : ''}
       <button class="btn" type="button" data-again>Play it again</button>
       <button class="btn btn--ghost" type="button" data-menu>Back to the menu</button>
     </div>`;
@@ -587,7 +594,7 @@ function updateHud() {
   } else if (!c && S.phase === 'menu' && h.id !== HOLES[0].id) { // the menu is previewing the hole picked for practice
     $('#gm-hud').innerHTML = `<span>${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}</small>`;
   } else if (!c) {
-    $('#gm-hud').innerHTML = '<span>Disc Jerkers Golf Club</span><small>Eighteen holes · par 69</small>';
+    $('#gm-hud').innerHTML = `<span>Disc Jerkers Golf Club</span><small>Eighteen holes · par ${parTotal(HOLES)}</small>`;
   } else {
     const total = c.card.reduce((n, x) => n + x.score, 0);
     const par = c.card.reduce((n, x) => n + x.par, 0);
@@ -634,6 +641,7 @@ function sweetFor(stage) {
 function tap() {
   const m = S.meter;
   if (!m) return;
+  SND.play('tap');
   const t = (now() - m.start) / 1000;
   const next = (phase) => { m.start = now(); setPhase(phase); };
   if (S.phase === 'power') {
@@ -669,8 +677,10 @@ function throwDisc(ex) {
   const from = { ...lieOf() };
   const result = G.resolveThrow(S.hole, disc, S.settings, heading(), ex, from);
   S.last = { result, ex, disc, from };
-  const flightMs = camDur(clamp(900 + result.plan.feet * 4.2, 1200, 3300));
-  S.anim = { type: 'flight', t0: now(), dur: flightMs, pts: result.pts, roll: result.roll, result };
+  const ace = result.kind === 'basket';
+  const flightMs = camDur(clamp(900 + result.plan.feet * 4.2, 1200, 3300)) * (ace ? 1.5 : 1);
+  S.anim = { type: 'flight', t0: now(), dur: flightMs, pts: result.pts, roll: result.roll, result, cine: ace };
+  SND.play('throw', clamp(S.settings.mph / 90, 0.2, 1));
   toast(ex.grade, ex.pure ? 'good' : ex.slip || ex.grade === 'Shank' ? 'bad' : '', 1300);
   setPhase('flight');
   retarget(false, result.pts);
@@ -688,6 +698,31 @@ function puttDisc(shot, swipe = null) {
   retarget(false, S.anim.pts);
 }
 
+// the same film, slower: every moment later, and each one longer
+function slowScript(sc, k) {
+  const marks = {};
+  for (const [n, v] of Object.entries(sc.marks)) marks[n] = v * k;
+  return { ...sc, total: sc.total * k, tail: sc.tail * k, marks, at: (ms) => sc.at(ms / k) };
+}
+
+// the sounds of a putt, at the moments of its film (or all at once on the map)
+function puttSounds(sc, result) {
+  const at = (ms, name, arg) => setTimeout(() => SND.play(name, arg), Math.max(0, ms));
+  at(0, 'throw', 0.25);
+  const m = sc?.marks || {};
+  if (result.made) {
+    at(m.dropAt ?? 500, 'chains', result.finish === 'swish' ? 1 : 0.8);
+    at((m.dropAt ?? 500) + 200, 'clunk');
+    if (result.finish === 'swish' && result.dist > 30) at((m.dropAt ?? 500) + 450, 'ding');
+  } else if (result.rim) {
+    at(m.rimAt ?? m.dropAt ?? 600, 'clank');
+    at((m.spitAt ?? ((m.rimAt ?? 600) + 700)) + 250, 'womp');
+  } else {
+    at(m.landAt ?? 700, 'land');
+    if (result.nasty) at((m.rollAt ?? 800) + 150, 'womp');
+  }
+}
+
 // The film of a putt: where the disc goes and what happens around it (puttfx.js), for the 3D view; the map gets a short version of
 // the same flight. `result` is what the rules said: { made, finish, rim, nasty, dist, ... }.
 function puttAnim(from, result, lie, who) {
@@ -698,7 +733,11 @@ function puttAnim(from, result, lie, who) {
     return { x: from.x + (to.x - from.x) * s, y: from.y + (to.y - from.y) * s, h: 3 + 5 * 4 * s * (1 - s), s };
   });
   const film = watching3D(who);
-  return { type: 'flight', t0: now(), dur: film ? script.total : 750, pts, roll: [], result, putt: true, script, tail: film ? script.tail : 350 };
+  const long = result.made && !result.gimme && result.dist > 30; // a long one going in is worth slowing down for
+  const sc = film && long ? slowScript(script, 1.4) : script;
+  puttSounds(film ? sc : null, result);
+  if (S.last) S.last.sfx = true;
+  return { type: 'flight', t0: now(), dur: film ? sc.total : 750, pts, roll: [], result, putt: true, script: sc, tail: film ? sc.tail : 350, cine: long };
 }
 
 /* ----- the swipe: after the radar, DRAW BACK and then SWIPE FORWARD toward the basket, in one smooth motion. True in aim and in power, or it misses. ----- */
@@ -954,6 +993,31 @@ function drawSwipeGuide() {
   ctx.restore();
 }
 
+// what a landing sounds like (a putt has its own film sounds, already scheduled)
+function landSounds(result, ev) {
+  if (S.last?.sfx) return;
+  if (result.kind === 'tree') SND.play('thunk');
+  else if (result.kind === 'water' || result.kind === 'oob') SND.play('splash');
+  else if (result.kind === 'basket') { SND.play('chains'); if (!result.gimme) setTimeout(() => SND.play('fanfare'), 350); }
+  else { SND.play('land'); if ((result.roll || []).length >= 3) setTimeout(() => SND.play('skip'), 90); }
+  if (ev === 'pure') setTimeout(() => SND.play('ding'), 200);
+}
+
+// a disc that lands skips and hops along before it settles: how high it is a fraction p of the way through its roll
+const hopH = (p, n) => (n >= 3 ? 2.6 * (1 - p) ** 1.5 * Math.abs(Math.sin(p * Math.PI * 3)) : 0);
+
+// the letterbox bars for a moment worth watching: an ace, a long putt going in
+function drawCine(t) {
+  const a = S.anim;
+  if (!a?.cine) return;
+  const k = clamp((t - a.t0) / 450, 0, 1);
+  const bar = Math.round(H * 0.085 * (1 - (1 - k) ** 3));
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = 'rgba(0,0,0,0.92)';
+  ctx.fillRect(0, 0, W, bar);
+  ctx.fillRect(0, H - bar, W, bar);
+}
+
 // what the player feels when a putt lands: a toast on the map (the 3D view has its own big words), and a buzz
 const PUTT_WORDS = { swish: ['CHAINS!', 'good'], rattle: ['RATTLED IN!', 'good'], tapin: ['Tap-in', 'good'], rim: ['RIMMED OUT', 'bad'], nasty: ['NASTY ROLL', 'bad'], miss: ['Missed', 'bad'] };
 const WHY_WORDS = { weak: 'TOO SOFT', strong: 'TOO HARD', left: 'PULLED LEFT', right: 'PUSHED RIGHT' };
@@ -969,7 +1033,9 @@ function finishThrow() {
   if (S.mode === 'match') { finishMove(); return; }
   const { result, disc, from } = S.last;
   const out = G.applyResult(S.round, disc, result);
-  say(T.remark(T.eventFor({ kind: result.kind, putt: !result.plan, made: result.made, gimme: result.gimme, ex: S.last.ex, strokes: S.round.strokes, dist: result.dist, surface: result.surface, rim: result.rim, nasty: result.nasty, why: result.why }), { who: 'me' }, Math.random, S.lastQuip));
+  const ev = T.eventFor({ kind: result.kind, putt: !result.plan, made: result.made, gimme: result.gimme, ex: S.last.ex, strokes: S.round.strokes, dist: result.dist, surface: result.surface, rim: result.rim, nasty: result.nasty, why: result.why });
+  landSounds(result, ev);
+  say(T.remark(ev, { who: 'me' }, Math.random, S.lastQuip), GOOD_EVENTS.has(ev) ? 'good' : 'bad');
   S.trail.push({ pts: [...result.pts ?? [], ...(result.roll ?? [])], kind: result.kind, n: S.round.throws.length, from });
   const at = result.end ?? result.lie;
   if (result.kind === 'water' || result.kind === 'oob') S.fx.push({ type: 'splash', x: at.x, y: at.y, t0: now() });
@@ -997,7 +1063,8 @@ function finishHole() {
   c.card.push({ id: S.hole.id, par: S.hole.par, strokes: r.strokes, score: G.holeScore(r.strokes, S.hole.par, r.holed), holed: r.holed });
   c.eaten = [...r.eaten];
   if (r.holed) toast(G.scoreName(r.strokes, S.hole.par), r.strokes <= S.hole.par ? 'good' : 'bad', 2400);
-  say(T.holeRemark(r.strokes, S.hole.par, r.holed, Math.random, S.lastQuip));
+  say(T.holeRemark(r.strokes, S.hole.par, r.holed, Math.random, S.lastQuip), holeMood(r.strokes, S.hole.par, r.holed));
+  if (r.holed && r.strokes <= S.hole.par - 2) SND.play('fanfare'); else if (r.holed && r.strokes < S.hole.par) SND.play('ding');
   setPhase('done');
   retarget(false);
 }
@@ -1503,54 +1570,7 @@ function drawFx(t) {
   }
 }
 
-// Marebear: a big brown bear who has noticed you are having a bad hole
-function drawBear(x, y, scale, opts) {
-  const { mouth = 0, run = 0, facing = 1, burp = 0 } = opts;
-  const bob = Math.sin(run * 16) * 2.2 * scale;
-  ctx.save();
-  ctx.translate(x, y + bob);
-  ctx.scale(scale * facing, scale);
-  const fill = (c, fn) => { ctx.beginPath(); fn(); ctx.fillStyle = c; ctx.fill(); };
-  fill('rgba(0,0,0,0.3)', () => ctx.ellipse(0, 20, 22, 7, 0, 0, Math.PI * 2));
-  // legs
-  const leg = Math.sin(run * 16) * 5;
-  fill('#4e3118', () => ctx.ellipse(-9 + leg * 0.3, 17, 6, 8, 0, 0, Math.PI * 2));
-  fill('#4e3118', () => ctx.ellipse(9 - leg * 0.3, 17, 6, 8, 0, 0, Math.PI * 2));
-  // body
-  fill('#6b4423', () => ctx.ellipse(0, 4, 20, 19, 0, 0, Math.PI * 2));
-  fill('#8a5d34', () => ctx.ellipse(0, 7, 12, 12, 0, 0, Math.PI * 2));
-  // arms
-  fill('#5b3a1e', () => ctx.ellipse(-19, 3 - leg * 0.4, 6, 10, 0.3, 0, Math.PI * 2));
-  fill('#5b3a1e', () => ctx.ellipse(19, 3 + leg * 0.4, 6, 10, -0.3, 0, Math.PI * 2));
-  // head
-  fill('#6b4423', () => ctx.arc(0, -17, 15, 0, Math.PI * 2));
-  fill('#6b4423', () => ctx.arc(-11, -29, 6, 0, Math.PI * 2));
-  fill('#6b4423', () => ctx.arc(11, -29, 6, 0, Math.PI * 2));
-  fill('#c9966a', () => ctx.arc(-11, -29, 3, 0, Math.PI * 2));
-  fill('#c9966a', () => ctx.arc(11, -29, 3, 0, Math.PI * 2));
-  fill('#c9966a', () => ctx.ellipse(0, -12, 9, 7, 0, 0, Math.PI * 2));
-  // mouth, open as wide as it is chewing
-  const open = 1 + mouth * 6;
-  fill('#2b0f0f', () => ctx.ellipse(0, -9 + open * 0.3, 6, open, 0, 0, Math.PI * 2));
-  if (mouth > 0.2) {
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(-4, -9 - open * 0.7, 2, 3);
-    ctx.fillRect(2, -9 - open * 0.7, 2, 3);
-  }
-  fill('#1a0d05', () => ctx.ellipse(0, -16, 3.2, 2.4, 0, 0, Math.PI * 2));
-  fill('#fff', () => ctx.arc(-6, -22, 3, 0, Math.PI * 2));
-  fill('#fff', () => ctx.arc(6, -22, 3, 0, Math.PI * 2));
-  fill('#d35400', () => ctx.arc(-6, -22, 1.4, 0, Math.PI * 2));
-  fill('#d35400', () => ctx.arc(6, -22, 1.4, 0, Math.PI * 2));
-  if (burp) {
-    ctx.fillStyle = `rgba(163,230,53,${burp})`;
-    ctx.beginPath();
-    ctx.arc(14, -12, 5 + (1 - burp) * 8, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.restore();
-}
-
+// Marebear on the hole: when you are at a triple bogey she waddles on, slips your disc into her handbag, cackles and struts off
 function drawBearScene(t) {
   const b = S.bear;
   if (!b) return;
@@ -1558,54 +1578,116 @@ function drawBearScene(t) {
   if (!part) { endBear(); return; }
   const [dx, dy] = P(b.at.x, b.at.y);
   const side = b.at.x > cam.x ? 1 : -1; // she comes from the side with more room
-  const sc = clamp(cam.s * 1.6, 0.9, 1.6);
-  const stand = dx - side * 26 * sc;
-  const startX = side > 0 ? -50 : W + 50;
+  const sc = clamp(cam.s * 0.5, 0.3, 0.62);
+  const stand = dx - side * 70 * sc;
+  const startX = side > 0 ? -90 : W + 90;
+  const waist = dy - 100 * sc;
   let x = stand;
-  let mouth = 0;
-  let run = 0;
-  let burp = 0;
   let facing = side;
-  const discVisible = part.name === 'enter' || (part.name === 'chomp' && part.p < 0.85);
+  let walk = 0;
+  let purse = 0;
+  let mood = 'sly';
   if (part.name === 'enter') {
     const e = 1 - (1 - part.p) ** 2;
     x = startX + (stand - startX) * e;
-    run = part.p * 6;
+    walk = part.p * 5;
     facing = stand > startX ? 1 : -1;
-  } else if (part.name === 'chomp') {
-    mouth = Math.abs(Math.sin(part.p * Math.PI * 3));
-  } else if (part.name === 'burp') {
-    burp = 1 - part.p;
-    mouth = 0.5 * (1 - part.p);
+    purse = 0;
+  } else if (part.name === 'chomp') { // the grab: the bag opens, the disc goes in
+    purse = Math.min(1, part.p * 4);
+    if (part.p > 0.8 && !b.snapped) { b.snapped = true; SND.play('snap'); }
+    if (part.p > 0.82) purse = Math.max(0, 1 - (part.p - 0.82) / 0.1);
+  } else if (part.name === 'burp') { // the cackle
+    mood = 'laugh';
+    if (!b.laughed) { b.laughed = true; SND.play('laugh'); }
   } else {
     const e = part.p * part.p;
     x = stand + (startX - stand) * e;
-    run = part.p * 6;
+    walk = part.p * 5;
     facing = startX > stand ? 1 : -1;
+    mood = 'laugh';
   }
+  const discVisible = part.name === 'enter' || (part.name === 'chomp' && part.p < 0.8);
   if (discVisible) {
-    const shrink = part.name === 'chomp' ? clamp(1 - part.p / 0.85, 0, 1) : 1;
-    drawDisc(b.at.x, b.at.y, 0, b.discId, 1.1 * shrink, b.owner);
+    const lift = part.name === 'chomp' ? clamp(part.p / 0.8, 0, 1) : 0;
+    drawDisc(b.at.x, b.at.y, 16 * lift, b.discId, 1.1 * (1 - lift * 0.7), b.owner);
   }
-  drawBear(x, dy - 6, sc, { mouth, run, facing, burp });
-  if (part.name === 'chomp') {
-    ctx.fillStyle = '#eef1e8';
-    ctx.font = `400 ${Math.round(22 * sc)}px Anton, sans-serif`;
+  MB.drawMarebear(ctx, x, waist, sc, { mood, t: t - b.t0, facing, full: true, purse, walk });
+  const label = (text, color, size, yOff) => {
+    ctx.fillStyle = color;
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.lineWidth = 5;
+    ctx.font = `400 ${Math.round(size * clamp(sc * 1.8, 0.8, 1.3))}px Anton, sans-serif`;
     ctx.textAlign = 'center';
-    ctx.fillText('CHOMP', dx, dy - 52 * sc - part.p * 12);
-  }
-  if (part.name === 'burp') {
-    ctx.fillStyle = `rgba(163,230,53,${1 - part.p})`;
-    ctx.font = `400 ${Math.round(26 * sc)}px Anton, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.fillText('BURP', dx, dy - 58 * sc - part.p * 16);
-  }
+    ctx.strokeText(text, x, waist - yOff);
+    ctx.fillText(text, x, waist - yOff);
+  };
+  if (part.name === 'chomp') label('SNATCH!', '#eef1e8', 24, 150 * sc + part.p * 10);
+  if (part.name === 'burp') label('HA HA HA HA!', '#f2c14e', 26, 150 * sc + Math.sin(part.p * 20) * 3);
   if (part.name === 'enter' && part.p > 0.15) {
     ctx.fillStyle = 'rgba(238,241,232,0.92)';
     ctx.font = '700 10px "Space Mono", monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('MAREBEAR', x, dy - 46 * sc);
+    ctx.fillText('MAREBEAR', x, waist - 150 * sc);
   }
+}
+
+/* ----- Marebear pops up: from behind the bottom of the screen, laughing, with something to say (the dog in Duck Hunt) ----- */
+
+function popUp(text, to, mood) {
+  if (!S.round && S.mode !== 'match') return;
+  S.popSide = -(S.popSide || -1);
+  S.pop = { t0: now(), text, to, mood, dur: MB.popDuration(text), side: S.popSide, sounded: false };
+}
+function drawPop(t) {
+  const p = S.pop;
+  if (!p) return;
+  const ms = t - p.t0;
+  if (ms > p.dur) { S.pop = null; return; }
+  if (!p.sounded && ms > 120) { p.sounded = true; SND.play(p.mood === 'bad' ? (p.text.length > 70 ? 'laugh' : 'snicker') : p.mood === 'good' ? 'hmph' : 'snicker'); }
+  const rise = MB.popRise(ms, p.dur);
+  if (rise <= 0) return;
+  const bottom = H - S.dock; // on a phone she comes up from behind the controls
+  const sc = clamp(Math.min(W / 520, bottom / 520), 0.45, 1.1);
+  const x = W * (p.side > 0 ? 0.76 : 0.24);
+  const waist = bottom - 62 * sc + (1 - rise) * 280 * sc;
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.beginPath();
+  ctx.rect(0, 0, W, bottom);
+  ctx.clip();
+  MB.drawMarebear(ctx, x, waist, sc, { mood: p.mood === 'bad' ? 'laugh' : p.mood === 'good' ? 'grudge' : 'sly', t: ms, facing: p.side > 0 ? -1 : 1 });
+  // her words, in a balloon beside her head (only once she is up)
+  if (rise > 0.8) {
+    const fs = clamp(Math.round(15 * sc + 5), 13, 17);
+    ctx.font = `600 ${fs}px Archivo, system-ui, sans-serif`;
+    const bw = Math.min(W * 0.6, 330);
+    const lines = MB.wrap(ctx, p.text, bw - 24);
+    const bh = lines.length * (fs + 5) + 20 + (p.to ? 14 : 0);
+    const headY = waist - 150 * sc;
+    const bx = clamp(p.side > 0 ? x - bw - 70 * sc : x + 70 * sc, 8, W - bw - 8);
+    const by = clamp(headY - bh * 0.55, 8, bottom - bh - 8);
+    ctx.globalAlpha = clamp((rise - 0.8) / 0.2, 0, 1) * (ms > p.dur - 260 ? clamp((p.dur - ms) / 260, 0, 1) : 1);
+    ctx.fillStyle = '#fffaf0';
+    ctx.strokeStyle = '#d4122a';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.roundRect(bx, by, bw, bh, 14);
+    const tailX = p.side > 0 ? bx + bw : bx;
+    const dir = p.side > 0 ? 1 : -1;
+    ctx.moveTo(tailX, by + bh * 0.55 - 10);
+    ctx.lineTo(tailX + dir * 22, headY + 8);
+    ctx.lineTo(tailX, by + bh * 0.55 + 10);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#fffaf0';
+    ctx.fillRect(tailX - dir * 1.5 - 1, by + bh * 0.55 - 8.5, 3, 17); // hide the seam where the tail joins
+    ctx.fillStyle = '#2a1020';
+    ctx.textAlign = 'left';
+    lines.forEach((ln, i) => ctx.fillText(ln, bx + 12, by + 10 + fs + i * (fs + 5) - 2));
+    if (p.to) { ctx.font = '700 10px "Space Mono", monospace'; ctx.fillStyle = '#b31a2a'; ctx.fillText(`MAREBEAR TO ${String(p.to).toUpperCase()}`, bx + 12, by + bh - 7); }
+  }
+  ctx.restore();
 }
 
 function drawFlight(t) {
@@ -1628,11 +1710,11 @@ function drawFlight(t) {
   let shown = pos;
   if (p >= 1 && a.roll.length) {
     const ri = Math.min(a.roll.length - 1, Math.floor(rollP * a.roll.length));
-    shown = { ...a.roll[ri], h: 0 };
+    shown = { ...a.roll[ri], h: hopH(rollP, a.roll.length) };
     poly([a.pts.at(-1), ...a.roll.slice(0, ri + 1)].map((q) => [q.x, q.y]), false);
     ctx.stroke();
   }
-  drawDisc(shown.x, shown.y, p >= 1 ? 0 : pos.h, S.last.disc.id, 1, S.last.who);
+  drawDisc(shown.x, shown.y, p >= 1 ? shown.h : pos.h, S.last.disc.id, 1, S.last.who);
   const doneAt = a.dur + (a.roll.length ? 500 : 0) + 250 + (a.putt ? a.tail || 0 : 0);
   if (t - a.t0 >= doneAt) finishThrow();
 }
@@ -1714,7 +1796,7 @@ function draw3D(t) {
   const trail = a.pts.slice(0, i + 1);
   if (p >= 1 && a.roll.length) {
     const ri = Math.min(a.roll.length - 1, Math.floor(clamp((t - a.t0 - a.dur) / 500, 0, 1) * a.roll.length));
-    disc = { x: a.roll[ri].x, y: a.roll[ri].y, h: 0 };
+    disc = { x: a.roll[ri].x, y: a.roll[ri].y, h: hopH(clamp((t - a.t0 - a.dur) / 500, 0, 1), a.roll.length) };
     trail.push(...a.pts.slice(i + 1), ...a.roll.slice(0, ri + 1).map((q) => ({ x: q.x, y: q.y, h: 0 })));
   } else {
     trail.push({ x: pos.x, y: pos.y, h: pos.h });
@@ -1738,6 +1820,8 @@ function draw3D(t) {
 
 function draw(t) {
   drawWorld(t);
+  drawCine(t);
+  drawPop(t);
   if (S.phase === 'swipe') drawSwipeGuide();
 }
 function drawWorld(t) {
@@ -1937,6 +2021,8 @@ function onPanelClick(e) {
     startMeter();
   } else if (t.closest('[data-next]')) {
     next();
+  } else if (t.closest('[data-quick-friend]')) {
+    quickFriend();
   } else if (t.closest('[data-versus]') || t.closest('[data-lobby]')) {
     openLobby();
   } else if (t.closest('[data-lobby-holes]')) {
@@ -2161,6 +2247,21 @@ async function mpCreate() {
   }
 }
 
+// "Play a friend now": a nine-hole match made in one tap, and the share sheet (or a copied link) so it can go straight to them
+async function quickFriend() {
+  if (!account.user) { openSignIn({ onDone: quickFriend }); return; }
+  S.lobby.holes = 9;
+  S.lobby.invite = '';
+  await mpCreate();
+  const id = S.mp?.view?.id;
+  if (!id) return;
+  const url = `${location.origin}/game?match=${id}`;
+  try {
+    if (navigator.share) { await navigator.share({ title: 'Disc golf on Disc Jerkers', text: 'Play nine holes with me:', url }); return; }
+  } catch { /* they closed the sheet: the link is still on the page */ }
+  copyLink();
+}
+
 async function mpJoin(id) {
   const code = String(id || '').trim().toUpperCase();
   if (!code) { flash('Type the six-character code.'); return; }
@@ -2261,7 +2362,7 @@ function applyView(view) {
   setPhase(matchPhase());
   retarget(true);
   if (before !== S.hole) S.quip = '';
-  if (matchPhase() === 'mdone' && mp.endQuip !== `${view.status}${view.seq}`) { mp.endQuip = `${view.status}${view.seq}`; say(matchEndRemark(view)); }
+  if (matchPhase() === 'mdone' && mp.endQuip !== `${view.status}${view.seq}`) { mp.endQuip = `${view.status}${view.seq}`; say(matchEndRemark(view), (view.winners || []).includes(S.mp.me) ? 'good' : 'bad'); }
   if (before !== S.hole && view.round && view.holeIdx > 0) toast(`Hole ${view.holeIdx + 1}: ${S.hole.name}`, '', 1700);
 }
 
@@ -2315,7 +2416,8 @@ function startMoveAnim(view, last, who) {
     S.anim = puttAnim(last.from, result, last.lie, who);
     puttReaction(result, who, name);
   } else {
-    S.anim = { type: 'flight', t0: now(), dur: camDur(clamp(900 + last.feet * 4.2, 1200, 3300)), pts, roll, result, putt: false };
+    S.anim = { type: 'flight', t0: now(), dur: camDur(clamp(900 + last.feet * 4.2, 1200, 3300)) * (last.kind === 'basket' ? 1.5 : 1), pts, roll, result, putt: false, cine: last.kind === 'basket' };
+    SND.play('throw', 0.6);
     toast(`${name}${last.ex?.grade || ''}`, last.ex?.pure ? 'good' : last.ex?.slip || last.ex?.grade === 'Shank' ? 'bad' : '', 1400);
   }
   setPhase('flight');
@@ -2339,7 +2441,9 @@ function finishMove() {
   trail.push({ pts: [...result.pts, ...result.roll].map((p) => ({ x: p.x, y: p.y })), kind: result.kind, n: trail.length + 1 });
   const mover = playerOf(L.who === 'me' ? mp.me : L.who, mp.view);
   const total = mp.view.round?.rounds[mover.uid]?.strokes ?? 0;
-  say(T.remark(T.eventFor({ kind: last.kind, putt: last.putt, made: last.made, gimme: last.gimme, ex: last.ex, strokes: total, dist: G.distance(last.from, S.hole.basket), surface: S.last.result.surface, rim: last.rim, nasty: last.nasty, why: last.why }), { who: L.who === 'me' ? 'me' : 'them', name: mover.name }, Math.random, S.lastQuip));
+  const ev = T.eventFor({ kind: last.kind, putt: last.putt, made: last.made, gimme: last.gimme, ex: last.ex, strokes: total, dist: G.distance(last.from, S.hole.basket), surface: S.last.result.surface, rim: last.rim, nasty: last.nasty, why: last.why });
+  landSounds(result, ev);
+  say(T.remark(ev, { who: L.who === 'me' ? 'me' : 'them', name: mover.name }, Math.random, S.lastQuip), L.who === 'me' ? (GOOD_EVENTS.has(ev) ? 'good' : 'bad') : (GOOD_EVENTS.has(ev) ? 'sly' : 'bad'));
   if (last.bear) { startBear({ discId: last.bear.discId, at: last.bear.at, owner: L.who }); return; }
   afterMove();
 }
@@ -2350,7 +2454,7 @@ function afterMove() {
   const last = mp.view.last;
   if (last && last.holeEnd && mp.holeSeen !== last.seq) {
     mp.holeSeen = last.seq;
-    say(matchHoleRemark(last.holeEnd, mp.view));
+    say(matchHoleRemark(last.holeEnd, mp.view), 'sly');
     setPhase('mhole');
     return;
   }
@@ -2587,6 +2691,11 @@ async function boot() {
   try { T.useHeckles(await (await fetch('/data/heckles.json?v=2')).json()); } catch { /* her own lines are enough */ }
   for (const r of DATA.discs) DISCS.set(r[0], { id: r[0], name: r[1], b: r[2], cat: r[3], speed: r[4], glide: r[5], turn: r[6], fade: r[7], col: r[8] });
 
+  document.addEventListener('pointerdown', SND.unlock);
+  const sndBtn = $('#gm-sound');
+  const showSnd = () => { sndBtn.setAttribute('aria-pressed', String(SND.isOn())); sndBtn.textContent = SND.isOn() ? 'Sound on' : 'Sound off'; };
+  showSnd();
+  sndBtn.addEventListener('click', () => { SND.setOn(!SND.isOn()); showSnd(); SND.play('tap'); });
   loadCam();
   const camBtn = $('#gm-cam');
   const showCam = () => { camBtn.hidden = false; camBtn.setAttribute('aria-pressed', String(CAM.on)); camBtn.textContent = CAM.on ? '3D on' : '3D off'; };
@@ -2648,7 +2757,7 @@ async function boot() {
       openSignIn({ onDone: () => mpJoin(code) });
     }
   }
-  window.__gm = { startSwipe, puttDisc, S, G, clock, tap, throwDisc, startMeter, next, retarget, cam, DISCS, showMenu, startSolo, startHole, startBear, finishThrow, finishHole, finishCourse, openLobby, enterMatch, applyView, onMatchState, finishMove, mpCreate, mpJoin, step: () => { const t = now(); update(t); draw(t); } };
+  window.__gm = { popUp, say, SND, startSwipe, puttDisc, S, G, clock, tap, throwDisc, startMeter, next, retarget, cam, DISCS, showMenu, startSolo, startHole, startBear, finishThrow, finishHole, finishCourse, openLobby, enterMatch, applyView, onMatchState, finishMove, mpCreate, mpJoin, step: () => { const t = now(); update(t); draw(t); } };
   requestAnimationFrame(frame);
 }
 

@@ -553,8 +553,8 @@ const HOLE_SPECS = [
   // 16: a wall of trees across the hole with two gates: wide and long to the left, tight and straight on the right
   { id: 16, note: "A wall of trees with two gates: wide and long on the left, tight and straight on the right.", name: 'The Gate', par: 4, path: trail(-25, 36, [[200, 10, 36], [200, -6, 36]]), wind: { mph: 5, from: 180 },
     woods: [{ side: -1, dense: 0.7 }, { side: 1, dense: 0.7 }], walls: [{ s: 200, from: -90, to: 90, gaps: [[-58, -30], [26, 36]], h: [72, 94] }], shrubs: [[320, 20], [330, -22]], front: 2 },
-  // 17: Marebear's den: little room, lots of pine
-  { id: 17, note: "Marebear's den. Not much room and a lot of pine. Be patient.", name: "Marebear's Den", par: 3, path: trail(-8, 22, [[225, 10, 20]]), wind: { mph: 3, from: 270 },
+  // 17: Marebear's parlor: little room, lots of pine
+  { id: 17, note: "Marebear's parlor. Not much room and a lot of pine. Be patient.", name: "Marebear's Parlor", par: 3, path: trail(-8, 22, [[225, 10, 20]]), wind: { mph: 3, from: 270 },
     woods: [{ side: -1, dense: 0.95, rows: 2 }, { side: 1, dense: 0.95, rows: 2 }], trees: [[100, -8, 4.4, 66], [135, 12, 4.4, 62], [175, -2, 4.6, 70]], front: 3 },
   // 18: home: a big pond in the valley. Play round the left, or have a go over the water
   { id: 18, note: "A big pond fills the valley. Play round the left, or have a go over the water.", name: 'Valley Home', par: 4, path: trail(0, 40, [[170, 0, 40], [160, -35, 34], [150, 35, 26]]), wind: { mph: 12, from: 235 },
@@ -565,4 +565,6 @@ const HOLE_SPECS = [
 // Holes 1-9 are the front nine, 10-18 the back; a nine-hole round is the front nine.
 export const HOLES = HOLE_SPECS.map(build);
 export const holeById = (id) => HOLES.find((h) => h.id === id);
-export const holesFor = (length) => HOLES.slice(0, length === 9 ? 9 : length === 18 ? 18 : 1);
+// a warm-up is three of the gentler holes: an open start, a short climb and the bluff over the pond
+export const WARMUP = [1, 2, 5];
+export const holesFor = (length) => (length === 3 ? WARMUP.map((id) => holeById(id)) : HOLES.slice(0, length === 9 ? 9 : length === 18 ? 18 : 1));

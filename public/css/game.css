@@ -147,6 +147,7 @@
   position: absolute; right: 10px; bottom: 10px; z-index: 3; padding: 7px 12px; border: 1px solid rgba(163, 230, 53, 0.6); border-radius: 999px; cursor: pointer;
   background: rgba(6, 11, 7, 0.78); color: var(--lime); font: 700 0.62rem/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase;
 }
+.gm-cambtn--sound { right: 84px; }
 .gm-cambtn[aria-pressed="false"] { color: var(--bone-dim); border-color: var(--hair); }
 .gm-stage.is-3d .gm-zoom, .gm-stage.is-3d .gm-bubble, .gm-stage.is-3d .gm-cambtn { visibility: hidden; }
 .gm-zoom button:disabled { opacity: 0.35; cursor: default; }

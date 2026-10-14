@@ -243,7 +243,7 @@ test('Marebear comes for a disc at a triple bogey, and the bear is on the record
   // that disc cannot be thrown again
   const again = store.get(id);
   again.round.turn = who;
-  assert.throws(() => store.move(user, id, 'throw', { discId: out.last.bear.discId, settings: SETTINGS, aimOff: 0, ex: CLEAN }, gp), /Marebear ate/);
+  assert.throws(() => store.move(user, id, 'throw', { discId: out.last.bear.discId, settings: SETTINGS, aimOff: 0, ex: CLEAN }, gp), /Marebear has that one/);
 });
 
 test('leaving: a match nobody joined is cancelled; leaving one in play forfeits it', async () => {

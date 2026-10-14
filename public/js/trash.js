@@ -49,7 +49,7 @@ const HOLE = {
   bogey: ['Bogey. The hole won, but only a little.', 'A bogey. It is not a crime. It is, however, a bogey.'],
   double: ['Double bogey! That is a lot of disc golf for one hole.', 'A double bogey. At least you got your steps in.'],
   triple: ['Triple bogey or worse. I would like to see the scorecard framed.', 'That hole took everything you had, and then some.', 'Okay, let us call that one a practice hole and never speak of it again.'],
-  none: ['No discs left. I ate them, and I regret nothing.'],
+  none: ['No discs left. They are all in my handbag, and I regret nothing.'],
 };
 const MATCH = {
   holeWin: ['You took that hole. {name} is looking at the ground.', 'You beat {name} on that one. Do you feel big? You should.'],
@@ -60,7 +60,7 @@ const MATCH = {
   tie: ['A tie! The most boring result there is.'],
   left: ['You left. The discs are still out there, judging you.'],
 };
-const BEAR = { mine: ['Do not look at me. You earned it.'], theirs: ['{name} is at a triple bogey. Smells like dinner.'] };
+const BEAR = { mine: ['Do not look at me. You earned it.'], theirs: ['{name} is at a triple bogey. Marebear is reaching for her handbag.'] };
 
 // Lines from public/data/heckles.json (the ones the owner wrote), by their own category names. They are in the second person,
 // so when they are about somebody else's throw they are aimed at that player by name.
