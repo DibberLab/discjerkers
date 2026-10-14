@@ -495,13 +495,14 @@ function updateBubble() {
   if (html) { void b.offsetWidth; b.classList.add('is-on'); }
 }
 
+const PHONE_STEPS = ['disc', 'grip', 'aim', 'flight']; // the steps of setting up a throw on a phone, in order
 function panelPickPhone() {
   const d = curDisc();
   if (!d) return panelNoDiscs();
   const putting = inPutt();
   const key = `${S.mode}:${S.hole.id}:${S.round.strokes}`;
   if (S.stepKey !== key) { S.stepKey = key; S.step = 'disc'; } // each throw starts with the disc
-  const steps = putting ? ['disc'] : ['disc', 'grip', 'aim', 'flight'];
+  const steps = putting ? ['disc'] : PHONE_STEPS;
   if (!steps.includes(S.step)) S.step = steps[0];
   const names = { disc: 'Disc', grip: 'Grip', aim: 'Aim', flight: 'Flight' };
   const i = steps.indexOf(S.step);
@@ -2531,6 +2532,7 @@ function showViewBtn() {
   if (!btn) return;
   const on = aimIn3D();
   if (btn.hidden === on) btn.hidden = !on;
+  btn.classList.toggle('is-behind', !!S.pop); // Marebear's balloon is drawn on the canvas, under the chips: while she talks, the chip gets out of her way
   const pin = S.view3 === 'pin';
   const txt = pin ? 'Behind disc' : 'Find pin';
   if (btn.textContent !== txt) { btn.textContent = txt; btn.setAttribute('aria-pressed', String(pin)); }
@@ -2907,7 +2909,7 @@ function onPanelClick(e) {
     S.step = t.closest('[data-step]').dataset.step;
     renderPanel();
   } else if (t.closest('[data-next-step]')) {
-    S.step = S.step === 'disc' ? 'grip' : 'aim';
+    S.step = PHONE_STEPS[Math.min(PHONE_STEPS.length - 1, PHONE_STEPS.indexOf(S.step) + 1)]; // the next one (it used to know only three)
     renderPanel();
   } else if (t.closest('[data-go]')) {
     startMeter();

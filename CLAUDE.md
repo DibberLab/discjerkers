@@ -178,7 +178,7 @@ that way; don't introduce React/Vite/Tailwind here.
 - **Aiming in 3D** (`aimIn3D`, `drawAim3D`, `aimCamWant`, `headingAtPixel`, `aimOverlay` in `game.js`): with 3D on, setting up any throw that is not a putt (the pick screen, the four meters and
   the swipe) is in 3D too: the camera stands 18 ft behind the disc looking along the aim (it eases round as the aim changes), with the aim line, the band a mistimed release can
   reach and the landing ring laid over the ground. Drag or tap to aim: the heading of the ground under your finger, through the camera as it was when the finger landed (so it does not
-  run away). **Find pin** (chip bottom left, or V) lifts it to a 3/4 view up and back, looking along the line to the basket, so a dogleg's pin can be found; aiming works there too.
+  run away). **Find pin** (chip bottom left, behind the toasts and the key hints, and gone while Marebear's balloon is up; or V) lifts it to a 3/4 view up and back, looking along the line to the basket, so a dogleg's pin can be found; aiming works there too.
   The world is drawn into a picture of its own when the camera moves and stamped while it is still (`S.aimPic`); the aim line, the pin marker and the fade are drawn over it each frame.
   Any drawing mistake falls back to the map (`S.aimFail`). A result screen, a hole's end and the menus are still the map.
 - **The ghost** (`player.js` is the body, pure; `drawPlayer` in `cam3d.js` draws it; `playerFig`, `leadFor` in `game.js`): in the 3D view a translucent, glowing figure of a person stands at the
