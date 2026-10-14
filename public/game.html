@@ -9,7 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css?v=7">
   <link rel="stylesheet" href="/css/flightguide.css?v=25">
-  <link rel="stylesheet" href="/css/game.css?v=35">
+  <link rel="stylesheet" href="/css/game.css?v=36">
   <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
   <title>Play the Course — Disc Jerkers</title>
   <meta name="description" content="Bring your bag and throw the hole. Pick a disc, set your flight, then time the throw. Don't triple bogey. Marebear is watching.">
@@ -36,6 +36,7 @@
       <div class="gm-toast" id="gm-toast" role="status" aria-live="polite"></div>
       <div class="gm-bubble" id="gm-bubble" aria-live="polite"></div>
       <button class="gm-cambtn gm-cambtn--sound" id="gm-sound" type="button" aria-pressed="true">Sound on</button>
+      <button class="gm-cambtn gm-cambtn--view" id="gm-view" type="button" hidden aria-pressed="false">Find pin</button>
       <button class="gm-cambtn gm-cambtn--bear" id="gm-bear" type="button" aria-pressed="true">Marebear on</button>
       <button class="gm-cambtn" id="gm-cam" type="button" hidden aria-pressed="false">3D</button>
       <div class="gm-zoom" role="group" aria-label="Zoom the hole"><button type="button" id="gm-zin" aria-label="Zoom in">+</button><button type="button" id="gm-zout" aria-label="Zoom out">−</button></div>
@@ -43,7 +44,7 @@
     <section class="gm-panel" id="gm-panel" aria-live="polite"><p class="gm-loading">Loading the course…</p></section>
   </main>
 
-  <script type="module" src="/js/game.js?v=76"></script>
+  <script type="module" src="/js/game.js?v=77"></script>
   <script type="module" src="/js/site.js?v=2"></script>
 </body>
 </html>

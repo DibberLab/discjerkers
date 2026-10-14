@@ -7,9 +7,9 @@ import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=11';
 import * as G from './gamecore.js?v=29';
 import * as T from './trash.js?v=11';
-import * as C3 from './cam3d.js?v=17';
+import * as C3 from './cam3d.js?v=18';
 import * as FO from './foliage.js?v=1';
-import * as PF from './puttfx.js?v=13';
+import * as PF from './puttfx.js?v=14';
 import * as GR from './ground.js?v=5';
 import * as SND from './sound.js?v=4';
 import * as MB from './marebear.js?v=2';
@@ -399,7 +399,7 @@ function settingsBlock() {
 }
 
 const tipSeen = () => { try { return localStorage.getItem('dj_game_tip') === '1'; } catch { return false; } };
-const tipHtml = () => (tipSeen() ? '' : `<div class="gm-tip"><p><b>How to play:</b> pick a disc, choose forehand or backhand, and aim (drag on the hole). Then <b>Throw</b> and tap four times: where you stop the power, nose and angle bars is your arm speed, how high the nose is tipped and your hyzer; the last tap is the release. A slow arm can grip lock or let go early, so watch the slip percentage. Trees stop low throws, water costs a stroke, and a triple bogey brings Marebear, who takes a disc.</p><button type="button" data-tip-close aria-label="Got it">×</button></div>`);
+const tipHtml = () => (tipSeen() ? '' : `<div class="gm-tip"><p><b>How to play:</b> pick a disc, choose forehand or backhand, and aim (drag or tap where you want it to go; Find pin lifts the camera to see the basket). Then <b>Throw</b> and tap four times: where you stop the power, nose and angle bars is your arm speed, how high the nose is tipped and your hyzer; the last tap is the release. A slow arm can grip lock or let go early, so watch the slip percentage. Trees stop low throws, water costs a stroke, and a triple bogey brings Marebear, who takes a disc.</p><button type="button" data-tip-close aria-label="Got it">×</button></div>`);
 
 // Marebear's remark, in a card of its own under whatever it is about
 // Marebear can be switched off (a chip over the hole, remembered): no pop-ups, no remarks, no scene, and in your own round she takes no disc
@@ -1517,6 +1517,7 @@ function next() {
   if (S.round.done) { finishHole(); return; }
   S.discId = suggest(); // a driver from the tee, a putter on the green: you can change it
   S.aimOff = 0;
+  S.view3 = 'behind';
   setPhase('pick');
   retarget(false);
 }
@@ -2375,6 +2376,144 @@ function drawPutt3D(t) {
   S.pfov = sc ? PF.drawPuttFx(ctx, { cam: c, view, hole: S.hole, W, H }, sc, ms, a.result).fov : 0;
   if (sc) { if (ms >= sc.total + sc.tail) finishThrow(); } else if (a && t - a.t0 >= a.dur + 250) finishThrow();
 }
+/* ----- setting up a throw in 3D: the camera stands behind the disc looking where you are aiming; drag (or tap) to aim, "Find pin" lifts it to a 3/4 view ----- */
+
+const AIM3D_PHASES = ['pick', 'power', 'nose', 'angle', 'release', 'swipe'];
+const aimIn3D = () => CAM.on && !!S.round && !S.anim && !S.aimFail && AIM3D_PHASES.includes(S.phase) && !inPutt() && S.mode !== 'menu';
+const RAD = Math.PI / 180;
+// where the camera wants to be: behind the disc, low, looking along the aim; or up and back, looking along the line to the basket, so both are in the picture
+function aimCamWant(lie) {
+  const gnd = (x, y) => C3.groundAt(S.hole, x, y);
+  if (S.view3 === 'pin') {
+    const b = S.hole.basket;
+    const dx = b.x - lie.x;
+    const dy = b.y - lie.y;
+    const l = Math.hypot(dx, dy) || 1;
+    const ux = dx / l;
+    const uy = dy / l;
+    const back = clamp(l * 0.22, 26, 80);
+    const x = lie.x - ux * back;
+    const y = lie.y - uy * back;
+    const z = gnd(x, y) + clamp(l * 0.3, 30, 120);
+    const lx = lie.x + ux * l * 0.55;
+    const ly = lie.y + uy * l * 0.55;
+    return { x, y, z, yaw: Math.atan2(ux, uy), pitch: Math.atan2(gnd(lx, ly) - z, Math.hypot(lx - x, ly - y)), fov: 70 * RAD };
+  }
+  const yaw = heading() * RAD;
+  const ux = Math.sin(yaw);
+  const uy = Math.cos(yaw);
+  const x = lie.x - ux * 18;
+  const y = lie.y - uy * 18;
+  const z = gnd(x, y) + 5.6;
+  const ahead = gnd(lie.x + ux * 140, lie.y + uy * 140);
+  return { x, y, z, yaw, pitch: clamp(Math.atan2(ahead + 2 - z, 158) - 0.03, -0.25, 0.1), fov: 64 * RAD };
+}
+function toggleView3() {
+  S.view3 = S.view3 === 'pin' ? 'behind' : 'pin';
+  showViewBtn();
+}
+function showViewBtn() {
+  const btn = $('#gm-view');
+  if (!btn) return;
+  const on = aimIn3D();
+  if (btn.hidden === on) btn.hidden = !on;
+  const pin = S.view3 === 'pin';
+  const txt = pin ? 'Behind disc' : 'Find pin';
+  if (btn.textContent !== txt) { btn.textContent = txt; btn.setAttribute('aria-pressed', String(pin)); }
+}
+// the aim line, the band a mistimed release can reach, and where it ends, laid over the 3D ground
+function aimOverlay(c, view, lie) {
+  return (g) => {
+    if (!S.showLine || !curDisc()) return;
+    const { pv, end } = previewNow(lie);
+    const ground = (p) => C3.project(c, view, p.x, p.y, C3.groundAt(S.hole, p.x, p.y) + 0.15);
+    const air = (p) => C3.project(c, view, p.x, p.y, C3.groundAt(S.hole, p.x, p.y) + (p.h || 0) * C3.ZS);
+    if (S.phase === 'pick') {
+      g.beginPath();
+      let pen = false;
+      for (const p of pv.band) { const q = ground(p); if (!q) { pen = false; continue; } if (pen) g.lineTo(q.x, q.y); else g.moveTo(q.x, q.y); pen = true; }
+      g.closePath();
+      g.fillStyle = 'rgba(163,230,53,0.14)';
+      g.fill();
+    }
+    const stroke = (pts, f, style, w, dash) => {
+      g.beginPath();
+      let on = false;
+      for (const p of pts) { const q = f(p); if (!q) { on = false; continue; } if (on) g.lineTo(q.x, q.y); else g.moveTo(q.x, q.y); on = true; }
+      g.setLineDash(dash);
+      g.strokeStyle = style;
+      g.lineWidth = w;
+      g.lineCap = 'round';
+      g.stroke();
+      g.setLineDash([]);
+    };
+    stroke(pv.line, ground, 'rgba(238,241,232,0.28)', 1.6, [2, 6]); // where it passes over the ground
+    stroke(pv.line, air, 'rgba(163,230,53,0.92)', 2.6, [8, 6]); // and the flight itself
+    const e = ground(end);
+    if (e) { // where it comes down
+      g.beginPath();
+      g.ellipse(e.x, e.y, Math.max(6, 9 * e.s), Math.max(3, 4.5 * e.s), 0, 0, Math.PI * 2);
+      g.strokeStyle = 'rgba(163,230,53,0.95)';
+      g.lineWidth = 2;
+      g.stroke();
+    }
+  };
+}
+function drawAim3D(t) {
+  const lie = lieOf();
+  const want = aimCamWant(lie);
+  const first = !S.acam;
+  if (first) { S.acam = C3.newCamera(want.x, want.y, want.z, want.yaw, want.pitch, want.fov); S.acamT = t; S.aimFade = t; S.dockV = S.dock; }
+  const dt = clamp((t - S.acamT) / 1000, 0.001, 0.05);
+  S.acamT = t;
+  const k = 1 - Math.exp(-dt * 9);
+  const c = S.acam;
+  c.x += (want.x - c.x) * k; c.y += (want.y - c.y) * k; c.z += (want.z - c.z) * k;
+  c.yaw += (((want.yaw - c.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI) * k;
+  c.pitch += (want.pitch - c.pitch) * k;
+  c.fov += (want.fov - c.fov) * k;
+  c.roll = 0;
+  S.dockV = S.dockV === undefined ? S.dock : S.dockV + (S.dock - S.dockV) * (1 - Math.exp(-dt * 7));
+  const view = C3.viewOf(W, H, c, S.dockV);
+  S.aimView = view;
+  // The world is drawn into a picture of its own whenever the camera has moved, and that picture is simply stamped while it has not (a still
+  // camera is most of the time you spend aiming, and a thousand trees and the ground are dear to draw every frame). The aim line, the pin
+  // marker and the fade are drawn over it each frame.
+  const color = discLook(curDisc().id, 'me').color;
+  const key = [c.x.toFixed(2), c.y.toFixed(2), c.z.toFixed(2), c.yaw.toFixed(4), c.pitch.toFixed(4), c.fov.toFixed(4)].join(',') + `|${W}|${H}|${dpr}|${view.cy.toFixed(1)}|${S.hole.id}|${S.hole.variant?.seed ?? ''}|${S.hole.basket.x},${S.hole.basket.y}|${lie.x},${lie.y}|${S.hole.weather?.dusk || 0}|${color}|${FO.ready()}`;
+  if (!S.aimPic || S.aimPic.key !== key) {
+    const off = S.aimPic?.canvas || document.createElement('canvas');
+    if (off.width !== cv.width || off.height !== cv.height) { off.width = cv.width; off.height = cv.height; }
+    const g2 = off.getContext('2d');
+    g2.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g2.clearRect(0, 0, W, H);
+    C3.drawScene(g2, { hole: S.hole, cam: c, view, disc: { x: lie.x, y: lie.y, h: 0.3 }, trail: [], dz: 1, dusk: S.hole.weather?.dusk || 0, color, t, pin: false });
+    S.aimPic = { key, canvas: off };
+  }
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(S.aimPic.canvas, 0, 0);
+  ctx.restore();
+  aimOverlay(c, view, lie)(ctx);
+  C3.drawPin(ctx, c, C3.basis(c), view, S.hole);
+  const fade = 1 - (t - S.aimFade) / 300; // a soft cut from the map (or the last throw) to the view from behind the disc
+  if (fade > 0) { ctx.fillStyle = `rgba(6,11,7,${Math.min(1, fade)})`; ctx.fillRect(0, 0, W, H); }
+  showViewBtn();
+}
+// where a screen point is on the ground, as a heading from the disc (degrees from north), seen through a camera as it was when the finger landed
+function headingAtPixel(sx, sy, cam, view, lie) {
+  const b = C3.basis(cam);
+  const a = (sx - view.cx) / view.focal;
+  const u = -(sy - view.cy) / view.focal;
+  const d = [b.right[0] * a + b.up[0] * u + b.fwd[0], b.right[1] * a + b.up[1] * u + b.fwd[1], b.right[2] * a + b.up[2] * u + b.fwd[2]];
+  if (d[2] < -0.004) {
+    const tt = (C3.groundAt(S.hole, lie.x, lie.y) - cam.z) / d[2];
+    const hx = cam.x + d[0] * tt;
+    const hy = cam.y + d[1] * tt;
+    if (tt > 0 && Math.hypot(hx - lie.x, hy - lie.y) > 8 && tt < 3000) return G.headingTo(lie, { x: hx, y: hy });
+  }
+  return (cam.yaw + Math.atan(a)) / RAD; // above the horizon: turn by the angle of the pixel
+}
 function draw3D(t) {
   const a = S.anim;
   const p = clamp((t - a.t0) / a.dur, 0, 1);
@@ -2432,8 +2571,14 @@ function drawWorld(t) {
     try { draw3D(t); return; } catch (err) { console.error('3D ride failed, using the map', err); S.anim.fail3d = true; stage.classList.remove('is-3d'); }
   } else if (CAM.on && puttingIn3D() && S.mode !== 'menu') {
     try { drawPutt3D(t); return; } catch (err) { console.error('3D putt view failed, using the map', err); CAM.on = false; S.pcam = null; }
+  } else if (aimIn3D()) {
+    if (!stage.classList.contains('is-aim')) stage.classList.add('is-aim');
+    try { drawAim3D(t); return; } catch (err) { console.error('3D aim view failed, using the map', err); S.aimFail = true; S.acam = null; stage.classList.remove('is-aim'); }
   } else {
     S.pcam = null;
+    S.acam = null;
+    if (stage.classList.contains('is-aim')) stage.classList.remove('is-aim');
+    showViewBtn();
   }
   drawStill('ground', drawCourse);
   drawWaves(t);
@@ -2565,9 +2710,16 @@ function frame() {
 
 /* ---------- input ---------- */
 
-function setAimFromPointer(e) {
+function setAimFromPointer(e, begin = false) {
   if (S.phase !== 'pick' || inPutt()) return;
   const r = cv.getBoundingClientRect();
+  if (aimIn3D() && S.acam && S.aimView) { // in the 3D view you aim by pointing: the heading of the ground under your finger, through the camera as it was when it landed
+    if (begin || !S.aimSnap) S.aimSnap = { cam: { ...S.acam }, view: { ...S.aimView } };
+    let off = headingAtPixel(e.clientX - r.left, e.clientY - r.top, S.aimSnap.cam, S.aimSnap.view, lieOf()) - baseHeading();
+    off = ((off + 540) % 360) - 180;
+    setAim(Math.round(off));
+    return;
+  }
   const w = toWorld(e.clientX - r.left, e.clientY - r.top);
   let off = G.headingTo(lieOf(), w) - baseHeading();
   off = ((off + 540) % 360) - 180;
@@ -2736,7 +2888,7 @@ function setInput(kind) { // 'touch' | 'mouse' | 'key' | 'pad': what the player 
   S.input = kind;
   showKeys();
 }
-const KEYMAP = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down', Enter: 'confirm', ' ': 'confirm', Escape: 'back', Backspace: 'back', PageUp: 'prev', PageDown: 'next', '[': 'prev', ']': 'next', a: 'prev', d: 'next', w: 'catPrev', s: 'catNext' }; // (A and D change disc, W and S change kind of disc, as in Disc Golf Masters)
+const KEYMAP = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down', Enter: 'confirm', ' ': 'confirm', Escape: 'back', Backspace: 'back', PageUp: 'prev', PageDown: 'next', '[': 'prev', ']': 'next', a: 'prev', d: 'next', w: 'catPrev', s: 'catNext', v: 'view' }; // (A and D change disc, W and S change kind of disc, as in Disc Golf Masters)
 
 // the first disc of the next (or previous) kind in the bag: putters, midranges, fairway and distance drivers
 function selectKind(step) {
@@ -2779,6 +2931,7 @@ function pressFocused() {
 function act(name, o = {}) {
   const amt = o.amount ?? 1;
   if (S.replay) return false;
+  if (name === 'view') { if (!aimIn3D()) return false; toggleView3(); return true; } // the 3/4 view, to find the pin
   if (S.phase === 'flight') { // a ride can be skipped
     if ((name === 'confirm' || name === 'back') && S.anim && riding()) { S.anim.t0 -= 1e7; return true; }
     return false;
@@ -2888,7 +3041,7 @@ function showKeys() {
   const [L, R, U, D, OK] = isPad ? ['◀', '▶', '▲', '▼', 'A'] : ['←', '→', '↑', '↓', 'Enter'];
   const text = isMeter() ? `${isPad ? 'A' : 'Space or Enter'}: tap`
     : S.phase === 'swipe' ? (isPad ? `right stick: pull back, push forward · left stick: aim, power · ${OK}: throw` : `${L} ${R} aim · ${U} ${D} power · ${OK}: throw`)
-      : S.phase === 'pick' ? `${L} ${R} aim · ${U} ${D} disc · ${OK}: ${inPutt() ? 'putt' : 'next / throw'}`
+      : S.phase === 'pick' ? `${L} ${R} aim · ${U} ${D} disc${inPutt() || isPad ? '' : ' · V: find pin'} · ${OK}: ${inPutt() ? 'putt' : 'next / throw'}`
         : S.phase === 'flight' ? `${OK}: skip` : isPad ? `${U} ${D} choose · A: select` : '';
   el.textContent = text;
   el.hidden = !text;
@@ -3695,11 +3848,12 @@ async function boot() {
     if (riding()) { S.anim.t0 -= 1e7; return; } // tap to skip the ride
     if (S.phase === 'swipe') { beginSwipe(e); return; }
     try { cv.setPointerCapture?.(e.pointerId); } catch { /* a pointer that is already gone */ }
-    setAimFromPointer(e);
+    setAimFromPointer(e, true);
   });
   cv.addEventListener('pointermove', (e) => { if (S.phase === 'swipe') { moveSwipe(e); return; } if (e.buttons || e.pointerType === 'touch') setAimFromPointer(e); });
-  cv.addEventListener('pointerup', endSwipe);
-  cv.addEventListener('pointercancel', () => { if (S.meter) S.meter.drag = null; });
+  cv.addEventListener('pointerup', (e) => { S.aimSnap = null; endSwipe(e); });
+  cv.addEventListener('pointercancel', () => { S.aimSnap = null; if (S.meter) S.meter.drag = null; });
+  $('#gm-view').addEventListener('click', () => { toggleView3(); SND.play('tap'); });
 
   onAccountChange(() => {
     syncGame();

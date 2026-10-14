@@ -151,6 +151,14 @@ that way; don't introduce React/Vite/Tailwind here.
   with no woods, or a `gap`, stays open ground, which is how the designed clearings (the inside of a dogleg, a window) work.
   Trees are looked up through a grid (`treesIn()`), because a hole has 450-1100 of them. They are drawn per species on the
   map (`drawTrees`) and in the 3D view (`cam3d.js`).
+- **Aiming in 3D** (`aimIn3D`, `drawAim3D`, `aimCamWant`, `headingAtPixel`, `aimOverlay` in `game.js`): with 3D on, setting up any throw that is not a putt (the pick screen, the four meters and
+  the swipe) is in 3D too: the camera stands 18 ft behind the disc looking along the aim (it eases round as the aim changes), with the aim line, the band a mistimed release can
+  reach and the landing ring laid over the ground. Drag or tap to aim: the heading of the ground under your finger, through the camera as it was when the finger landed (so it does not
+  run away). **Find pin** (chip bottom left, or V) lifts it to a 3/4 view up and back, looking along the line to the basket, so a dogleg's pin can be found; aiming works there too.
+  The world is drawn into a picture of its own when the camera moves and stamped while it is still (`S.aimPic`); the aim line, the pin marker and the fade are drawn over it each frame.
+  Any drawing mistake falls back to the map (`S.aimFail`). A result screen, a hole's end and the menus are still the map.
+- **The pin marker** (`drawPin` in `cam3d.js`): in every 3D view a small orange triangle hangs over the basket from 70 ft out (and an arrow at the edge of the picture when it is to the side or behind you).
+  The flag on the staff is small now.
 - **3D putting (preview):** with the 3D preview on, once you are within putting range the view stays in 3D (camera behind your disc,
   looking at the basket and its chains) through setting up, the meter, the putt and any miss, until the hole is done. A drawing
   mistake falls back to the map (`draw()` catches it) and `frame()` can never stop the loop.
@@ -310,7 +318,7 @@ that way; don't introduce React/Vite/Tailwind here.
   the server rolls them in a match; into water it costs a stroke). `puttScript` turns that into a film (where the disc is every
   millisecond, with marks for the drop, the rim lap, the spit and the roll) and `drawPuttFx` draws the reaction: CHAINS! with
   rings and confetti, a cold-washed RIMMED OUT, NASTY ROLL with the camera following the disc.
-- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 29, `cam3d.js` 17, `puttfx.js` 13, `foliage.js` 1, `ground.js` 5, `sound.js` 4, `marebear.js` 2, `conditions.js` 3, `daily.js` 1, `gamepanels.js` 3, `progress.js` 2, `trash.js` 11, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
+- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 29, `cam3d.js` 18, `puttfx.js` 14, `foliage.js` 1, `ground.js` 5, `sound.js` 4, `marebear.js` 2, `conditions.js` 3, `daily.js` 1, `gamepanels.js` 3, `progress.js` 2, `trash.js` 11, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 
 ## Deploy

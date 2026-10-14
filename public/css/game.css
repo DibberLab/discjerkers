@@ -153,6 +153,9 @@
 }
 .gm-cambtn--sound { right: 84px; }
 .gm-cambtn--bear { right: 182px; }
+.gm-stage .gm-cambtn--view { left: 12px; right: auto; top: auto; bottom: calc(var(--dock, 0px) + 12px); } /* where the zoom buttons are, which are hidden while you aim in 3D */
+.gm-cambtn--view[hidden] { display: none; }
+.gm-stage.is-aim .gm-zoom { visibility: hidden; }
 .gm-cambtn[aria-pressed="false"] { color: var(--bone-dim); border-color: var(--hair); }
 .gm-stage.is-3d .gm-zoom, .gm-stage.is-3d .gm-bubble, .gm-stage.is-3d .gm-cambtn { visibility: hidden; }
 .gm-zoom button:disabled { opacity: 0.35; cursor: default; }

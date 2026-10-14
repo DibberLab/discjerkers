@@ -537,7 +537,7 @@ function drawBasket(ctx, cam, b, view, hole, jiggle = 0, t = 0, part = 'all') {
   if (part !== 'all' && !near) { if (part === 'base') part = 'all'; else return; } // far off, the base layer draws everything
   const top = project(cam, view, x, y, zb + RING_H + 0.12);
   // a flag on a staff so you can find it from far off; standing at the basket, it is only a short staff
-  const staffH = RING_H + 0.3 + Math.min(24, Math.max(0, (g.d - 40) * 0.12));
+  const staffH = RING_H + 0.3 + Math.min(5, Math.max(0, (g.d - 40) * 0.03));
   const flagTop = project(cam, view, x, y, zb + staffH * ZS + (RING_H + 0.3) * (1 - ZS));
   if (part === 'all' || part === 'base') {
     // the pole
@@ -554,7 +554,7 @@ function drawBasket(ctx, cam, b, view, hole, jiggle = 0, t = 0, part = 'all') {
       ctx.moveTo(top.x, top.y);
       ctx.lineTo(flagTop.x, flagTop.y);
       ctx.stroke();
-      const fl = Math.max(5, Math.min(9, 0.7 + g.d * 0.05) * g.s * ZS);
+      const fl = Math.max(4, Math.min(2.6, 0.4 + g.d * 0.012) * g.s * ZS);
       ctx.fillStyle = '#d35400';
       ctx.beginPath();
       ctx.moveTo(flagTop.x, flagTop.y);
@@ -697,6 +697,41 @@ function drawSplash(ctx, cam, view, at, age, gz = 0) {
  * Draw the whole scene for one frame.
  *   scene: { hole, cam, view, disc: {x, y, h}, trail: [{x, y, h}], color, t (ms), splash?: { at, age }, shake?: number }
  */
+// A small marker over the pin so the basket can be found from far off, or behind a tree: a little orange triangle on a hair of a line, and when
+// the pin is off the side of the picture (or behind you) a small arrow at the edge showing which way to turn. Not drawn close in.
+export function drawPin(ctx, cam, b, view, hole) {
+  const { x, y } = hole.basket;
+  const zt = groundAt(hole, x, y) + RING_H;
+  const c = toCam(cam, b, x, y, zt);
+  const dist = Math.hypot(c[0], c[2]);
+  if (dist < 70) return;
+  const orange = '#d35400';
+  const rim = 'rgba(238,241,232,0.95)';
+  const m = 16;
+  if (c[2] < NEAR) { // behind the camera
+    const side = c[0] >= 0 ? 1 : -1;
+    arrowAt(ctx, side > 0 ? view.W - m : m, view.cy, side, orange, rim);
+    return;
+  }
+  const [sx, sy] = screenOf(view, c);
+  if (sx < m || sx > view.W - m) { arrowAt(ctx, sx < m ? m : view.W - m, Math.max(m + 20, Math.min(view.cy * 2 - m - 20, sy)), sx < m ? -1 : 1, orange, rim); return; }
+  const base = project(cam, view, x, y, groundAt(hole, x, y));
+  const top = Math.max(10, sy - 14);
+  ctx.strokeStyle = 'rgba(238,241,232,0.55)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(sx, top + 7); ctx.lineTo(sx, base ? Math.max(top + 8, sy) : top + 12); ctx.stroke();
+  ctx.fillStyle = orange;
+  ctx.strokeStyle = rim;
+  ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(sx - 5, top - 1); ctx.lineTo(sx + 5, top - 1); ctx.lineTo(sx, top + 7); ctx.closePath(); ctx.fill(); ctx.stroke();
+}
+function arrowAt(ctx, x, y, side, fill, rim) {
+  ctx.fillStyle = fill;
+  ctx.strokeStyle = rim;
+  ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(x + side * 8, y); ctx.lineTo(x - side * 4, y - 7); ctx.lineTo(x - side * 4, y + 7); ctx.closePath(); ctx.fill(); ctx.stroke();
+}
+
 export function drawScene(ctx, scene) {
   const { hole, cam, view, disc, trail, color, t } = scene;
   const b = basis(cam);
@@ -726,6 +761,8 @@ export function drawScene(ctx, scene) {
   things.push({ d: toCam(cam, b, disc.x, disc.y, 0)[2], draw: () => drawDisc(ctx, cam, view, disc, color, t, dz, groundAt(hole, disc.x, disc.y)) });
   things.sort((p, q) => q.d - p.d);
   for (const th of things) th.draw();
+  if (scene.overlay) scene.overlay(ctx); // the caller's own marks (the aim line, say), over the world
+  if (scene.pin !== false) drawPin(ctx, cam, b, view, hole);
   ctx.restore();
 }
 
