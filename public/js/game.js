@@ -341,10 +341,10 @@ function bagBar() {
 }
 
 function discRow() {
-  return `<div class="gm-discs" role="group" aria-label="Your discs">${S.bag.discs.map(({ disc, item }) => {
+  return `<div class="gm-discs" role="group" aria-label="Your discs, all ${S.bag.discs.length}">${S.bag.discs.map(({ disc, item }) => {
     const eaten = S.round.eaten.includes(disc.id);
     return `<button class="gm-disc" type="button" data-disc="${disc.id}" aria-pressed="${disc.id === S.discId}"${eaten ? ' disabled' : ''} title="${esc(disc.name)}${eaten ? ' (in Marebear\'s handbag)' : ''}">${discChip(disc, item)}<small>${esc(splitName(disc.name))}${eaten ? ' 🐻' : ''}</small></button>`;
-  }).join('')}</div>`;
+  }).join('')}</div><p class="gm-more" aria-hidden="true">↕ Scroll for all ${S.bag.discs.length} discs</p>`;
 }
 
 function pickInfo(d, plan, putting) { // plan: { wind }
@@ -408,7 +408,8 @@ const isPhone = () => phoneQuery.matches;
 const landscapeQuery = window.matchMedia('(max-width: 900px) and (max-height: 520px)');
 const isDock = () => phoneQuery.matches && !landscapeQuery.matches;
 const PLAYING = new Set(['pick', 'power', 'nose', 'angle', 'release', 'putt', 'swipe', 'flight', 'result', 'bear', 'done', 'mturn', 'mhole']);
-const quipHtml = () => (S.quip && !isPhone() ? `<p class="gm-quip">“${esc(S.quip)}”<small>Marebear${S.quipTo ? ` to ${esc(S.quipTo)}` : ''}</small></p>` : '');
+// (her remarks are Marebear herself, in a balloon: there is no text box of her quote in the panel)
+const quipHtml = () => '';
 
 /* ----- a phone: the hole fills the screen and the shot is set up a step at a time along the bottom ----- */
 
@@ -716,6 +717,8 @@ function renderPanel(focusSel) {
   p.innerHTML = (views[S.phase] || (() => ''))();
   p.dataset.phase = S.phase;
   p.scrollTop = keepScroll;
+  const dr = $('.gm-discs', p); // a bag with more discs than fit says so, and shows the edge of the next row
+  if (dr) dr.classList.toggle('is-more', dr.scrollHeight > dr.clientHeight + 4);
   updateBubble();
   measureDock();
   if (focusSel) $(focusSel, p)?.focus({ preventScroll: true });

@@ -22,7 +22,7 @@ const LIMITS = {
   minPlayers: 2,
   openMatchesPerUser: 6, // waiting + active
   maxMatches: 3000,
-  discsInBag: 40,
+  discsInBag: 80, // as many as an account's bag can hold
   waitingHours: 24,
   keepDoneDays: 14,
   trailPoints: 18,
