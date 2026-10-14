@@ -767,3 +767,21 @@ test('hills: putting uphill is easier and needs more push, downhill is harder an
   const nasties = (h) => { let n = 0; for (let i = 0; i < 100; i++) if (G.resolvePutt(h, spot(h), PUT, { x: 0.6, y: 0.5 }, i / 100).nasty) n++; return n; };
   assert.ok(nasties(down) > nasties(level), `${nasties(down)} vs ${nasties(level)}`);
 });
+
+test('short putts are forgiving: inside 25 feet they go in unless you really mess up, and the long ones are as hard as they were', async () => {
+  const G = await load();
+  const P = { id: 4, speed: 3, glide: 3, turn: 0, fade: 1 };
+  assert.ok(G.puttRadius(10, P) >= 0.45, `half the green at 10 ft: ${G.puttRadius(10, P)}`);
+  assert.ok(G.puttRadius(20, P) >= 0.3 && G.puttRadius(25, P) >= 0.22, 'and still a good target at 20 and 25');
+  assert.ok(G.puttRadius(5, P) <= 0.62, 'never more than most of the green');
+  assert.ok(G.puttRadius(10, P) > G.puttRadius(20, P) && G.puttRadius(20, P) > G.puttRadius(30, P), 'smaller as it gets longer');
+  assert.ok(G.puttRadius(40, P) < 0.08, 'a 40 footer is still a long shot');
+  assert.ok(G.swipeTolerance(10).aim >= 13 && G.swipeTolerance(10).power >= 0.28, 'a wide swipe is fine close in');
+  assert.ok(G.swipeTolerance(50).aim <= 3.3 && G.swipeTolerance(50).power <= 0.1 + 1e-9, 'the same as before from 50 ft');
+  // a putt from 12 ft with the dot in the middle third and a sloppy-but-honest swipe goes in
+  const hole = await (async () => { const { makeHole } = await load(); return makeHole({ id: 9, name: 'T', par: 3, fairway: [[0, 0, 60], [0, 300, 60]], basket: { x: 0, y: 300 }, wind: { mph: 0, from: 0 } }); })();
+  const spot = { x: 0, y: 288 };
+  assert.ok(G.resolvePutt(hole, spot, P, { x: 0.3, y: -0.2 }, 1, { aim: 9, power: 1.2 }).made, 'off line by 9 degrees and 20% hard: still in');
+  assert.ok(!G.resolvePutt(hole, spot, P, { x: 0, y: 0 }, 1, { aim: 40, power: 1 }).made, 'but really off line misses');
+  assert.ok(!G.resolvePutt(hole, spot, P, { x: 0, y: 0 }, 1, { aim: 0, power: 0.3 }).made, 'and a dead soft swipe');
+});

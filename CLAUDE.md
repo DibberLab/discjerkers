@@ -246,8 +246,8 @@ that way; don't introduce React/Vite/Tailwind here.
   and `frame()` can never stop the loop.
 - **The putt has two steps**: the swirling radar (where the putt wants to go), then a **swipe** (phase `swipe`) toward the basket. A
   swipe (draw back, then swipe forward) has an aim (degrees off straight up the screen, + right) and a power (its length against what
-  this distance needs, `swipeNeed()`; 1 is just enough). `swipeTolerance(dist)` is how far either may be off (about 10 deg and 22% close in, 3 deg and
-  10% from 50 ft); outside it the putt **cannot go in**: `resolvePutt(..., swipe)` adds the swipe's error to the radar's, so it
+  this distance needs, `swipeNeed()`; 1 is just enough). `swipeTolerance(dist)` is how far either may be off (about 14 deg and 30% at 10 ft, 6.5 deg and 16% at 25, 3 deg and
+  10% from 50 ft; and the radar's target is over half the green at 10 ft, `closeBoost` in `gamecore.js`: a short putt only misses if you really mess up); outside it the putt **cannot go in**: `resolvePutt(..., swipe)` adds the swipe's error to the radar's, so it
   misses short (`why: 'weak'`), long (`'strong'`, and more likely a nasty roll), left or right, or lips out if only just off. A
   swipe near the limit still counts as true, and tap-ins need none. With no swipe (an older page, a test) it counts as true.
   The server takes `body.swipe` (`sanitizeSwipe`) and, like the meters, trusts the player about the gesture.
@@ -281,7 +281,7 @@ that way; don't introduce React/Vite/Tailwind here.
   the server rolls them in a match; into water it costs a stroke). `puttScript` turns that into a film (where the disc is every
   millisecond, with marks for the drop, the rim lap, the spit and the roll) and `drawPuttFx` draws the reaction: CHAINS! with
   rings and confetti, a cold-washed RIMMED OUT, NASTY ROLL with the camera following the disc.
-- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 24, `cam3d.js` 15, `puttfx.js` 11, `ground.js` 4, `sound.js` 2, `marebear.js` 1, `conditions.js` 2, `daily.js` 1, `gamepanels.js` 2, `progress.js` 1, `trash.js` 8, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
+- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 25, `cam3d.js` 15, `puttfx.js` 11, `ground.js` 4, `sound.js` 2, `marebear.js` 1, `conditions.js` 2, `daily.js` 1, `gamepanels.js` 2, `progress.js` 1, `trash.js` 8, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 
 ## Deploy

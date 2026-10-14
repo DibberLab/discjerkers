@@ -42,7 +42,7 @@ test('a putt is a swish, a rattle, a rim-out, a miss or a nasty roll, depending 
   assert.ok(G.nastyChance(45, PUTTER, false) > G.nastyChance(10, PUTTER, false));
   assert.ok(G.nastyChance(20, DRIVER, false) > G.nastyChance(20, PUTTER, false));
   assert.ok(G.nastyChance(20, PUTTER, true) > G.nastyChance(20, PUTTER, false));
-  assert.ok(G.nastyChance(50, DRIVER, true) <= 0.3 && G.nastyChance(1, PUTTER, false) > 0.04, 'sometimes, not always');
+  assert.ok(G.nastyChance(50, DRIVER, true) <= 0.3 && G.nastyChance(1, PUTTER, false) > 0.015 && G.nastyChance(1, PUTTER, false) < G.nastyChance(30, PUTTER, false), 'sometimes, not always, and rarely from close');
 });
 
 test('a nasty roll into the water costs a stroke on top', async () => {

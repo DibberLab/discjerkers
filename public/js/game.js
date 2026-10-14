@@ -5,7 +5,7 @@
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=11';
-import * as G from './gamecore.js?v=24';
+import * as G from './gamecore.js?v=25';
 import * as T from './trash.js?v=8';
 import * as C3 from './cam3d.js?v=15';
 import * as PF from './puttfx.js?v=11';
