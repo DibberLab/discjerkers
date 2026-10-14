@@ -118,6 +118,8 @@ that way; don't introduce React/Vite/Tailwind here.
   a putt is one tap on a swirling circular green (the dot's path is seeded and never repeats, and a miss goes the way
   the dot was). Only the release is a skill test (`sanitizeExecution` is what a server accepts back for it); the other
   three are choices, and `sanitizeSettings` range-checks them.
+- **Backing out** (`backOut` in `game.js`): every meter and the swipe have a small "Back out" button beside the title (also Escape, or the B button; in the swipe the first Escape clears a swing
+  in progress). It puts the settings back as they were when the throw began (`S.meter.before`) and returns to the disc, with nothing thrown or sent.
 - The power, nose and angle bars each show a **sweet spot** (`sweetSpots`/`sweetBands` in `gamecore.js`): the values that
   land within 20 ft of the best landing there is, from here, for the aim and the bars already set (power assumes the best
   angle and a level nose). It plays candidates through `resolveThrow`, so trees and water count. It is only a guide

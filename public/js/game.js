@@ -604,7 +604,7 @@ function panelMeter() {
   // a putt shows the whole green and the Tap button first; its hint waits underneath, where it cannot cover anything
   if (kind === 'putt') {
     return `<div class="gm-meter gm-meter--putt">
-      <p class="gm-meter__t">${title}</p>
+      <div class="gm-meter__top"><p class="gm-meter__t">${title}</p><button class="chip gm-backout" type="button" data-back-out aria-label="Back out of this throw">Back out</button></div>
       ${barMarkup(kind)}
       <button class="gm-tap" type="button" data-tap>Tap</button>
       ${hint}
@@ -612,7 +612,7 @@ function panelMeter() {
   }
   return `<div class="gm-meter">
       ${stages.length ? `<div class="gm-steps" aria-hidden="true">${stages.map((_, i) => `<i class="${i < n ? 'is-on' : ''}"></i>`).join('')}</div>` : ''}
-      <p class="gm-meter__t">${title}</p>
+      <div class="gm-meter__top"><p class="gm-meter__t">${title}</p><button class="chip gm-backout" type="button" data-back-out aria-label="Back out of this throw">Back out</button></div>
       ${hint}
       ${barMarkup(kind)}
       <button class="gm-tap" type="button" data-tap>Tap</button>
@@ -772,15 +772,29 @@ function toast(text, tone = '', ms = 1700) {
 
 /* ---------- the throw ---------- */
 
+// Change your mind part way through a throw (any meter, or the swipe): the settings go back to what they were when you began, and you are back on the disc.
+function backOut() {
+  if (!isMeter() && S.phase !== 'swipe') return false;
+  const before = S.meter?.before;
+  if (before) Object.assign(S.settings, before);
+  S.meter = null;
+  S.pop = null;
+  SND.play('tap');
+  setPhase('pick');
+  retarget(false);
+  toast('Back to the disc', '', 900);
+  return true;
+}
+
 function startMeter() {
   const d = curDisc();
   if (!d) return;
   if (inPutt()) {
-    S.meter = { kind: 'putt', start: now(), radius: G.puttRadius(puttDd(), d) * G.puttGrip(S.hole), speed: G.puttSpeed(puttDd()), params: G.makePuttSeed(Math.random) };
+    S.meter = { kind: 'putt', before: { ...S.settings }, start: now(), radius: G.puttRadius(puttDd(), d) * G.puttGrip(S.hole), speed: G.puttSpeed(puttDd()), params: G.makePuttSeed(Math.random) };
     setPhase('putt');
   } else {
     // four taps: power, nose and angle each choose a value of the throw, then the release is graded
-    S.meter = { kind: 'power', start: now(), mph: null, rel: null, sweet: {} };
+    S.meter = { kind: 'power', before: { ...S.settings }, start: now(), mph: null, rel: null, sweet: {} };
     sweetFor('power');
     setPhase('power');
   }
@@ -920,7 +934,7 @@ const swipeTol = () => (S.meter?.throwEx ? G.DRIVE_SWIPE : G.swipeTolerance(putt
 const swipeAnchor = () => ({ x: W / 2, y: (H - S.dock) * 0.66 });
 
 function startSwipe(shot = null, throwEx = null) {
-  S.meter = { kind: 'swipe', shot, throwEx, drag: null };
+  S.meter = { kind: 'swipe', before: S.meter?.before, shot, throwEx, drag: null };
   setPhase('swipe');
 }
 function panelSwipe() {
@@ -934,7 +948,7 @@ function panelSwipe() {
       ? 'Draw back down the screen, then swipe forward up it, in one smooth motion, from anywhere. The forward swipe is the throw: stay inside the lime lines and stop in the lime band. A short draw back costs power; off line steers the throw, too soft loses distance, too hard makes it loose.'
       : 'Draw back down the screen, then swipe forward up it, in one smooth motion, from anywhere. The forward swipe is the putt: stay inside the lime lines and stop in the lime band. A short draw back costs power; too soft dies short, too hard runs long, and off line misses.';
   return `<div class="gm-meter ${drive ? '' : 'gm-meter--putt'}">
-      <p class="gm-meter__t"><span>${drive ? 5 : 2} ·</span> ${pullInput() ? 'Wind up, swing' : 'Draw back, swipe'}</p>
+      <div class="gm-meter__top"><p class="gm-meter__t"><span>${drive ? 5 : 2} ·</span> ${pullInput() ? 'Wind up, swing' : 'Draw back, swipe'}</p><button class="chip gm-backout" type="button" data-back-out aria-label="Back out of this throw">Back out</button></div>
       <div class="gm-meter__h"><p>${text}</p></div>
     </div>`;
 }
@@ -2564,6 +2578,8 @@ function onPanelClick(e) {
     S.settings[key] = (hand || style).dataset[key];
     saveSettings();
     renderPanel(`[data-${key}="${S.settings[key]}"]`);
+  } else if (t.closest('[data-back-out]')) {
+    backOut();
   } else if (t.closest('[data-disc]')) {
     const id = Number(t.closest('[data-disc]').dataset.disc);
     if (!S.round.eaten.includes(id)) { S.discId = id; renderPanel(`[data-disc="${id}"]`); retarget(false); }
@@ -2737,7 +2753,7 @@ function act(name, o = {}) {
     if ((name === 'confirm' || name === 'back') && S.anim && riding()) { S.anim.t0 -= 1e7; return true; }
     return false;
   }
-  if (isMeter()) { if (name === 'confirm') { tap(); return true; } return false; }
+  if (isMeter()) { if (name === 'confirm') { tap(); return true; } if (name === 'back') return backOut(); return false; }
   if (S.phase === 'swipe') { // the swipe, made with keys or a stick: aim and power, then throw
     const m = S.meter;
     if (!m) return false;
@@ -2747,7 +2763,7 @@ function act(name, o = {}) {
     else if (name === 'up') kb().power = clamp(Math.round((kb().power + 0.03 * amt) * 100) / 100, 0.15, 2);
     else if (name === 'down') kb().power = clamp(Math.round((kb().power - 0.03 * amt) * 100) / 100, 0.15, 2);
     else if (name === 'confirm') { finishSwipe({ aim: kb().aim, power: kb().power }); return true; }
-    else if (name === 'back') { m.kb = null; m.swing = null; m.padSwing = null; return true; }
+    else if (name === 'back') { if (!m.kb && !m.swing && !m.padSwing && !m.drag) return backOut(); m.kb = null; m.swing = null; m.padSwing = null; m.drag = null; return true; } // first clears a swing in progress, then backs out
     else return false;
     return true;
   }
