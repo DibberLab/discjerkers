@@ -5,10 +5,11 @@
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=11';
-import * as G from './gamecore.js?v=28';
+import * as G from './gamecore.js?v=29';
 import * as T from './trash.js?v=11';
-import * as C3 from './cam3d.js?v=16';
-import * as PF from './puttfx.js?v=12';
+import * as C3 from './cam3d.js?v=17';
+import * as FO from './foliage.js?v=1';
+import * as PF from './puttfx.js?v=13';
 import * as GR from './ground.js?v=5';
 import * as SND from './sound.js?v=4';
 import * as MB from './marebear.js?v=2';
@@ -401,7 +402,11 @@ const tipSeen = () => { try { return localStorage.getItem('dj_game_tip') === '1'
 const tipHtml = () => (tipSeen() ? '' : `<div class="gm-tip"><p><b>How to play:</b> pick a disc, choose forehand or backhand, and aim (drag on the hole). Then <b>Throw</b> and tap four times: where you stop the power, nose and angle bars is your arm speed, how high the nose is tipped and your hyzer; the last tap is the release. A slow arm can grip lock or let go early, so watch the slip percentage. Trees stop low throws, water costs a stroke, and a triple bogey brings Marebear, who takes a disc.</p><button type="button" data-tip-close aria-label="Got it">×</button></div>`);
 
 // Marebear's remark, in a card of its own under whatever it is about
-function say(r, mood = 'bad') { // mood: 'bad' (she laughs), 'good' (she sulks, grudgingly) or 'sly'
+// Marebear can be switched off (a chip over the hole, remembered): no pop-ups, no remarks, no scene, and in your own round she takes no disc
+const BEAR = { on: true };
+try { BEAR.on = localStorage.getItem('dj_bear') !== 'off'; } catch { /* on */ }
+function say(r, mood = 'bad') {
+  if (!BEAR.on) { S.quip = ''; S.quipTo = ''; return; } // mood: 'bad' (she laughs), 'good' (she sulks, grudgingly) or 'sly'
   const text = typeof r === 'string' ? r : r?.text || '';
   S.quip = text;
   S.quipTo = (typeof r === 'object' && r?.to) || '';
@@ -1446,7 +1451,7 @@ function finishThrow() {
   if (S.replay) { endReplay(); return; }
   if (S.mode === 'match') { finishMove(); return; }
   const { result, disc, from } = S.last;
-  const out = G.applyResult(S.round, disc, result);
+  const out = G.applyResult(S.round, disc, result, { bear: BEAR.on || S.mode === 'match' }); // (in a match the rule is the server's, and the same for everybody)
   const ev = T.eventFor({ kind: result.kind, putt: !result.plan, made: result.made, gimme: result.gimme, ex: S.last.ex, strokes: S.round.strokes, dist: result.dist, surface: result.surface, rim: result.rim, nasty: result.nasty, why: result.why });
   landSounds(result, ev);
   trackThrow({ discId: disc.id, putt: !result.plan, made: result.made, gimme: result.gimme, dist: result.dist, kind: result.kind, feet: result.plan?.feet });
@@ -1521,6 +1526,12 @@ function next() {
 const BEAR_PARTS = { enter: 1700, chomp: 1300, burp: 900, leave: 1300 };
 function startBear(info) {
   S.bear = { t0: now(), at: { ...info.at }, discId: info.discId, owner: info.owner || 'me' };
+  if (!BEAR.on) { // she is switched off: a match still takes the disc (its rule), but there is no scene, only a word
+    const mine = S.bear.owner === 'me';
+    toast(`${mine ? 'Your' : 'A'} ${splitName(DISCS.get(info.discId)?.name || 'disc')} is out for the round`, 'bad', 2200);
+    endBear();
+    return;
+  }
   toast('Marebear!', 'bad', 1800);
   setPhase('bear');
   retarget(false);
@@ -1801,6 +1812,25 @@ function drawTrees() {
     const R = tr.r * 1.9 * cam.s;
     if (x < -R * 2 || x > W + R * 2 || y < -R * 2 || y > H + R * 2) continue; // not on the screen
     const k = tr.k || (tr.h < 20 ? 's' : 'm');
+    const pic = R >= 3 ? FO.top(tr, 2 * R * dpr, k === 'm' && autumn(tr)) : null; // the drawn crown, once it is ready (else the flat shapes below)
+    if (pic && (k === 's' || k === 'b')) {
+      const rr = k === 'b' ? R * 0.95 : R;
+      ctx.beginPath(); ctx.ellipse(x + rr * 0.22, y + rr * 0.24, rr, rr * 0.9, 0, 0, Math.PI * 2); ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.fill();
+      ctx.drawImage(pic, x - rr, y - rr, rr * 2, rr * 2);
+      continue;
+    }
+    if (pic) {
+      ctx.beginPath();
+      ctx.ellipse(x + R * 0.28, y + R * 0.28, R, R * 0.92, 0, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.fill();
+      ctx.drawImage(pic, x - R, y - R, R * 2, R * 2);
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(1.5, tr.r * G.TREE_FORGIVE * cam.s), 0, Math.PI * 2); // the part that stops a disc
+      ctx.fillStyle = k === 'p' ? 'rgba(10,38,25,0.75)' : 'rgba(18,58,27,0.7)';
+      ctx.fill();
+      continue;
+    }
     if (k === 's' || k === 'b') {
       const bush = k === 'b';
       ctx.beginPath();
@@ -2162,7 +2192,7 @@ function drawBearScene(t) {
 /* ----- Marebear pops up: from behind the bottom of the screen, laughing, with something to say (the dog in Duck Hunt) ----- */
 
 function popUp(text, to, mood) {
-  if (!S.round && S.mode !== 'match') return;
+  if (!BEAR.on || (!S.round && S.mode !== 'match')) return;
   $('#gm-bubble')?.classList.remove('is-on'); // her balloon has the stage: the caddy's note gets out of the way
   S.popSide = -(S.popSide || -1);
   S.pop = { t0: now(), text, to, mood, dur: MB.popDuration(text), side: S.popSide, sounded: false, act: MB.actOf(text), moodSounded: false };
@@ -3620,6 +3650,16 @@ async function boot() {
   const showSnd = () => { sndBtn.setAttribute('aria-pressed', String(SND.isOn())); sndBtn.textContent = SND.isOn() ? 'Sound on' : 'Sound off'; };
   showSnd();
   sndBtn.addEventListener('click', () => { SND.setOn(!SND.isOn()); showSnd(); SND.play('tap'); });
+  const bearBtn = $('#gm-bear');
+  const showBear = () => { bearBtn.setAttribute('aria-pressed', String(BEAR.on)); bearBtn.textContent = BEAR.on ? 'Marebear on' : 'Marebear off'; };
+  showBear();
+  bearBtn.addEventListener('click', () => {
+    BEAR.on = !BEAR.on;
+    try { localStorage.setItem('dj_bear', BEAR.on ? 'on' : 'off'); } catch { /* not saved */ }
+    if (!BEAR.on) { S.pop = null; S.quip = ''; $('#gm-bubble')?.classList.remove('is-on'); }
+    showBear();
+    SND.play('tap');
+  });
   loadCam();
   const camBtn = $('#gm-cam');
   const showCam = () => { camBtn.hidden = false; camBtn.setAttribute('aria-pressed', String(CAM.on)); camBtn.textContent = CAM.on ? '3D on' : '3D off'; };
@@ -3675,6 +3715,7 @@ async function boot() {
   const code = (new URLSearchParams(location.search).get('match') || '').toUpperCase();
   await loadAccount();
   GR.warm(HOLES[0]);
+  FO.start(() => { still.trees = null; }); // the drawn trees are made in the background; the map's cached picture of them is redone once they are
   showMenu();
   if (code) {
     if (account.user) {

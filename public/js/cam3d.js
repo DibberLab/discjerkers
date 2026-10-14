@@ -6,6 +6,7 @@
 
 import { fieldAt } from './terrain.js?v=1';
 import { groundCells, PALETTE } from './ground.js?v=5';
+import * as FO from './foliage.js?v=1';
 
 export const ZS = 0.72; // heights are drawn a little squashed: a real arc looks like a rocket when you ride it
 const NEAR = 1; // nothing nearer than this (feet) is drawn
@@ -386,6 +387,18 @@ function drawTree(ctx, cam, b, view, t) {
   const th = t.h * ZS;
   const s = base.s;
   const blob = (color, cx, cy, rx, ry) => { ctx.fillStyle = mixTo(hex(color), HAZE, fog); ctx.beginPath(); ctx.ellipse(cx, cy, Math.max(1.2, rx), Math.max(1.2, ry), 0, 0, Math.PI * 2); ctx.fill(); };
+  // the drawn picture of this kind of tree, when it is ready and big enough to be worth it (else the flat shapes below)
+  const low = k === 's' || k === 'b';
+  const pw = (low ? 2 * t.r * (k === 'b' ? 1.3 : 1.45) : 2 * t.r * (k === 'o' ? 1.8 : 1.6)) * s / 0.96;
+  const ph = th * s * (low ? 1.05 : 1.02);
+  if (ph >= 7 && pw >= 3) {
+    const pic = FO.side(t, ph * 1.6, k === 'm' && autumn(t));
+    if (pic) {
+      const img = FO.tint(pic.img, fog, HAZE, pic.id);
+      ctx.drawImage(img, sx - pw / 2, base.y - ph + ph * 0.02, pw, ph);
+      return;
+    }
+  }
   if (k === 's' || k === 'b') {
     const bush = k === 'b';
     const rx = Math.max(1.5, t.r * (bush ? 1.3 : 1.45) * s);

@@ -221,6 +221,12 @@ that way; don't introduce React/Vite/Tailwind here.
   `mergeGame`, saved a few seconds after a change). Honor system, like the meters. In a **match** the server freezes each disc's wear into the bag
   snapshot (`w`) and plays it that way (`playDisc`), and the page does the same from the seat, so both agree. Goals fire from `trackThrow`/`trackHole` and
   the round/daily/bet hooks in `game.js`; Marebear grudgingly congratulates (`announce`). "Trophies and skins" in the menu shows it all.
+- **Trees and bushes are drawn, not shapes** (`foliage.js`, browser only): per kind (maple, turning maple, oak, white pine, shrub, bush) four pictures made once at start in 5 ms slices
+  (`start`), a side view for the 3D camera and a view from above for the map: leaf clumps lit from the upper left, speckled leaves, bark with furrows and limbs, pines in ragged tiers,
+  berries on some bushes, each with smaller copies for distance (`levels`) and a haze-washed copy per eighth of fog (`tint`). `side`/`top` return null until ready and the callers
+  (`drawTree` in `cam3d.js`, `drawTrees` in `game.js`) then draw the old flat shapes, so nothing waits. The picture of a tree is stretched to its own radius and height.
+- **Marebear on/off** (`BEAR`, chip `#gm-bear` beside Sound and 3D, `dj_bear`): off means no pop-ups or remarks, no scene, and in your own round no disc taken
+  (`applyResult(..., { bear: false })`); in a match the disc is still taken (the server's rule, the same for all) with a toast instead of the scene.
 - **Frame cost** (no freezes, no flicker): anything that takes more than a few ms is done in slices. `warm(hole)` in `ground.js` makes a hole's colours and
   map picture in the background, 6 ms at a time, when the hole begins (the map overlay fades in when ready); the sweet-spot bands are a job (`sweetJob`,
   `next(n)`) the page pumps between frames; the aim preview is cached until something about the throw changes (`previewNow`); and the map's still parts
@@ -304,7 +310,7 @@ that way; don't introduce React/Vite/Tailwind here.
   the server rolls them in a match; into water it costs a stroke). `puttScript` turns that into a film (where the disc is every
   millisecond, with marks for the drop, the rim lap, the spit and the roll) and `drawPuttFx` draws the reaction: CHAINS! with
   rings and confetti, a cold-washed RIMMED OUT, NASTY ROLL with the camera following the disc.
-- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 28, `cam3d.js` 16, `puttfx.js` 12, `ground.js` 5, `sound.js` 4, `marebear.js` 2, `conditions.js` 3, `daily.js` 1, `gamepanels.js` 3, `progress.js` 2, `trash.js` 11, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
+- Modules import each other with `?v=N` (now `course.js` 11, `gamecore.js` 29, `cam3d.js` 17, `puttfx.js` 13, `foliage.js` 1, `ground.js` 5, `sound.js` 4, `marebear.js` 2, `conditions.js` 3, `daily.js` 1, `gamepanels.js` 3, `progress.js` 2, `trash.js` 11, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 
 ## Deploy

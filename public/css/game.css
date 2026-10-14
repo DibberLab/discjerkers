@@ -152,6 +152,7 @@
   background: rgba(6, 11, 7, 0.78); color: var(--lime); font: 700 0.62rem/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase;
 }
 .gm-cambtn--sound { right: 84px; }
+.gm-cambtn--bear { right: 182px; }
 .gm-cambtn[aria-pressed="false"] { color: var(--bone-dim); border-color: var(--hair); }
 .gm-stage.is-3d .gm-zoom, .gm-stage.is-3d .gm-bubble, .gm-stage.is-3d .gm-cambtn { visibility: hidden; }
 .gm-zoom button:disabled { opacity: 0.35; cursor: default; }
@@ -344,6 +345,7 @@
   /* the 3D and sound chips ride at the top right, under the wind, out of the hole's way */
   .gm-cambtn { bottom: auto; top: 58px; right: max(10px, env(safe-area-inset-right)); }
   .gm-cambtn--sound { top: 94px; right: max(10px, env(safe-area-inset-right)); }
+  .gm-cambtn--bear { top: 130px; right: max(10px, env(safe-area-inset-right)); }
   /* screens you read rather than play on: tall, with a peek of the hole above */
   .gm-panel[data-phase="menu"], .gm-panel[data-phase="lobby"], .gm-panel[data-phase="daily"], .gm-panel[data-phase="standings"], .gm-panel[data-phase="trophies"],
   .gm-panel[data-phase="summary"], .gm-panel[data-phase="mdone"], .gm-panel[data-phase="mwait"], .gm-panel[data-phase="mhole"], .gm-panel[data-phase="done"] { max-height: calc(100% - 56px); }
@@ -361,6 +363,7 @@
   .gm-zoom { bottom: 10px; }
   .gm-cambtn { top: 50px; }
   .gm-cambtn--sound { top: 84px; }
+  .gm-cambtn--bear { top: 118px; }
   .gm-hud { font-size: 0.6rem; gap: 2px; }
   .gm-page.gm-playing .gm-bubble { top: 70px; }
   .gm-tap { min-height: 52px; font-size: 1.4rem; }

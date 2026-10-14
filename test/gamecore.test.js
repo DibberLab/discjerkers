@@ -768,6 +768,19 @@ test('hills: putting uphill is easier and needs more push, downhill is harder an
   assert.ok(nasties(down) > nasties(level), `${nasties(down)} vs ${nasties(level)}`);
 });
 
+test('Marebear switched off takes no disc, even at a triple bogey', async () => {
+  const G = await load();
+  const hole = { par: 3, tee: { x: 0, y: 0 }, basket: { x: 0, y: 300 } };
+  const landed = (n) => ({ kind: 'landed', strokes: 1, lie: { x: 0, y: n * 10 }, plan: { feet: 100 } });
+  for (const bear of [true, false]) {
+    const round = G.newRound(hole);
+    const outs = [];
+    for (let i = 1; i <= 7; i++) outs.push(G.applyResult(round, { id: i }, landed(i), { bear }));
+    assert.strictEqual(outs.some((o) => o.bear), bear, `bear ${bear}`);
+    assert.strictEqual(round.eaten.length, bear ? 1 : 0);
+  }
+});
+
 test('short putts are forgiving: inside 25 feet they go in unless you really mess up, and the long ones are as hard as they were', async () => {
   const G = await load();
   const P = { id: 4, speed: 3, glide: 3, turn: 0, fade: 1 };

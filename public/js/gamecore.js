@@ -660,9 +660,9 @@ export function newRound(hole) {
 
 /**
  * Put a result into the round: strokes, the lie, whether it is holed. Marebear comes for the disc you just threw the
- * first time you are at a triple bogey (or worse) and still have not holed out. Returns { bear } when she does.
+ * first time you are at a triple bogey (or worse) and still have not holed out (unless `opts.bear` is false). Returns { bear } when she does.
  */
-export function applyResult(round, disc, result) {
+export function applyResult(round, disc, result, opts = {}) { // opts.bear === false: she is switched off, and takes nothing
   round.strokes += result.strokes;
   round.lie = { ...result.lie };
   round.throws.push({ disc: disc.id, kind: result.kind, feet: result.plan?.feet ?? result.dist, strokes: round.strokes, lie: { ...result.lie } });
@@ -671,7 +671,7 @@ export function applyResult(round, disc, result) {
     round.holed = true;
     return {};
   }
-  if (!round.bearCame && atTripleBogey(round.strokes, round.hole.par)) {
+  if (!round.bearCame && opts.bear !== false && atTripleBogey(round.strokes, round.hole.par)) {
     round.bearCame = true;
     round.eaten.push(disc.id);
     return { bear: { discId: disc.id, at: result.end ?? result.lie } };
