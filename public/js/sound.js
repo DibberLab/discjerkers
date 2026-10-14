@@ -159,6 +159,35 @@ const SOUNDS = {
   snicker(c, t) { for (let i = 0; i < 3; i++) ha(c, t + i * 0.13, 360 - i * 14, 0.09, 0.17); },
   // a grudging "hmph": low and short, a throat noise with no joy in it
   hmph(c, t) { ha(c, t, 170, 0.22, 0.2); burst(c, t, { len: 0.18, peak: 0.1, type: 'bandpass', f0: 600, f1: 300, q: 2 }); },
+  // a smoker's cough: two or three hard barks from the chest, each with a rasp
+  cough(c, t) {
+    const n = 3;
+    for (let i = 0; i < n; i++) {
+      const at = t + i * 0.19;
+      ha(c, at, 130 - i * 8, 0.09, 0.26);
+      burst(c, at, { len: 0.13, peak: 0.32, type: 'bandpass', f0: 900, f1: 380, q: 1.1 });
+      tone(c, at, { f0: 110, f1: 70, len: 0.1, peak: 0.16, type: 'sawtooth' });
+    }
+    burst(c, t + n * 0.19 + 0.04, { len: 0.28, peak: 0.12, type: 'bandpass', f0: 2200, f1: 1200, q: 3 }); // and the rattle after
+  },
+  // a wheeze: a thin whistle on the way in and a rattle on the way out, twice
+  wheeze(c, t) {
+    for (let i = 0; i < 2; i++) {
+      const at = t + i * 0.62;
+      tone(c, at, { f0: 780, f1: 1040, len: 0.34, peak: 0.07, type: 'sawtooth', attack: 0.08 });
+      burst(c, at, { len: 0.34, peak: 0.1, type: 'bandpass', f0: 2400, f1: 3200, q: 4 });
+      tone(c, at + 0.34, { f0: 640, f1: 430, len: 0.26, peak: 0.07, type: 'sawtooth', attack: 0.04 });
+      burst(c, at + 0.34, { len: 0.26, peak: 0.12, type: 'bandpass', f0: 1500, f1: 700, q: 2.5 });
+    }
+  },
+  // hocking one up and spitting it: a throat scrape, then a wet "ptoo" and a splat
+  spit(c, t) {
+    burst(c, t, { len: 0.34, peak: 0.26, type: 'bandpass', f0: 600, f1: 1900, q: 4 });
+    ha(c, t, 120, 0.3, 0.12);
+    burst(c, t + 0.4, { len: 0.07, peak: 0.45, type: 'highpass', f0: 3200, f1: 2200 });
+    tone(c, t + 0.4, { f0: 900, f1: 260, len: 0.08, peak: 0.2, type: 'triangle' });
+    burst(c, t + 0.78, { len: 0.12, peak: 0.25, type: 'lowpass', f0: 1100, f1: 160 });
+  },
   // her handbag snapping shut
   snap(c, t) { tone(c, t, { f0: 1800, f1: 900, len: 0.05, peak: 0.25, type: 'square' }); burst(c, t, { len: 0.06, peak: 0.25, type: 'highpass', f0: 2500, f1: 2500 }); },
 };

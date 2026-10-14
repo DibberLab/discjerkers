@@ -6,12 +6,12 @@ import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl,
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, holeById, holesFor } from './course.js?v=11';
 import * as G from './gamecore.js?v=28';
-import * as T from './trash.js?v=10';
+import * as T from './trash.js?v=11';
 import * as C3 from './cam3d.js?v=16';
 import * as PF from './puttfx.js?v=12';
 import * as GR from './ground.js?v=5';
-import * as SND from './sound.js?v=3';
-import * as MB from './marebear.js?v=1';
+import * as SND from './sound.js?v=4';
+import * as MB from './marebear.js?v=2';
 import * as K from './conditions.js?v=3';
 import * as DLY from './daily.js?v=1';
 import * as GP from './gamepanels.js?v=3';
@@ -2151,14 +2151,16 @@ function popUp(text, to, mood) {
   if (!S.round && S.mode !== 'match') return;
   $('#gm-bubble')?.classList.remove('is-on'); // her balloon has the stage: the caddy's note gets out of the way
   S.popSide = -(S.popSide || -1);
-  S.pop = { t0: now(), text, to, mood, dur: MB.popDuration(text), side: S.popSide, sounded: false };
+  S.pop = { t0: now(), text, to, mood, dur: MB.popDuration(text), side: S.popSide, sounded: false, act: MB.actOf(text), moodSounded: false };
 }
 function drawPop(t) {
   const p = S.pop;
   if (!p) return;
   const ms = t - p.t0;
   if (ms > p.dur) { S.pop = null; return; }
-  if (!p.sounded && ms > 120) { p.sounded = true; SND.play(p.mood === 'bad' ? (p.text.length > 70 ? 'laugh' : 'snicker') : p.mood === 'good' ? 'hmph' : 'snicker'); }
+  const moodSound = () => SND.play(p.mood === 'bad' ? (p.text.length > 70 ? 'laugh' : 'snicker') : p.mood === 'good' ? 'hmph' : 'snicker');
+  if (!p.sounded && ms > 120) { p.sounded = true; if (p.act) SND.play(p.act === 'strap' ? 'snap' : p.act); else { p.moodSounded = true; moodSound(); } } // her business first, then her laugh
+  if (p.act && !p.moodSounded && ms > (p.act === 'wheeze' ? 1400 : 1000)) { p.moodSounded = true; moodSound(); }
   const rise = MB.popRise(ms, p.dur);
   if (rise <= 0) return;
   const bottom = H - S.dock; // on a phone she comes up from behind the controls
@@ -2171,7 +2173,7 @@ function drawPop(t) {
   ctx.beginPath();
   ctx.rect(0, 0, W, bottom);
   ctx.clip();
-  MB.drawMarebear(ctx, x, waist, sc, { mood: p.mood === 'bad' ? 'laugh' : p.mood === 'good' ? 'grudge' : 'sly', t: ms, facing: p.side > 0 ? -1 : 1 });
+  MB.drawMarebear(ctx, x, waist, sc, { mood: p.mood === 'bad' ? 'laugh' : p.mood === 'good' ? 'grudge' : 'sly', t: ms, facing: p.side > 0 ? -1 : 1, act: p.act });
   // her words, in a balloon beside her head (only once she is up)
   if (rise > 0.8) {
     const fs = clamp(Math.round(15 * sc + 5), 13, 17);
@@ -3593,7 +3595,7 @@ async function boot() {
   syncTop();
   const res = await fetch('/data/flightguide.json?v=1');
   DATA = await res.json();
-  try { T.useHeckles(await (await fetch('/data/heckles.json?v=3')).json()); } catch { /* her own lines are enough */ }
+  try { T.useHeckles(await (await fetch('/data/heckles.json?v=4')).json()); } catch { /* her own lines are enough */ }
   try { T.useMemory(JSON.parse(localStorage.getItem('dj_said'))); } catch { T.useMemory([]); } // what she has already said, so she does not say it again
   for (const r of DATA.discs) DISCS.set(r[0], { id: r[0], name: r[1], b: r[2], cat: r[3], speed: r[4], glide: r[5], turn: r[6], fade: r[7], col: r[8] });
 

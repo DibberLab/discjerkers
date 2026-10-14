@@ -15,13 +15,17 @@ const TAU = Math.PI * 2;
  *   full:  draw her legs and skirt too (she is only shown from the waist up when she pops out of the bottom of the screen)
  *   purse: 0..1 how open her handbag is (0 closed), or -1 for none
  *   walk:  0..1 phase of a waddle, for her walking on
+ *   act:   'cough' (a fist to her mouth, shaking) | 'wheeze' (a hand on her chest, heaving) | 'spit' (hocks one up and lets it fly) | 'strap'
+ *          (yanks up a bra strap, with a snap), played over the first 1.2 s or so of `t` (see `actOf`)
  */
 export function drawMarebear(c, x, y, s, o = {}) {
-  const { mood = 'laugh', t = 0, facing = 1, full = false, purse = -1, walk = 0 } = o;
+  const { mood = 'laugh', t = 0, facing = 1, full = false, purse = -1, walk = 0, act = null } = o;
   const laugh = mood === 'laugh';
   const shake = laugh ? Math.sin(t / 38) : 0;
-  const bob = laugh ? shake * 2.6 : Math.sin(t / 420) * 1.2 + (full ? Math.abs(Math.sin(walk * Math.PI * 2)) * -4 : 0);
-  const mouth = o.mouth ?? (laugh ? 0.55 + 0.45 * Math.abs(Math.sin(t / 55)) : mood === 'sly' ? 0.12 : 0);
+  const acting = act && t > 180 && t < 1500; // the business she does before (or in the middle of) the words
+  const au = acting ? (t - 180) / 1320 : 0; // 0..1 through it
+  const bob = laugh ? shake * 2.6 : acting && act === 'wheeze' ? Math.sin(t / 150) * 3.2 : acting && act === 'cough' ? Math.sin(t / 40) * 3 : Math.sin(t / 420) * 1.2 + (full ? Math.abs(Math.sin(walk * Math.PI * 2)) * -4 : 0);
+  const mouth = o.mouth ?? (acting && act === 'cough' ? 0.55 : acting && act === 'spit' ? (au > 0.45 ? 0.25 : 0.7) : acting && act === 'wheeze' ? 0.4 : laugh ? 0.55 + 0.45 * Math.abs(Math.sin(t / 55)) : mood === 'sly' ? 0.12 : 0);
   c.save();
   c.translate(x, y + bob * s);
   c.scale(s * facing, s);
@@ -178,7 +182,49 @@ export function drawMarebear(c, x, y, s, o = {}) {
   // a hair-clip sparkle, and a glint on the make-up
   if (Math.sin(t / 260) > 0.75) { line('#fff', 1.6, () => { c.moveTo(30, -50); c.lineTo(30, -36); c.moveTo(23, -43); c.lineTo(37, -43); }); }
   c.restore();
+  if (acting) { // the business: a hand where the thing is happening, drawn over everything
+    const hand = (hx, hy, sw) => { // a forearm from her side to the hand, and a fist with red nails
+      line(SKIN, 15, () => { c.moveTo(52, -20); c.lineTo(hx, hy); });
+      line('#e3b43c', 4, () => { c.moveTo(52 + (hx - 52) * 0.3, -20 + (hy + 20) * 0.3); c.lineTo(52 + (hx - 52) * 0.3 - 5, -20 + (hy + 20) * 0.3 + 4); }); // a bangle
+      fill(SKIN, () => c.arc(hx, hy, sw, 0, TAU));
+      for (let k = 0; k < 4; k++) fill('#c4122a', () => c.arc(hx - 5 + k * 3.6, hy - sw + 2, 1.9, 0, TAU));
+    };
+    if (act === 'cough') hand(10 + Math.sin(t / 40) * 2, -66 + Math.sin(t / 40) * 2, 11);
+    else if (act === 'wheeze') hand(8, -40 + Math.sin(t / 150) * 3, 12);
+    else if (act === 'strap') {
+      const tug = Math.sin(clamp01(au * 2.2) * Math.PI); // out, then it snaps back
+      const mx = 47 + tug * 4;
+      const my = -52 - tug * 22; // where she pinches it
+      line('#f08aa8', 7, () => { c.moveTo(25, -64); c.quadraticCurveTo(mx, my, 62, -32); }); // the pink bra strap, over her shoulder and down her arm
+      line('#fbc3d3', 2.2, () => { c.moveTo(26, -65); c.quadraticCurveTo(mx, my - 1, 62, -33); });
+      fill('#f08aa8', () => c.arc(62, -32, 5, 0, TAU)); // the end of it, and a little lace
+      hand(mx + 2, my + 2, 10);
+    } else if (act === 'spit') {
+      const f = clamp01((au - 0.45) / 0.45); // the glob flies after the wind-up
+      if (au > 0.45 && f < 1) {
+        const gx = 24 + f * 150;
+        const gy = -66 - Math.sin(f * Math.PI) * 38 + f * f * 70;
+        fill('rgba(240,250,235,0.92)', () => c.ellipse(gx, gy, 6.5 - f * 2, 4.6 - f * 1.4, f, 0, TAU));
+        fill('rgba(240,250,235,0.7)', () => c.arc(gx - 9, gy + 2, 2.2, 0, TAU));
+        fill('rgba(240,250,235,0.6)', () => c.arc(gx - 16, gy + 4, 1.4, 0, TAU));
+      }
+      if (au > 0.9 && au < 1) fill('rgba(240,250,235,0.55)', () => c.ellipse(176, -4, 12, 3, 0, 0, TAU)); // where it landed
+    }
+  }
   c.restore();
+}
+
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+
+// Something she does with her body when her words call for it: asterisks in her lines (`*cough cough*`, `*hhhk, ptoo*`, `*yanks her bra strap*`,
+// `*wheeze*`) become a sound and a bit of business. Null when there is none.
+export function actOf(text) {
+  const s = (String(text || '').toLowerCase().match(/\*[^*]+\*/g) || []).join(' '); // only what is between asterisks
+  if (/bra strap|\bstrap\b/.test(s)) return 'strap';
+  if (/ptoo|\bspit|\bhock|hhhk/.test(s)) return 'spit';
+  if (/whe+z/.test(s)) return 'wheeze';
+  if (/cough|\bhack/.test(s)) return 'cough';
+  return null;
 }
 
 // where she stands and how far up she is, over the life of a pop-up (ms from her entrance): she bounces up, holds, drops back
@@ -193,7 +239,7 @@ export function popRise(ms, dur) {
 }
 
 // how long she stays for a remark: long enough to read, and to laugh
-export const popDuration = (text) => Math.round(Math.max(2400, Math.min(6200, 1500 + String(text || '').length * 55)));
+export const popDuration = (text) => Math.round(Math.max(2400, Math.min(6200, 1500 + String(text || '').length * 55)) + (actOf(text) ? 700 : 0));
 
 // the words in a balloon: lines no wider than `maxW`, using the canvas's current font
 export function wrap(c, text, maxW) {

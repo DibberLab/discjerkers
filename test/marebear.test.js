@@ -37,6 +37,20 @@ test('she can be drawn in every mood, with and without legs, and never throws', 
   assert.ok(calls > 2000, `something was drawn: ${calls}`);
 });
 
+test('her body business: asterisks in her words become a cough, wheeze, spit or bra strap, and each can be drawn', async () => {
+  const M = await import('../public/js/marebear.js');
+  assert.strictEqual(M.actOf('Well. *cough cough* That was bad.'), 'cough');
+  assert.strictEqual(M.actOf('*wheeeeze* Oh, hon.'), 'wheeze');
+  assert.strictEqual(M.actOf('Nice birdie. *hhhk, ptoo*'), 'spit');
+  assert.strictEqual(M.actOf('*spits in a Hamm\'s can* Nope.'), 'spit');
+  assert.strictEqual(M.actOf('Hang on. *adjusts bra strap, sweat and all*'), 'strap');
+  assert.strictEqual(M.actOf('The basket spit ya out. It has standards.'), null, 'only what is between asterisks counts');
+  assert.strictEqual(M.actOf(''), null);
+  assert.ok(M.popDuration('*cough* Hi there, hon.') > M.popDuration('Hi there, hon.'), 'she stays a little longer for her business');
+  const ctx = new Proxy({}, { get: () => () => {}, set: () => true });
+  for (const act of ['cough', 'wheeze', 'spit', 'strap']) for (const t of [0, 300, 700, 1000, 1300, 2000]) assert.doesNotThrow(() => M.drawMarebear(ctx, 100, 200, 1, { mood: 'laugh', t, act, facing: -1 }), `${act} at ${t}`);
+});
+
 test('sound: every sound can be made without a hitch, and nothing plays when it is off or unavailable', async () => {
   const S = await import('../public/js/sound.js');
   assert.ok(['laugh', 'chains', 'splash', 'thunk', 'throw', 'clank', 'fanfare', 'snap'].every((n) => S.NAMES.includes(n)));
