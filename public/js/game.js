@@ -10,6 +10,7 @@ import * as T from './trash.js?v=11';
 import * as C3 from './cam3d.js?v=21';
 import * as FO from './foliage.js?v=1';
 import * as PL from './player.js?v=1';
+import * as GS from './gesture.js?v=1';
 import { ANGLE_MAX } from './flightmodel.js?v=1';
 import * as PF from './puttfx.js?v=17';
 import * as GR from './ground.js?v=7';
@@ -440,7 +441,7 @@ function settingsBlock() {
 }
 
 const tipSeen = () => { try { return localStorage.getItem('dj_game_tip') === '1'; } catch { return false; } };
-const tipHtml = () => (tipSeen() ? '' : `<div class="gm-tip"><p><b>How to play:</b> pick a disc, choose forehand or backhand, and aim (drag or tap where you want it to go; Find pin lifts the camera to see the basket). Plan the flight with the sliders (arm speed, nose, hyzer or anhyzer) and watch the dashed line over the ground change. Then <b>Throw</b>: one tap on the release, then the swipe. A slow arm can grip lock or let go early, so watch the slip percentage. Trees stop low throws, water costs a stroke, and a triple bogey brings Marebear, who takes a disc.</p><button type="button" data-tip-close aria-label="Got it">×</button></div>`);
+const tipHtml = () => (tipSeen() ? '' : `<div class="gm-tip"><p><b>How to play:</b> pick a disc, choose forehand or backhand, and aim (drag or tap where you want it to go; Find pin lifts the camera to see the basket). Plan the flight with the sliders (arm speed, nose, hyzer or anhyzer) and watch the dashed line over the ground change. Then <b>Throw</b> and swing: how fast you swing through is how far it goes, and how smooth it is is how clean the release is. A slow arm can grip lock or let go early, so watch the slip percentage. Trees stop low throws, water costs a stroke, and a triple bogey brings Marebear, who takes a disc.</p><button type="button" data-tip-close aria-label="Got it">×</button></div>`);
 
 // Marebear's remark, in a card of its own under whatever it is about
 // Marebear can be switched off (a chip over the hole, remembered): no pop-ups, no remarks, no scene, and in your own round she takes no disc
@@ -849,10 +850,10 @@ function startMeter() {
     S.meter = { kind: 'putt', before: { ...S.settings }, start: now(), radius: G.puttRadius(puttDd(), d) * G.puttGrip(S.hole), speed: G.puttSpeed(puttDd()), params: G.makePuttSeed(Math.random) };
     setPhase('putt');
   } else {
-    // the arm speed, nose and hyzer were planned (and shown) before this: one tap is left, the release, and then the swipe
+    // the arm speed, nose and hyzer were planned (and shown) before this: what is left is the swing itself (how smooth it is is the release, how fast it goes is the distance)
     S.settings.spin = null;
-    S.meter = { kind: 'release', plan: true, before: { ...S.settings }, start: now(), mph: S.settings.mph, rel: G.releaseSetup(S.settings.mph), sweet: {} };
-    setPhase('release');
+    S.meter = { before: { ...S.settings } };
+    startSwipe(null, { pending: true });
   }
 }
 
@@ -1004,15 +1005,19 @@ function startSwipe(shot = null, throwEx = null) {
 function panelSwipe() {
   const drive = !!S.meter?.throwEx;
   const brief = isPhone() && tipSeen(); // once you know it, a phone gets one line, so the hole (and your swipe) has the room
-  const text = pullInput()
-    ? `Press on the disc (either mouse button), drag straight down to wind up (how far is the power: reach the gold mark for full power), then drag back up and let go. Where your way back up leaves from decides the aim, so keep it straight; a wobbly or short way back loses power. On a trackpad you can click once, wind up and swing back with no button held, and click again. Or use the arrow keys and Enter, or a controller: right stick back then forward.`
-    : brief
-    ? 'Draw back, then swipe up in one motion. Stay in the lime lines and stop in the band.'
-    : drive
-      ? 'Draw back down the screen, then swipe forward up it, in one smooth motion, from anywhere. The forward swipe is the throw: stay inside the lime lines and stop in the lime band. A short draw back costs power; off line steers the throw, too soft loses distance, too hard makes it loose.'
-      : 'Draw back down the screen, then swipe forward up it, in one smooth motion, from anywhere. The forward swipe is the putt: stay inside the lime lines and stop in the lime band. A short draw back costs power; too soft dies short, too hard runs long, and off line misses.';
+  const text = drive
+    ? pullInput()
+      ? `Press on the disc (either mouse button), drag straight down to wind up, then swing back up through it and let go. How fast you swing through is how far it goes (100% is the arm speed you planned: faster is looser, slower is shorter), and how smooth the whole motion is, with no stall at the bottom and no wobble, is how clean the release is. The way back up decides the aim. On a trackpad you can click once, swing with no button held, and click again. Or the arrow keys and Enter, or a controller's right stick back then forward.`
+      : brief
+        ? 'Draw back, then swipe up in one smooth motion. Speed is distance (100% is your planned arm); smooth is a clean release.'
+        : 'Draw back down the screen, then swipe forward up it, in one smooth motion, from anywhere. How fast you swipe is how far it goes (100% is the arm speed you planned: faster is looser, slower is shorter); how smooth the whole motion is, with no stall at the turn and no wobble, is how clean the release is. Stay inside the lime lines: off line steers the throw.'
+    : pullInput()
+      ? `Press on the disc (either mouse button), drag straight down to wind up (how far is the power: reach the gold mark for full power), then drag back up and let go. Where your way back up leaves from decides the aim, so keep it straight; a wobbly or short way back loses power. On a trackpad you can click once, wind up and swing back with no button held, and click again. Or use the arrow keys and Enter, or a controller: right stick back then forward.`
+      : brief
+        ? 'Draw back, then swipe up in one motion. Stay in the lime lines and stop in the band.'
+        : 'Draw back down the screen, then swipe forward up it, in one smooth motion, from anywhere. The forward swipe is the putt: stay inside the lime lines and stop in the lime band. A short draw back costs power; too soft dies short, too hard runs long, and off line misses.';
   return `<div class="gm-meter ${drive ? '' : 'gm-meter--putt'}">
-      <div class="gm-meter__top"><p class="gm-meter__t"><span>${drive ? 5 : 2} ·</span> ${pullInput() ? 'Wind up, swing' : 'Draw back, swipe'}</p><button class="chip gm-backout" type="button" data-back-out aria-label="Back out of this throw">Back out</button></div>
+      <div class="gm-meter__top"><p class="gm-meter__t">${drive ? '' : '<span>2 ·</span> '}${pullInput() ? 'Wind up, swing' : 'Draw back, swipe'}</p><button class="chip gm-backout" type="button" data-back-out aria-label="Back out of this throw">Back out</button></div>
       <div class="gm-meter__h"><p>${text}</p></div>
     </div>`;
 }
@@ -1034,7 +1039,7 @@ function beginSwipe(e) {
   const swing = e.pointerType === 'mouse' || e.pointerType === 'pen'; // a mouse or trackpad swings down and back up; a finger draws back and swipes
   if (swing && m.swing?.armed) { // the second click of a click-swing-click throw (for a trackpad, where holding and dragging is awkward)
     const sw = m.swing;
-    sw.pts.push({ x: p.x, y: p.y });
+    sw.pts.push({ x: p.x, y: p.y, t: t });
     m.swing = null;
     commitSwing(sw.pts);
     return;
@@ -1042,12 +1047,12 @@ function beginSwipe(e) {
   if (swing) {
     const an = swipeAnchor();
     if (Math.hypot(p.x - an.x, p.y - an.y) > SWING.startR) { swipeNote('PRESS ON THE DISC'); return; }
-    m.swing = { pts: [{ x: p.x, y: p.y }], held: true, armed: false };
+    m.swing = { pts: [{ x: p.x, y: p.y, t }], held: true, armed: false };
     S.meter.drag = { mode: 'swing', x0: p.x, y0: p.y, x: p.x, y: p.y, lastMove: t };
     try { cv.setPointerCapture?.(e.pointerId); } catch { /* a pointer that is already gone */ }
     return;
   }
-  S.meter.drag = { x0: p.x, y0: p.y, x: p.x, y: p.y, mode: 'swipe', phase: 'start', samples: [{ x: p.x, y: p.y, t }], backLen: 0, backPt: { x: p.x, y: p.y }, fwdLen: 0, fwdPt: null, peak: 0, speed: 0, slowPt: null, slowT: 0, lastMove: t };
+  S.meter.drag = { x0: p.x, y0: p.y, x: p.x, y: p.y, mode: 'swipe', phase: 'start', samples: [{ x: p.x, y: p.y, t }], trace: [{ x: p.x, y: p.y, t }], backLen: 0, backPt: { x: p.x, y: p.y }, fwdLen: 0, fwdPt: null, peak: 0, speed: 0, slowPt: null, slowT: 0, lastMove: t };
   try { cv.setPointerCapture?.(e.pointerId); } catch { /* a pointer that is already gone */ }
 }
 function moveSwipe(e) {
@@ -1064,6 +1069,7 @@ function moveSwipe(e) {
   d.lastMove = t;
   if (d.mode === 'swing') { addSwingPoint(S.meter.swing, p); return; } // a swing has no timing: only where it goes
   d.samples.push({ x: p.x, y: p.y, t });
+  if (d.trace.length < 600) d.trace.push({ x: p.x, y: p.y, t });
   while (d.samples.length > 2 && t - d.samples[0].t > 400) d.samples.shift();
   const fromStart = Math.hypot(p.x - d.x0, p.y - d.y0);
   if (d.phase === 'start' && fromStart >= 18) d.phase = p.y > d.y0 ? 'back' : 'wrong'; // down first, or it is not a draw back
@@ -1125,8 +1131,28 @@ function commitSwipe(pt) {
   const dy = pt.y - d.backPt.y;
   const len = Math.hypot(dx, dy);
   if (len < SWIPE.minLen) return; // a tap, not a swipe: try again
-  finishSwipe({ aim: Math.round(((Math.atan2(dx, -dy) * 180) / Math.PI) * 10) / 10, power: Math.round(swipePower(len, d.backLen) * 1000) / 1000 });
+  const power = m.throwEx ? drivePower(d.peak, len, d.backLen) : swipePower(len, d.backLen); // a drive goes as far as it is swung fast, a putt as far as it is long
+  finishSwipe({ aim: Math.round(((Math.atan2(dx, -dy) * 180) / Math.PI) * 10) / 10, power: Math.round(power * 1000) / 1000 }, m.throwEx ? gestureQuality(d.trace) : null);
 }
+/* ----- a drive from the gesture itself: how fast you swing through is how far it goes, how smooth the whole motion is is how clean the release is ----- */
+
+const peakSpeed = GS.peakSpeed;
+// the speed that is exactly the arm speed that was planned: a harder arm needs a faster swing through (about 1.6 to 3.6 strokes' worth of screen per second)
+const driveSpeedNeed = () => swipeNeed() * (1.6 + 2.0 * clamp(((S.settings.mph || 56) - 10) / 80, 0, 1));
+// the power of a drive: the speed against what the planned arm needs, and a stroke that is short, or a wind-up that is, costs some of it
+const drivePower = (peak, fwdLen, backLen) => {
+  const need = swipeNeed();
+  const lenF = clamp(0.5 + 0.5 * Math.min(1, fwdLen / (0.4 * need)), 0.5, 1);
+  const backF = clamp(0.6 + 0.4 * Math.min(1, backLen / (0.6 * Math.max(1, fwdLen))), 0.6, 1);
+  return (peak / driveSpeedNeed()) * lenF * backF;
+};
+const gestureQuality = (pts) => GS.gestureQuality(pts, swingHalfWidth());
+// the release a gesture made, in the shape the rules know: how far off a perfect release it was, which way, and so its grade
+function releaseFrom(quality) {
+  const x = quality ? quality.bias * quality.rough * 0.9 : 0.2; // (keys and a stick have no motion to judge: a good, not a pure, release)
+  return G.combine(G.readRelease(x, G.releaseSetup(S.settings.mph).w));
+}
+
 /* The mouse swing (a mouse, a trackpad, a pen): press on the disc, drag straight down to wind up, then drag back up and let go. How far down you went is
    the power; where your stroke comes back up (the line from the bottom of the wind-up to where it gets back level with the disc) is the aim, so a crooked way
    back sends it crooked; a wobbly way back and a stroke that does not get all the way back up both lose power. There is no timing. It is the way Disc Golf
@@ -1135,10 +1161,10 @@ const SWING = { startR: 90, minBack: 30, ratio: 0.8, step: 2 }; // ratio: a wind
 const swingHalfWidth = () => clamp(swipeNeed() * 0.07, 12, 24); // how far off the straight way back still counts as straight, in pixels
 function addSwingPoint(sw, p) {
   const last = sw.pts.at(-1);
-  if (Math.hypot(p.x - last.x, p.y - last.y) >= SWING.step) sw.pts.push({ x: p.x, y: p.y });
+  if (Math.hypot(p.x - last.x, p.y - last.y) >= SWING.step) sw.pts.push({ x: p.x, y: p.y, t: now2() });
 }
 // how a swing comes out: { depth, phase ('back' while still winding up, 'up' once on the way back), aim, power, reach, wobble, bottom, top }
-function swingStats(pts) {
+function swingStats(pts, drive = !!S.meter?.throwEx) {
   const a = pts[0];
   let bi = 0;
   for (let i = 1; i < pts.length; i++) if (pts[i].y > pts[bi].y) bi = i;
@@ -1165,7 +1191,10 @@ function swingStats(pts) {
   }
   const wobble = Math.sqrt(sq / Math.max(1, n));
   const steady = clamp(wobble / swingHalfWidth() - 0.4, 0, 1); // a little wander is free; a lot costs up to a quarter of the power
-  const power = Math.max(0, (depth / (swipeNeed() * SWING.ratio)) * (reach < 1 ? reach : 1) * (1 - 0.25 * steady));
+  // a putt: the length of the wind-up is the power. A drive: how fast the way back up goes (its length and the wind-up only have to be enough)
+  const power = drive
+    ? Math.max(0, drivePower(peakSpeed(pts, bi), Math.max(0, bottom.y - end.y), depth))
+    : Math.max(0, (depth / (swipeNeed() * SWING.ratio)) * (reach < 1 ? reach : 1) * (1 - 0.25 * steady));
   return { depth, phase: 'up', bottom, top, aim, power: Math.round(power * 1000) / 1000, reach, wobble };
 }
 function commitSwing(pts) {
@@ -1174,10 +1203,10 @@ function commitSwing(pts) {
   if (r.depth < SWING.minBack) { swipeNote('DRAG DOWN FIRST'); return; }
   if (r.phase === 'back') { swipeNote('NOW DRAG BACK UP, THEN LET GO'); return; }
   if (Math.abs(r.aim) > 60) { swipeNote('DRAG STRAIGHT BACK UP'); return; }
-  finishSwipe({ aim: r.aim, power: r.power });
+  finishSwipe({ aim: r.aim, power: r.power }, S.meter?.throwEx ? gestureQuality(pts) : null);
 }
 // the throw (or putt) itself, from an aim and a power however they were made
-function finishSwipe(swipe) {
+function finishSwipe(swipe, quality = null) {
   const m = S.meter;
   if (!m || S.phase !== 'swipe') return;
   m.drag = null;
@@ -1185,7 +1214,7 @@ function finishSwipe(swipe) {
   m.swing = null;
   m.padSwing = null;
   if (m.throwEx) {
-    const ex = G.withSwipe(m.throwEx, swipe);
+    const ex = G.withSwipe(releaseFrom(quality), swipe); // the release is how smooth the gesture was; the power, how fast it went
     // solo rolls the slip here; in a match the server does, and the throw comes back with it
     throwDisc(S.mode === 'match' ? ex : G.applySlip(ex, G.rollSlip(curDisc(), S.settings, Math.random())));
   } else {
@@ -1217,16 +1246,19 @@ function drawSwipeGuide() {
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.lineCap = 'round';
-  // the band to stop in, between the two rays
-  ctx.beginPath();
-  ctx.arc(ax, ay, need * (1 + tol.power), -Math.PI / 2 - rad(tol.aim), -Math.PI / 2 + rad(tol.aim));
-  ctx.arc(ax, ay, need * (1 - tol.power), -Math.PI / 2 + rad(tol.aim), -Math.PI / 2 - rad(tol.aim), true);
-  ctx.closePath();
-  ctx.fillStyle = 'rgba(163,230,53,0.22)';
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(163,230,53,0.9)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
+  // the band to stop in, between the two rays (a putt: how far it goes. A drive goes as far as it is swung fast, so it has no band, only the lines)
+  const driveSwing = !!m.throwEx;
+  if (!driveSwing) {
+    ctx.beginPath();
+    ctx.arc(ax, ay, need * (1 + tol.power), -Math.PI / 2 - rad(tol.aim), -Math.PI / 2 + rad(tol.aim));
+    ctx.arc(ax, ay, need * (1 - tol.power), -Math.PI / 2 + rad(tol.aim), -Math.PI / 2 - rad(tol.aim), true);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(163,230,53,0.22)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(163,230,53,0.9)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
   // the rays you must stay between
   ctx.setLineDash([8, 7]);
   for (const sgn of [-1, 1]) {
@@ -1313,7 +1345,7 @@ function drawSwipeGuide() {
       ctx.lineWidth = 3;
       ctx.stroke();
       if (m.note && m.note.until > now2()) label(m.note.text, W / 2, Math.min(target + 44, H - S.dock - 14), '#f2c14e', 22);
-      else label('PRESS THE DISC, DRAG DOWN, THEN UP', W / 2, Math.min(target + 44, H - S.dock - 14), '#eef1e8', Math.min(22, W / 17));
+      else label(driveSwing ? 'DRAG DOWN, THEN SWING UP: SMOOTH AND FAST' : 'PRESS THE DISC, DRAG DOWN, THEN UP', W / 2, Math.min(target + 44, H - S.dock - 14), '#eef1e8', Math.min(22, W / 17));
       ctx.restore();
       return;
     }
@@ -1400,7 +1432,7 @@ function drawSwipeGuide() {
       ctx.stroke();
     }
     if (m.note && m.note.until > now2()) label(m.note.text, W / 2, Math.min(backTo + 44, H - S.dock - 14), '#f2c14e', 24);
-    else label('DRAW BACK, THEN SWIPE UP', W / 2, Math.min(backTo + 44, H - S.dock - 14), '#eef1e8', Math.min(24, W / 14));
+    else label(driveSwing ? 'DRAW BACK, THEN SWIPE UP: SMOOTH AND FAST' : 'DRAW BACK, THEN SWIPE UP', W / 2, Math.min(backTo + 44, H - S.dock - 14), '#eef1e8', Math.min(24, W / 14));
   } else {
     const color = (aim, power) => { const q = Math.max(Math.abs(aim) / tol.aim, Math.abs(power - 1) / tol.power); return q <= 1 ? '#a3e635' : q <= 1.5 ? '#f2c14e' : '#ff6a3a'; };
     // where the finger really is, faintly
@@ -1441,7 +1473,7 @@ function drawSwipeGuide() {
         const fy = d.y - d.backPt.y;
         const len = Math.hypot(fx, fy);
         const aim = (Math.atan2(fx, -fy) * 180) / Math.PI;
-        const power = len > 0 ? swipePower(len, d.backLen) : 0;
+        const power = len > 0 ? (m.throwEx ? drivePower(d.peak, len, d.backLen) : swipePower(len, d.backLen)) : 0;
         const c = color(aim, power);
         ctx.beginPath();
         ctx.moveTo(ax, ay);
@@ -3997,7 +4029,7 @@ async function boot() {
       openSignIn({ onDone: () => mpJoin(code) });
     }
   }
-  window.__gm = { popUp, say, SND, startSwipe, puttDisc, S, G, clock, tap, throwDisc, startMeter, next, retarget, cam, DISCS, showMenu, startSolo, startHole, startBear, finishThrow, finishHole, finishCourse, openLobby, enterMatch, applyView, onMatchState, finishMove, mpCreate, mpJoin, step: () => { const t = now(); update(t); draw(t); } };
+  window.__gm = { gestureQuality, releaseFrom, drivePower, driveSpeedNeed, swingStats, popUp, say, SND, startSwipe, puttDisc, S, G, clock, tap, throwDisc, startMeter, next, retarget, cam, DISCS, showMenu, startSolo, startHole, startBear, finishThrow, finishHole, finishCourse, openLobby, enterMatch, applyView, onMatchState, finishMove, mpCreate, mpJoin, step: () => { const t = now(); update(t); draw(t); } };
   requestAnimationFrame(frame);
 }
 
