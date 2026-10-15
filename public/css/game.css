@@ -350,6 +350,8 @@
   .gm-cambtn { bottom: auto; top: 58px; right: max(10px, env(safe-area-inset-right)); }
   .gm-cambtn--sound { top: 94px; right: max(10px, env(safe-area-inset-right)); }
   .gm-cambtn--bear { top: 130px; right: max(10px, env(safe-area-inset-right)); }
+  .gm-stage .gm-cambtn--view { left: auto; bottom: auto; top: 166px; right: max(10px, env(safe-area-inset-right)); } /* on a phone it joins the chips down the right, well clear of where Marebear's balloon sits low on the screen */
+  .gm-cambtn--view.is-behind { opacity: 1; pointer-events: auto; } /* (so it need not hide while she talks) */
   /* screens you read rather than play on: tall, with a peek of the hole above */
   .gm-panel[data-phase="menu"], .gm-panel[data-phase="lobby"], .gm-panel[data-phase="daily"], .gm-panel[data-phase="standings"], .gm-panel[data-phase="trophies"],
   .gm-panel[data-phase="summary"], .gm-panel[data-phase="mdone"], .gm-panel[data-phase="mwait"], .gm-panel[data-phase="mhole"], .gm-panel[data-phase="done"] { max-height: calc(100% - 56px); }
@@ -368,6 +370,7 @@
   .gm-cambtn { top: 50px; }
   .gm-cambtn--sound { top: 84px; }
   .gm-cambtn--bear { top: 118px; }
+  .gm-stage .gm-cambtn--view { top: 152px; }
   .gm-hud { font-size: 0.6rem; gap: 2px; }
   .gm-page.gm-playing .gm-bubble { top: 70px; }
   .gm-tap { min-height: 52px; font-size: 1.4rem; }
