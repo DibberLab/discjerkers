@@ -682,7 +682,7 @@ const panelFlight = () => `<div class="gm-card"><h2>${esc(S.last?.ex?.grade ?? '
 function describeFeel(f) {
   if (!f) return '';
   const smooth = f.smooth == null ? '' : f.reason ? { wobble: 'Your swing wandered off line.', stutter: 'The swing stuttered instead of flowing.', stall: 'You stalled at the bottom of the wind-up.' }[f.reason] : `A smooth swing (${f.smooth}%).`;
-  const speed = f.speed == null ? '' : f.speed < 65 ? `You swung through slowly (${f.speed}% of what this arm needs): it came up short.` : f.speed > 140 ? `You swung hard (${f.speed}%): that maxes out the arm you planned, no more.` : `Speed ${f.speed}%: about right.`;
+  const speed = f.speed == null ? '' : f.maxed ? 'Full power: the most the arm speed you set can give.' : f.speed < 65 ? `You swung through slowly (${f.speed}% of what this arm needs): it came up short.` : `Speed ${f.speed}%: nearly all of it.`;
   return `${smooth} ${speed}`.trim();
 }
 function describeExecution(ex) {
@@ -938,7 +938,7 @@ function throwDisc(ex) {
     if (S.anim !== anim) return;
     SND.play('throw', clamp(S.settings.mph / 90, 0.2, 1));
     const feel = S.last?.feel;
-    toast(`${ex.grade}${feel?.speed != null ? ` · ${feel.speed}% speed` : ''}${feel?.smooth != null ? ` · ${feel.smooth}% smooth` : ''}`, ex.pure ? 'good' : ex.slip || ex.grade === 'Shank' ? 'bad' : '', 1700);
+    toast(`${ex.grade}${feel?.maxed ? ' · full power' : feel?.speed != null ? ` · ${feel.speed}% speed` : ''}${feel?.smooth != null ? ` · ${feel.smooth}% smooth` : ''}`, ex.pure ? 'good' : ex.slip || ex.grade === 'Shank' ? 'bad' : '', 1700);
   };
   if (lead) setTimeout(letGo, lead); else letGo();
   setPhase('flight');
@@ -1017,10 +1017,10 @@ function panelSwipe() {
   const brief = isPhone() && tipSeen(); // once you know it, a phone gets one line, so the hole (and your swipe) has the room
   const text = drive
     ? pullInput()
-      ? `Press on the disc (either mouse button), drag straight down to wind up, then swing back up through it and let go. How fast you swing through is how far it goes (100% is the arm speed you planned: a harder swing only maxes it out, a slower one is shorter), and how smooth the whole motion is, with no long stall at the bottom and no big wobble, is how clean the release is. The way back up only steers it if it is really crooked. On a trackpad you can click once, swing with no button held, and click again. Or the arrow keys and Enter, or a controller's right stick back then forward.`
+      ? `Press on the disc (either mouse button), drag straight down to wind up, then swing back up through it and let go. How fast you swing through is how far it goes (MAX is the arm speed you set: swinging harder gives no more, a slower swing is shorter), and how smooth the whole motion is, with no long stall at the bottom and no big wobble, is how clean the release is. The way back up only steers it if it is really crooked. On a trackpad you can click once, swing with no button held, and click again. Or the arrow keys and Enter, or a controller's right stick back then forward.`
       : brief
-        ? 'Draw back, then swipe up, smooth and quick. Faster is farther (100% maxes your planned arm); smooth is a clean release.'
-        : 'Draw back down the screen, then swipe forward up it, in one smooth motion, from anywhere. How fast you swipe is how far it goes (100% is the arm speed you planned: a harder swipe only maxes it out, a slower one is shorter); how smooth the whole motion is, with no long stall at the turn and no big wobble, is how clean the release is. Stay inside the lime lines: only a really crooked swipe steers the throw.'
+        ? 'Draw back, then swipe up, smooth and quick. Faster is farther, up to MAX (the arm you set); smooth is a clean release.'
+        : 'Draw back down the screen, then swipe forward up it, in one smooth motion, from anywhere. How fast you swipe is how far it goes (MAX is the arm speed you set: swiping harder gives no more, a slower swipe is shorter); how smooth the whole motion is, with no long stall at the turn and no big wobble, is how clean the release is. Stay inside the lime lines: only a really crooked swipe steers the throw.'
     : pullInput()
       ? `Press on the disc (either mouse button), drag straight down to wind up (how far is the power: reach the gold mark for full power), then drag back up and let go. Where your way back up leaves from decides the aim, so keep it straight; a wobbly or short way back loses power. On a trackpad you can click once, wind up and swing back with no button held, and click again. Or use the arrow keys and Enter, or a controller: right stick back then forward.`
       : brief
@@ -1151,8 +1151,8 @@ const peakSpeed = GS.peakSpeed;
 // the speed that is exactly the arm speed that was planned: a harder arm needs a faster swing through (about 1.6 to 3.6 strokes' worth of screen per second)
 const driveSpeedNeed = () => swipeNeed() * (1.6 + 2.0 * clamp(((S.settings.mph || 56) - 10) / 80, 0, 1));
 // the power of a drive: the speed against what the planned arm needs, and a stroke that is short, or a wind-up that is, costs some of it
-// A swing harder than the planned arm only maxes it out (it is a little loose from very hard, never a shank); slower shortens it.
-const softSpeed = (v) => (v <= 1.2 ? v : v <= 2 ? 1.2 + (v - 1.2) * 0.1 : 1.28);
+// A swing at or past the planned arm speed is full power: the most that arm can give, never more and never loose; slower shortens it.
+const softSpeed = (v) => Math.min(v, 1);
 const driveSpeed = (peak) => peak / driveSpeedNeed(); // 1 is the speed that matches the planned arm
 const drivePower = (peak, fwdLen, backLen) => {
   const need = swipeNeed();
@@ -1232,7 +1232,7 @@ function finishSwipe(swipe, quality = null, speed = null) {
   m.padSwing = null;
   if (m.throwEx) {
     const ex = G.withSwipe(releaseFrom(quality), swipe); // the release is how smooth the gesture was; the power, how fast it went
-    S.feel = quality || speed != null ? { smooth: quality ? Math.round((1 - quality.rough) * 100) : null, speed: speed != null ? Math.round(speed * 100) : null, reason: quality?.reason || null } : null; // what to tell the player about it
+    S.feel = quality || speed != null ? { smooth: quality ? Math.round((1 - quality.rough) * 100) : null, speed: speed != null ? Math.min(100, Math.round(speed * 100)) : null, maxed: speed != null && speed >= 1, reason: quality?.reason || null } : null; // what to tell the player about it
     // solo rolls the slip here; in a match the server does, and the throw comes back with it
     throwDisc(S.mode === 'match' ? ex : G.applySlip(ex, G.rollSlip(curDisc(), S.settings, Math.random())));
   } else {
@@ -1416,8 +1416,9 @@ function drawSwipeGuide() {
     ctx.strokeStyle = 'rgba(0,0,0,0.8)';
     ctx.lineWidth = 4;
     const shown = driveSwing && st.speed != null ? st.speed : st.power;
-    ctx.strokeText(`${Math.round(shown * 100)}%`, e.x + 16, e.y + 5);
-    ctx.fillText(`${Math.round(shown * 100)}%`, e.x + 16, e.y + 5);
+    const shownText = driveSwing && shown >= 1 ? 'MAX' : `${Math.round(shown * 100)}%`; // at or past the arm you set: that is all of it
+    ctx.strokeText(shownText, e.x + 16, e.y + 5);
+    ctx.fillText(shownText, e.x + 16, e.y + 5);
     const hint = sw.armed ? 'CLICK TO LET GO' : st.depth < SWING.minBack ? 'DRAG DOWN' : st.phase === 'back' ? 'NOW BACK UP' : 'LET GO';
     label(hint, W / 2, Math.min(target + 44, H - S.dock - 14), '#f2c14e', Math.min(22, W / 15));
     ctx.restore();
@@ -1512,8 +1513,9 @@ function drawSwipeGuide() {
         ctx.fillStyle = '#fff';
         ctx.strokeStyle = 'rgba(0,0,0,0.8)';
         ctx.lineWidth = 4;
-        ctx.strokeText(`${Math.round(power * 100)}%`, ax + fx + 18, ay + fy + 5);
-        ctx.fillText(`${Math.round(power * 100)}%`, ax + fx + 18, ay + fy + 5);
+        const ptext = m.throwEx && power >= 0.995 ? 'MAX' : `${Math.round(power * 100)}%`;
+        ctx.strokeText(ptext, ax + fx + 18, ay + fy + 5);
+        ctx.fillText(ptext, ax + fx + 18, ay + fy + 5);
       }
     }
   }
@@ -3622,7 +3624,7 @@ function startMoveAnim(view, last, who) {
   const { result, pts } = buildMoveAnim(last, hole, who);
   const name = who === 'me' ? '' : `${playerOf(who, view).name}: `;
   if (last.putt) puttReaction(result, who, name);
-  else toast(`${name}${last.ex?.grade || ''}${who === 'me' && S.mpFeel?.speed != null ? ` · ${S.mpFeel.speed}% speed` : ''}${who === 'me' && S.mpFeel?.smooth != null ? ` · ${S.mpFeel.smooth}% smooth` : ''}`, last.ex?.pure ? 'good' : last.ex?.slip || last.ex?.grade === 'Shank' ? 'bad' : '', 1400);
+  else toast(`${name}${last.ex?.grade || ''}${who === 'me' && S.mpFeel?.maxed ? ' · full power' : who === 'me' && S.mpFeel?.speed != null ? ` · ${S.mpFeel.speed}% speed` : ''}${who === 'me' && S.mpFeel?.smooth != null ? ` · ${S.mpFeel.smooth}% smooth` : ''}`, last.ex?.pure ? 'good' : last.ex?.slip || last.ex?.grade === 'Shank' ? 'bad' : '', 1400);
   setPhase('flight');
   retarget(false, pts);
 }
