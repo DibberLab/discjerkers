@@ -157,7 +157,12 @@ that way; don't introduce React/Vite/Tailwind here.
   Live updates are SSE like the change log (keep `X-Accel-Buffering: no` and the ping).
   Matches live in `data/matches.json` (gitignored, atomic writes, fail-soft like accounts): back it up with
   `accounts.json`. Limits: 6 open matches per user, unstarted matches expire after 24h, finished ones are kept 14 days.
-- **Two courses** (`COURSES` in `course.js`): **Pinewood Park** (holes 1-18) and **Quarry Ridge** (ids 101-118, `HOLES2`, built from `HOLE_SPECS2`: a limestone quarry and its ridge, with
+- **Timberline Peak, the third course** (ids 201-218, `HOLES3`, `HOLE_SPECS3`; `WARMUP3`): mountain golf. Broad fairways (half-widths 40 to 70 ft against 30 to 38 elsewhere), mostly pine (`pine` is the
+  share of the forest that is pine), big height (climbs of 20 to 30 ft, drops of 20), tarns and streams, and two new things: **rocks** (`boulders: { s, o, n, spread, r, h }` fields and `rocks: [s, o, r, h]`
+  singles; trees with `k: 'r'`, 3 to 14 ft tall, so a lofted throw clears them and a low one or a roll hits them like a tree: the lie remembers them, and the result says "rock"; drawn by `foliage.js`
+  as grey boulders with moss) and **mandatories that are always there** (`mandoAlways: true` in the spec, `mandoAlways` on the hole: `variantFor` always turns the mando on, a classic hole has
+  `hole.mando` from the start). The post goes on the line you must not take (a tarn's corner, a boulder field); the note on each hole says which side to pass.
+- **Two courses** (the first two; `COURSES` in `course.js`): **Pinewood Park** (holes 1-18) and **Quarry Ridge** (ids 101-118, `HOLES2`, built from `HOLE_SPECS2`: a limestone quarry and its ridge, with
   bigger drops, pits of water, a blind crest, an orchard, a narrow ridge with a drop both sides, and the technical features throughout). A hole's id is its name everywhere (the ground, the
   day's conditions, the match), so the second course is 101+; `hole.n` (1-18) is the number on the card and `hole.course` says which course. `holeById` finds either, `holesFor(length, course)`
   and `courseById` pick a course's holes. The menu has a card for each course (`courseChooser`, `S.courseId`, remembered as `dj_course`; the match lobby shares the choice); solo rounds, the
@@ -351,7 +356,7 @@ that way; don't introduce React/Vite/Tailwind here.
   the server rolls them in a match; into water it costs a stroke). `puttScript` turns that into a film (where the disc is every
   millisecond, with marks for the drop, the rim lap, the spit and the roll) and `drawPuttFx` draws the reaction: CHAINS! with
   rings and confetti, a cold-washed RIMMED OUT, NASTY ROLL with the camera following the disc.
-- Modules import each other with `?v=N` (now `course.js` 13, `gamecore.js` 33, `gesture.js` 2, `cam3d.js` 21, `puttfx.js` 17, `player.js` 1, `foliage.js` 1, `ground.js` 7, `sound.js` 4, `marebear.js` 2, `conditions.js` 5, `daily.js` 1, `gamepanels.js` 3, `progress.js` 2, `trash.js` 11, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
+- Modules import each other with `?v=N` (now `course.js` 14, `gamecore.js` 34, `gesture.js` 2, `cam3d.js` 22, `puttfx.js` 18, `player.js` 1, `foliage.js` 2, `ground.js` 8, `sound.js` 4, `marebear.js` 2, `conditions.js` 6, `daily.js` 1, `gamepanels.js` 3, `progress.js` 2, `trash.js` 11, `terrain.js` 1): bump it when a module changes, or cached copies mix with new ones.
   `public/js/package.json` says `type: module` so Node can import these files in tests.
 
 ## Deploy

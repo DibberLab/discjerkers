@@ -285,10 +285,13 @@ export function routeAhead(hole, x, y, feet) {
  *   staggers: { s0, s1, every, reach, sides }  trees reaching in from the edge, one after another on alternating sides (or only the sides listed), so the line
  *             through the hole is an S: reach is the fraction of the fairway's width each one blocks
  *   guards: { side, back, off, n }  tall trees `back` feet before the basket and `off` feet to one side of the line, so the approach has an angle
+ *   boulders: { s, o, n, spread, r, h }  a field of rocks (k 'r'): low, so a lofted throw clears them and a low one or a roll does not
+ *   rocks: [s, o, r, h]  one rock                         pine: the share of the forest that is pine (default 0.4: mountains are mostly pine)
+ *   mandoAlways: the hole's mando (`mando`) is always there, not only on some days
  *   creeks: { s, w, gap }  water straight across, with an optional dry ford [o0, o1]           oob: { s0, s1, o0, o1 }
  */
 function build(spec) {
-  const { id, name, note, par, path, wind, woods = [], trees: explicit = [], shrubs = [], groves = [], walls = [], rows = [], ponds = [], creeks = [], staggers = [], guards = [], oob = [], backstop = true, teeWall = true, forest = true, front = 0, padBottom = 60, seed = id * 131, ground = GROUNDS[id] || {}, mando = null } = spec;
+  const { id, name, note, par, path, wind, woods = [], trees: explicit = [], shrubs = [], groves = [], walls = [], rows = [], ponds = [], creeks = [], staggers = [], guards = [], boulders = [], rocks: rockList = [], pine = 0.4, mandoAlways = false, oob = [], backstop = true, teeWall = true, forest = true, front = 0, padBottom = 60, seed = id * 131, ground = GROUNDS[id] || {}, mando = null } = spec;
   const rnd = seeded(seed);
   const line = smooth(path);
   const route = { pts: line, s: [0] };
@@ -369,6 +372,17 @@ function build(spec) {
       for (let o = hw + 4; o >= hw - reach * 2 * hw; o -= 5.2 + rnd() * 0.4) treeAt(sAt + rnd() * 4 - 2, side * o, 4 + rnd() * 1.4, h[0] + rnd() * (h[1] - h[0]));
     }
   }
+  // rocks: one boulder (explicit), and fields of them. They are low (a few feet to a dozen), so they stop a flat throw or a roll and are flown over.
+  for (const [sAt, o, r, h] of rockList) { treeAt(sAt, o, r, h); trees.at(-1).k = 'r'; }
+  for (const b of boulders) {
+    const { s: sAt, o, n = 6, spread = 18, r = [3.2, 7], h = [5, 12] } = b;
+    for (let k = 0; k < n; k++) {
+      const a = rnd() * Math.PI * 2;
+      const rr = Math.sqrt(rnd()) * spread;
+      treeAt(sAt + Math.sin(a) * rr, o + Math.cos(a) * rr, r[0] + rnd() * (r[1] - r[0]), h[0] + rnd() * (h[1] - h[0]));
+      trees.at(-1).k = 'r';
+    }
+  }
   // guards: a couple of tall trees beside the line in to the basket, so the last approach is shaped and not a straight dart
   for (const g of guards) {
     const { side, back = 44, off = 14, n = 2, h = [70, 92] } = g;
@@ -443,7 +457,7 @@ function build(spec) {
     };
     const KINDS = { p: { r: [3.8, 4.8], h: [78, 105] }, m: { r: [5, 6.4], h: [66, 84] }, o: { r: [6, 7.8], h: [70, 92] } }; // tall: a lofted throw does not clear them
     const between = ([lo, hi]) => lo + rnd() * (hi - lo);
-    const pickKind = () => { const u = rnd(); return u < 0.4 ? 'p' : u < 0.7 ? 'm' : 'o'; };
+    const pickKind = () => { const u = rnd(); return u < pine ? 'p' : u < pine + (1 - pine) / 2 ? 'm' : 'o'; };
     const lo = { x: Math.min(...line.map((p) => p[0])) - 120, y: Math.min(...line.map((p) => p[1]), 0) - padBottom };
     const hi = { x: Math.max(...line.map((p) => p[0])) + 120, y: Math.max(...line.map((p) => p[1])) + 120 };
     for (let gx = lo.x + 6; gx < hi.x - 6; gx += 15) {
@@ -486,7 +500,7 @@ function build(spec) {
     const f = frame(mando.s, mando.o);
     mandoSpec = { x: r1(f.x), y: r1(f.y), dx: Math.round(f.ty * mando.side * 1000) / 1000, dy: Math.round(-f.tx * mando.side * 1000) / 1000, len: mando.len || 140, s: mando.s, side: mando.side };
   }
-  return makeHole({ id, name, note, par, fairway: line, basket, wind, water, oob: zones, trees: dry, bounds, terrain, mandoSpec });
+  return makeHole({ id, name, note, par, fairway: line, basket, wind, water, oob: zones, trees: dry, bounds, terrain, mandoSpec, ...(mandoAlways && mandoSpec ? { mando: mandoSpec, mandoAlways: true } : {}) });
 }
 
 /* ---------- the ground of each hole ---------- */
@@ -530,6 +544,25 @@ const GROUNDS = {
   116: { rise: [[50, 8], [130, 12], [220, 8]], bowl: 0.05, shelves: [{ side: 1, off: 26, drop: 26, width: 26, from: 20, to: 230 }, { side: -1, off: 26, drop: 26, width: 26, from: 20, to: 230 }] }, // a ridge with a drop on both sides
   117: { rise: [[130, 3], [260, 6], [400, 2]], bowl: 0.04 },
   118: { rise: [[120, -6], [300, -12], [440, -4], [560, 6]], bowl: 0.07, mounds: [{ s: 560, o: 0, r: 30, h: 4.5 }] },
+  // ---- Timberline Peak (the third course): big land, broad fairways, a lot of height
+  201: { rise: [[120, 6], [260, 14], [400, 9]], bowl: 0.06, mounds: [{ s: 60, o: -40, r: 30, h: 4 }] }, // a meadow at the foot of the trail
+  202: { rise: [[60, 8], [150, 18], [250, 22]], bowl: 0.1 }, // uphill through the pass
+  203: { rise: [[100, 4], [220, 2], [430, 6]], bowl: 0.07 }, // a tarn in a shallow bowl
+  204: { rise: [[190, 10], [350, 20], [500, 8], [660, 14]], bowl: 0.07, mounds: [{ s: 669, o: 0, r: 30, h: 4 }] }, // up and over and round
+  205: { rise: [[50, -6], [140, -12], [250, -10]], bowl: 0.09 }, // down to the snowmelt stream
+  206: { rise: [[120, 4], [260, 8], [410, 4]], bowl: 0.1 },
+  207: { rise: [[110, 6], [230, 14], [420, 8]], bowl: 0.03, mounds: [{ s: 140, o: 30, r: 34, h: 5 }, { s: 330, o: -36, r: 30, h: -4 }, { s: 420, o: 0, r: 30, h: 4.5 }] }, // open and rolling, a raised green
+  208: { rise: [[150, -8], [300, -20], [430, -10], [560, 4]], bowl: 0.05, shelves: [{ side: -1, off: 52, drop: 24, width: 26, from: 40, to: 300 }] }, // down the chute, up the far side
+  209: { rise: [[60, 6], [140, 12], [230, 8]], bowl: 0.12, mounds: [{ s: 230, o: 0, r: 30, h: 4.5 }] }, // in a cirque
+  210: { rise: [[100, 8], [250, 10], [410, 6]], bowl: 0.03, shelves: [{ side: 1, off: 40, drop: 22, width: 26, from: 20, to: 420 }, { side: -1, off: 40, drop: 22, width: 26, from: 20, to: 420 }] }, // a ridge with a drop on both sides
+  211: { rise: [[130, -6], [270, -14], [410, -10]], bowl: 0.08 }, // down through the treeline
+  212: { rise: [[190, -4], [360, -10], [520, -2], [640, 6]], bowl: 0.05, mounds: [{ s: 643, o: 0, r: 30, h: 4 }] }, // a lake in the valley
+  213: { rise: [[60, -6], [130, -16], [240, -20]], bowl: 0.06 }, // down the scree
+  214: { rise: [[100, 8], [220, 20], [330, 26], [430, 24]], bowl: 0.07, mounds: [{ s: 430, o: 0, r: 30, h: 4.5 }] }, // up to the pinnacle
+  215: { rise: [[100, -3], [220, -6], [410, 0]], bowl: 0.06 },
+  216: { rise: [[190, 6], [360, 10], [500, 4], [640, 8]], bowl: 0.1 }, // old growth on the shoulder
+  217: { rise: [[40, -6], [110, -14], [210, -12]], bowl: 0.06 }, // a tee on the point
+  218: { rise: [[150, 6], [320, 16], [480, 26], [630, 30]], bowl: 0.06, mounds: [{ s: 644, o: 0, r: 30, h: 4.5 }] }, // all the way up to the summit
 };
 
 /* ---------- the eighteen ---------- */
@@ -681,22 +714,86 @@ const HOLE_SPECS2 = [
 ];
 export const HOLES2 = HOLE_SPECS2.map(build);
 
+/* ---------- the third course: Timberline Peak ---------- */
+// Ids 201-218. Mountain golf: broad fairways (the half-widths are 40 to 70 feet, not 30), tall pine, boulder fields that stop a flat throw and are flown over,
+// tarns and streams, and mandatories that are always there (`mandoAlways`): the red post is on the line you must not take.
+const HOLE_SPECS3 = [
+  // 201: the foot of the trail: a wide meadow, two lone pines, a rock garden on the left
+  { id: 201, note: "The foot of the trail: a wide meadow with two lone pines to play around and a rock garden down the left.", name: 'Trailhead', par: 4, path: trail(10, 58, [[160, 0, 60], [140, 20, 56], [110, -10, 50]]), wind: { mph: 7, from: 260 }, pine: 0.7,
+    woods: [{ side: -1, dense: 0.45, d: 20 }, { side: 1, dense: 0.45, d: 20 }], trees: [[170, 22, 5.2, 72], [230, -20, 5, 68]], boulders: [{ s: 190, o: -48, n: 4, spread: 12 }], shrubs: [[300, 30]], front: 2 },
+  // 202: a pass between two boulder fields, a big rock in the lane, and a post that keeps you off the left
+  { id: 202, note: "A pass between two boulder fields with a big rock in the lane. Mandatory: pass right of the red post.", name: 'Boulder Pass', par: 3, path: trail(-25, 46, [[250, 6, 44]]), wind: { mph: 11, from: 300 }, pine: 0.7, mandoAlways: true,
+    woods: [{ side: -1, dense: 0.5, d: 18 }, { side: 1, dense: 0.5, d: 18 }], boulders: [{ s: 120, o: -36, n: 8, spread: 18 }, { s: 150, o: 38, n: 8, spread: 18 }], rocks: [[175, 6, 5, 10]], mando: { s: 105, o: -8, side: -1, len: 110 } },
+  // 203: a tarn on the outside of the corner: mandatory, you may not cut it
+  { id: 203, note: "A tarn fills the outside of the corner. Mandatory: pass left of the red post, so you cannot cut over the water.", name: 'The Tarn', par: 4, path: trail(35, 54, [[170, 0, 56], [150, -32, 52], [110, 14, 46]]), wind: { mph: 8, from: 120 }, pine: 0.7, mandoAlways: true,
+    woods: [{ side: -1, dense: 0.5, d: 20 }, { side: 1, dense: 0.5, d: 20 }], ponds: [{ s: 215, o: 52, rx: 56, ry: 64 }], mando: { s: 140, o: 30, side: 1, len: 90 }, guards: [{ side: 1, back: 56, off: 16, n: 1 }], front: 1 },
+  // 204: the long way round: switchbacks up the slope, a stream with a ford, boulders on the outside of each turn
+  { id: 204, note: "Switchbacks up the slope. A stream with a dry ford across the middle, boulders on the outside of each turn, and a post on the first: pass right of it.", name: 'Switchbacks', par: 5, path: trail(0, 52, [[190, 0, 54], [160, 55, 50], [170, -75, 50], [140, 30, 46]]), wind: { mph: 9, from: 330 }, pine: 0.75, mandoAlways: true,
+    woods: [{ side: -1, dense: 0.5, d: 18 }, { side: 1, dense: 0.5, d: 18 }], creeks: [{ s: 330, w: 20, gap: [-20, 14] }], boulders: [{ s: 260, o: 60, n: 7, spread: 20 }, { s: 470, o: -56, n: 7, spread: 20 }], mando: { s: 195, o: -10, side: -1, len: 100 }, guards: [{ side: -1, back: 60, off: 16, n: 2 }], front: 1 },
+  // 205: across the snowmelt: a dry ford on the left, a guard tree right
+  { id: 205, note: "Across the snowmelt stream: the water is wide and the dry ford is on the left. Mandatory: pass left of the red post.", name: 'Snowmelt', par: 3, path: trail(60, 44, [[140, 0, 44], [120, 16, 40]]), wind: { mph: 10, from: 20 }, pine: 0.7, mandoAlways: true,
+    woods: [{ side: -1, dense: 0.45, d: 18 }, { side: 1, dense: 0.45, d: 18 }], creeks: [{ s: 150, w: 18, gap: [-20, 12] }], mando: { s: 100, o: 18, side: 1, len: 90 }, guards: [{ side: 1, back: 48, off: 14, n: 1 }], front: 1 },
+  // 206: a spruce alley: stands of spruce reach into a wide fairway from alternating sides
+  { id: 206, note: "A spruce alley: stands of spruce reach in from the left, then the right, then the left. Plenty of room, but you have to shape it.", name: 'Spruce Alley', par: 4, path: trail(-10, 50, [[140, 0, 50], [150, 10, 48], [120, -12, 44]]), wind: { mph: 6, from: 200 }, pine: 0.9,
+    woods: [{ side: -1, dense: 0.8, rows: 2, d: 14 }, { side: 1, dense: 0.8, rows: 2, d: 14 }], staggers: [{ s0: 80, s1: 300, every: 70, reach: 0.35, sides: [-1, 1] }], guards: [{ side: -1, back: 56, off: 16, n: 2 }], front: 1 },
+  // 207: a high meadow in a stiff wind: boulders scattered through it and a mandatory
+  { id: 207, note: "A high meadow in a stiff wind, boulders scattered through it. Mandatory: pass left of the red post. The green is raised.", name: 'High Meadow', par: 4, path: trail(70, 70, [[220, 6, 70], [200, -8, 64]]), wind: { mph: 15, from: 250 }, pine: 0.7, mandoAlways: true,
+    woods: [{ side: -1, d: 30, dense: 0.3 }, { side: 1, d: 30, dense: 0.3 }], boulders: [{ s: 140, o: -40, n: 5, spread: 16 }, { s: 260, o: 36, n: 5, spread: 16 }], mando: { s: 200, o: 30, side: 1, len: 100 }, guards: [{ side: 1, back: 60, off: 18, n: 1 }] },
+  // 208: the avalanche chute: a boulder field down the right, a drop on the left, a post on the line
+  { id: 208, note: "The avalanche chute: a field of boulders across the right, a drop on the left that is out of bounds. Mandatory: pass right of the red post.", name: 'Avalanche Chute', par: 5, path: trail(-40, 50, [[200, 0, 50], [190, 22, 48], [170, -18, 44]]), wind: { mph: 12, from: 140 }, pine: 0.75, mandoAlways: true,
+    woods: [{ side: 1, dense: 0.5, d: 18 }, { side: -1, dense: 0.5, d: 18 }], boulders: [{ s: 260, o: 30, n: 14, spread: 34, h: [6, 14] }, { s: 390, o: -34, n: 10, spread: 26 }], oob: [{ s0: 40, s1: 300, o0: -90, o1: -56 }], mando: { s: 150, o: -8, side: -1, len: 100 }, guards: [{ side: 1, back: 60, off: 16, n: 2 }], front: 1 },
+  // 209: a bowl of rock and pine with a tarn right behind the basket
+  { id: 209, note: "A cirque: a bowl of rock and pine with a tarn right behind the basket, so do not go long. Mandatory: pass right of the red post.", name: 'Cirque', par: 3, path: trail(30, 46, [[230, 0, 46]]), wind: { mph: 7, from: 80 }, pine: 0.8, mandoAlways: true,
+    woods: [{ side: -1, dense: 0.5, d: 16 }, { side: 1, dense: 0.5, d: 16 }], boulders: [{ s: 130, o: -44, n: 6, spread: 14 }, { s: 130, o: 46, n: 6, spread: 14 }], ponds: [{ s: 272, o: 0, rx: 56, ry: 24 }], mando: { s: 120, o: -10, side: -1, len: 100 }, guards: [{ side: -1, back: 44, off: 14, n: 1 }], backstop: false },
+  // 210: the ridge: a drop and out of bounds on both sides of a good broad back
+  { id: 210, note: "A ridge with a drop on both sides, out of bounds both ways. The back of it is broad, but a mistake is gone.", name: 'Ridge Walk', par: 4, path: trail(0, 40, [[150, 0, 40], [130, 12, 38], [130, -14, 36]]), wind: { mph: 14, from: 300 }, pine: 0.7,
+    woods: [{ side: -1, dense: 0.3, d: 24 }, { side: 1, dense: 0.3, d: 24 }], oob: [{ s0: 30, s1: 410, o0: -130, o1: -52 }, { s0: 30, s1: 410, o0: 52, o1: 130 }], guards: [{ side: 1, back: 58, off: 14, n: 1 }] },
+  // 211: down through the treeline: two gates, left then right
+  { id: 211, note: "Down through the treeline. The first gate is on the left, the second on the right: a left-to-right S through tall spruce.", name: 'Treeline', par: 4, path: trail(80, 54, [[130, 0, 54], [150, 0, 50], [130, 0, 46]]), wind: { mph: 8, from: 160 }, pine: 0.9,
+    woods: [{ side: -1, dense: 0.5, d: 18 }, { side: 1, dense: 0.5, d: 18 }], walls: [{ s: 150, from: -90, to: 90, gaps: [[-40, -8]], h: [70, 95] }, { s: 290, from: -90, to: 90, gaps: [[8, 40]], h: [70, 95] }], front: 1 },
+  // 212: the glacier lake: the big carry, or round the left
+  { id: 212, note: "A glacier lake fills the valley: carry it for the shortcut, or play round the left. Mandatory on the tee: pass left of the red post.", name: 'Glacier Lake', par: 5, path: trail(0, 56, [[190, 0, 56], [170, -28, 52], [160, 40, 48], [120, -10, 44]]), wind: { mph: 11, from: 230 }, pine: 0.7, mandoAlways: true,
+    woods: [{ side: -1, dense: 0.5, d: 20 }, { side: 1, dense: 0.4, d: 20 }], ponds: [{ s: 330, o: 76, rx: 84, ry: 110, n: 16 }], mando: { s: 170, o: 20, side: 1, len: 110 }, guards: [{ side: 1, back: 60, off: 16, n: 2 }], front: 1 },
+  // 213: the scree: a short hole straight down a slope of low rock
+  { id: 213, note: "Down the scree: a short hole of low rock all the way down the slope. Fly it, or pick a line through.", name: 'Scree Run', par: 3, path: trail(-20, 44, [[240, 4, 44]]), wind: { mph: 9, from: 40 }, pine: 0.7,
+    woods: [{ side: -1, dense: 0.4, d: 20 }, { side: 1, dense: 0.4, d: 20 }], boulders: [{ s: 120, o: 0, n: 12, spread: 34, h: [3, 7] }, { s: 190, o: -20, n: 8, spread: 24, h: [3, 7] }], guards: [{ side: -1, back: 46, off: 14, n: 1 }] },
+  // 214: the pinnacle: all uphill to a raised green on the knoll
+  { id: 214, note: "The pinnacle: uphill all the way to a raised green on the knoll, so throws come down short. Mandatory: pass left of the red post.", name: 'Pinnacle', par: 4, path: trail(30, 52, [[160, 0, 54], [150, -14, 50], [120, 10, 46]]), wind: { mph: 10, from: 210 }, pine: 0.75, mandoAlways: true,
+    woods: [{ side: -1, dense: 0.5, d: 18 }, { side: 1, dense: 0.5, d: 18 }], boulders: [{ s: 280, o: -40, n: 6, spread: 16 }], mando: { s: 120, o: 14, side: 1, len: 90 }, guards: [{ side: 1, back: 56, off: 16, n: 2 }], front: 1 },
+  // 215: the brook: a stream across twice, the fords on opposite sides
+  { id: 215, note: "A brook crosses the hole twice, and the dry fords are on opposite sides: cross left, then right.", name: 'Brook', par: 4, path: trail(100, 54, [[140, 0, 54], [140, -12, 50], [130, 10, 46]]), wind: { mph: 6, from: 330 }, pine: 0.6,
+    woods: [{ side: -1, dense: 0.4, d: 22 }, { side: 1, dense: 0.4, d: 22 }], creeks: [{ s: 140, w: 16, gap: [-30, 6] }, { s: 280, w: 16, gap: [-6, 34] }], shrubs: [[330, 22]], front: 2 },
+  // 216: old growth: big groves to find the lanes between
+  { id: 216, note: "Old growth: big groves of ancient pine to find the lanes between, then trees that reach in. Mandatory: pass right of the red post.", name: 'Old Growth', par: 5, path: trail(-60, 56, [[190, 0, 56], [170, -20, 52], [150, 24, 48], [130, -12, 44]]), wind: { mph: 8, from: 120 }, pine: 0.8, mandoAlways: true,
+    woods: [{ side: -1, dense: 0.6, d: 20 }, { side: 1, dense: 0.6, d: 20 }], groves: [{ s: 130, o: -26, n: 9, spread: 22, h: [75, 100] }, { s: 260, o: 30, n: 9, spread: 22, h: [75, 100] }, { s: 400, o: -20, n: 8, spread: 20, h: [75, 100] }], mando: { s: 200, o: -6, side: -1, len: 100 }, staggers: [{ s0: 470, s1: 530, every: 60, reach: 0.35, sides: [1, -1] }], guards: [{ side: -1, back: 60, off: 16, n: 2 }], front: 1 },
+  // 217: the point: a high tee to a green on a peninsula
+  { id: 217, note: "Overlook Point: a high tee over a green on a peninsula, with water on both sides. Hold the middle.", name: 'Overlook Point', par: 3, path: trail(45, 40, [[210, 6, 40]]), wind: { mph: 12, from: 270 }, pine: 0.7,
+    woods: [{ side: -1, dense: 0.4, d: 20 }, { side: 1, dense: 0.4, d: 20 }], ponds: [{ s: 140, o: -44, rx: 30, ry: 40 }, { s: 150, o: 46, rx: 30, ry: 40 }], guards: [{ side: 1, back: 44, off: 14, n: 1 }] },
+  // 218: the summit: the long climb home, a tarn to carry on the way, boulders, a post and a raised green
+  { id: 218, note: "The summit: a long climb home. A tarn on the way, boulders at the top, and a post on the climb: pass right of it. The green is raised.", name: 'Summit Home', par: 5, path: trail(0, 58, [[180, 0, 58], [170, 34, 54], [160, -40, 50], [130, 16, 44]]), wind: { mph: 13, from: 235 }, pine: 0.75, mandoAlways: true,
+    woods: [{ side: -1, dense: 0.5, d: 20 }, { side: 1, dense: 0.5, d: 20 }], ponds: [{ s: 330, o: -60, rx: 60, ry: 70, n: 14 }], boulders: [{ s: 450, o: 36, n: 8, spread: 24 }], mando: { s: 190, o: -10, side: -1, len: 110 }, guards: [{ side: -1, back: 60, off: 16, n: 2 }], front: 1 },
+];
+export const HOLES3 = HOLE_SPECS3.map(build);
+
 // Hole numbers on the card (1-18 within each course) and which course a hole belongs to
 HOLES.forEach((h, i) => { h.n = i + 1; h.course = 1; });
 HOLES2.forEach((h, i) => { h.n = i + 1; h.course = 2; });
-const ALL_HOLES = [...HOLES, ...HOLES2];
+HOLES3.forEach((h, i) => { h.n = i + 1; h.course = 3; });
+const ALL_HOLES = [...HOLES, ...HOLES2, ...HOLES3];
 
 /** The courses a player can pick. Each is eighteen holes; a round is a practice hole, the front nine, or all eighteen. */
 export const COURSES = [
   { id: 1, name: 'Pinewood Park', blurb: 'Pines, ponds and hills. Eighteen holes of woods and wind, from a wide-open start to a pond-filled valley.', holes: HOLES },
   { id: 2, name: 'Quarry Ridge', blurb: 'An old limestone quarry and the ridge above it: big drops, pits of water, blind crests and a lot of shaping.', holes: HOLES2 },
+  { id: 3, name: 'Timberline Peak', blurb: 'Mountain golf: broad fairways and big height, tall pine, boulder fields, tarns and streams, and mandatories on the line.', holes: HOLES3 },
 ];
 export const courseById = (id) => COURSES.find((c) => c.id === Number(id)) || COURSES[0];
 export const holeById = (id) => ALL_HOLES.find((h) => h.id === id);
 // a warm-up is three of the gentler holes: an open start, a short climb and the bluff over the pond
 export const WARMUP = [1, 2, 5];
 export const WARMUP2 = [101, 102, 105];
+export const WARMUP3 = [201, 202, 205];
 export const holesFor = (length, course = 1) => {
   const c = courseById(course);
-  return length === 3 ? (c.id === 2 ? WARMUP2 : WARMUP).map((id) => holeById(id)) : c.holes.slice(0, length === 9 ? 9 : length === 18 ? 18 : 1);
+  return length === 3 ? (c.id === 3 ? WARMUP3 : c.id === 2 ? WARMUP2 : WARMUP).map((id) => holeById(id)) : c.holes.slice(0, length === 9 ? 9 : length === 18 ? 18 : 1);
 };

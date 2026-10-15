@@ -2,7 +2,7 @@
    has a bright side and a dark side), and the map's overlay of shading, contour lines, mown stripes and grass flecks.
    Nothing here is a rule: the hills themselves are in course.js and terrain.js, and gamecore.js is what plays on them. */
 
-import { surfaceAt, routePosition } from './course.js?v=13';
+import { surfaceAt, routePosition } from './course.js?v=14';
 import { fieldAt } from './terrain.js?v=1';
 
 export const PALETTE = { // r, g, b of each kind of ground

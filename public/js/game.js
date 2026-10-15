@@ -4,19 +4,19 @@
 
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
-import { HOLES, COURSES, courseById, holeById, holesFor } from './course.js?v=13';
-import * as G from './gamecore.js?v=33';
+import { HOLES, COURSES, courseById, holeById, holesFor } from './course.js?v=14';
+import * as G from './gamecore.js?v=34';
 import * as T from './trash.js?v=11';
-import * as C3 from './cam3d.js?v=21';
-import * as FO from './foliage.js?v=1';
+import * as C3 from './cam3d.js?v=22';
+import * as FO from './foliage.js?v=2';
 import * as PL from './player.js?v=1';
 import * as GS from './gesture.js?v=2';
 import { ANGLE_MAX } from './flightmodel.js?v=1';
-import * as PF from './puttfx.js?v=17';
-import * as GR from './ground.js?v=7';
+import * as PF from './puttfx.js?v=18';
+import * as GR from './ground.js?v=8';
 import * as SND from './sound.js?v=4';
 import * as MB from './marebear.js?v=2';
-import * as K from './conditions.js?v=5';
+import * as K from './conditions.js?v=6';
 import * as DLY from './daily.js?v=1';
 import * as GP from './gamepanels.js?v=3';
 import * as PR from './progress.js?v=2';
@@ -162,7 +162,7 @@ function loadSettings() {
 function saveSettings() {
   try { localStorage.setItem('dj_game_throw', JSON.stringify({ hand: S.settings.hand, style: S.settings.style })); } catch { /* not saved */ }
 }
-const bestKey = () => (S.course && S.course.length > 1 ? `dj_game_best_${S.course.length}${S.course.courseId === 2 ? '_c2' : ''}` : `dj_game_best_h${S.hole.id}`);
+const bestKey = () => (S.course && S.course.length > 1 ? `dj_game_best_${S.course.length}${S.course.courseId > 1 ? `_c${S.course.courseId}` : ''}` : `dj_game_best_h${S.hole.id}`);
 const parTotal = (holes) => holes.reduce((n, h) => n + h.par, 0);
 // the course on the menu, and the holes of a course (a match carries its own)
 const courseHoles = (id = S.courseId) => courseById(id).holes;
@@ -706,7 +706,7 @@ function resultCopy(r) {
     return { h: r.kind === 'water' ? 'Splash!' : 'Out of bounds', tone: 'bad', p: 'That is a penalty stroke. You throw again from the same spot.' };
   }
   if (r.kind === 'mando') return { h: 'Missed the mando', tone: 'bad', p: 'You went the wrong side of the red post. That is a penalty stroke, and you throw again from the same spot.' };
-  if (r.kind === 'tree') return { h: 'Thunk!', tone: 'bad', p: `It hit a tree and kicked out beside it. ${ft(dist)} to the basket.` };
+  if (r.kind === 'tree') return { h: 'Thunk!', tone: 'bad', p: `It hit a ${r.hit?.tree?.k === 'r' ? 'rock' : 'tree'} and kicked out beside it. ${ft(dist)} to the basket.` };
   if (r.made === false) return { h: 'Missed', tone: 'bad', p: `It rattled out and sits ${ft(dist)} from the basket.` };
   return { h: surfaceName(r.surface), tone: r.surface === 'rough' ? 'bad' : 'good', p: `${ft(dist)} to the basket.` };
 }
@@ -1926,6 +1926,18 @@ function drawTrees() {
     if (x < -R * 2 || x > W + R * 2 || y < -R * 2 || y > H + R * 2) continue; // not on the screen
     const k = tr.k || (tr.h < 20 ? 's' : 'm');
     const pic = R >= 3 ? FO.top(tr, 2 * R * dpr, k === 'm' && autumn(tr)) : null; // the drawn crown, once it is ready (else the flat shapes below)
+    if (k === 'r' && !pic) { // a rock, flat: a grey blob with a light side
+      const rr = Math.max(2, tr.r * 1.15 * cam.s);
+      ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.fillStyle = '#5a6066'; ctx.fill();
+      ctx.beginPath(); ctx.arc(x - rr * 0.18, y - rr * 0.18, rr * 0.6, 0, Math.PI * 2); ctx.fillStyle = '#8a9298'; ctx.fill();
+      continue;
+    }
+    if (pic && k === 'r') { // a rock from above: smaller than its radius says, and a soft shadow
+      const rr = tr.r * 1.15 * cam.s;
+      ctx.beginPath(); ctx.ellipse(x + rr * 0.22, y + rr * 0.24, rr, rr * 0.9, 0, 0, Math.PI * 2); ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fill();
+      ctx.drawImage(pic, x - rr, y - rr, rr * 2, rr * 2);
+      continue;
+    }
     if (pic && (k === 's' || k === 'b')) {
       const rr = k === 'b' ? R * 0.95 : R;
       ctx.beginPath(); ctx.ellipse(x + rr * 0.22, y + rr * 0.24, rr, rr * 0.9, 0, 0, Math.PI * 2); ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.fill();

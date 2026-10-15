@@ -2,7 +2,7 @@
    tree has a few drawn-once pictures (a side view for the 3D camera, a view from above for the map), made in small slices when the page
    starts (`start`), then stamped wherever a tree stands; something that is not ready yet is simply drawn the old, flat way by the caller
    (the functions here return null), so nothing ever waits on them. The pictures are lit from the upper left, like the map's hills.
-   Kinds: 'm' maple, 'a' maple turning, 'o' oak, 'p' white pine, 's' shrub, 'b' bush. */
+   Kinds: 'm' maple, 'a' maple turning, 'o' oak, 'p' white pine, 's' shrub, 'b' bush, 'r' rock. */
 
 const TAU = Math.PI * 2;
 
@@ -277,12 +277,63 @@ function pineTop(c, S, rnd) {
   c.restore();
 }
 
+/* ----- rocks: angular boulders, grey, lit from the upper left, with a cap of moss ----- */
+
+const ROCK = ['#2c3034', '#5a6066', '#8a9298', '#c6ccd0'].map(hex); // dark, mid, lit, highlight
+function rockPoly(rnd, pts, W, H) { return pts.map(([x, y]) => [x * W + (rnd() - 0.5) * W * 0.05, y * H + (rnd() - 0.5) * H * 0.05]); }
+function rockSide(c, W, H, rnd) {
+  groundShadow(c, W, H, W * 0.55);
+  const poly = rockPoly(rnd, [[0.05, 0.94], [0.0, 0.66], [0.1, 0.36], [0.3, 0.12], [0.58, 0.04], [0.82, 0.2], [0.98, 0.5], [1.0, 0.78], [0.95, 0.94]], W, H);
+  const path = () => { c.beginPath(); poly.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); };
+  const g = c.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, css(ROCK[2])); g.addColorStop(0.55, css(ROCK[1])); g.addColorStop(1, css(ROCK[0]));
+  path(); c.fillStyle = g; c.fill();
+  c.save(); path(); c.clip();
+  const mid = [W * (0.4 + rnd() * 0.2), H * (0.4 + rnd() * 0.2)];
+  for (let i = 0; i < poly.length; i++) { // facets: each wedge from a point inside to an edge, lit by which way it faces
+    const a = poly[i];
+    const b = poly[(i + 1) % poly.length];
+    const facing = clamp(0.5 - ((a[0] + b[0]) / 2 - mid[0]) / W * 0.9 - ((a[1] + b[1]) / 2 - mid[1]) / H * 0.8, 0, 1);
+    c.fillStyle = css(mix(ROCK[0], ROCK[3], facing * 0.8), 0.55);
+    c.beginPath(); c.moveTo(mid[0], mid[1]); c.lineTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.closePath(); c.fill();
+  }
+  c.strokeStyle = css(ROCK[0], 0.5); c.lineWidth = Math.max(1, W * 0.012); // cracks
+  for (let k = 0; k < 4; k++) { const sx = W * (0.2 + rnd() * 0.6); const sy = H * (0.2 + rnd() * 0.3); c.beginPath(); c.moveTo(sx, sy); c.lineTo(sx + (rnd() - 0.5) * W * 0.3, sy + H * (0.15 + rnd() * 0.3)); c.stroke(); }
+  // moss in the top, and a little on the shady side
+  const moss = PAL.s;
+  for (let k = 0; k < 9; k++) { c.fillStyle = css(mix(moss[1], moss[2], rnd()), 0.7); c.beginPath(); c.ellipse(W * (0.25 + rnd() * 0.5), H * (0.06 + rnd() * 0.18), W * (0.05 + rnd() * 0.07), H * 0.04, 0, 0, TAU); c.fill(); }
+  const sh = c.createLinearGradient(0, H * 0.5, 0, H);
+  sh.addColorStop(0, 'rgba(0,0,0,0)'); sh.addColorStop(1, 'rgba(0,0,0,0.35)');
+  c.fillStyle = sh; c.fillRect(0, 0, W, H);
+  c.restore();
+  path(); c.strokeStyle = css(ROCK[0], 0.7); c.lineWidth = Math.max(1, W * 0.015); c.stroke();
+}
+function rockTop(c, S, rnd) {
+  const R = S / 2;
+  const n = 9;
+  const pts = Array.from({ length: n }, (_, i) => { const a = (i / n) * TAU + (rnd() - 0.5) * 0.4; const r = R * (0.78 + rnd() * 0.2); return [R + Math.cos(a) * r, R + Math.sin(a) * r]; });
+  c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath();
+  c.fillStyle = css(ROCK[1]); c.fill();
+  c.save(); c.clip();
+  for (let i = 0; i < n; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % n];
+    const facing = clamp(0.5 - ((a[0] + b[0]) / 2 - R) / R * 0.5 - ((a[1] + b[1]) / 2 - R) / R * 0.6, 0, 1);
+    c.fillStyle = css(mix(ROCK[0], ROCK[3], facing * 0.85), 0.9);
+    c.beginPath(); c.moveTo(R + (rnd() - 0.5) * R * 0.2, R + (rnd() - 0.5) * R * 0.2); c.lineTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.closePath(); c.fill();
+  }
+  for (let k = 0; k < 6; k++) { c.fillStyle = css(mix(PAL.s[1], PAL.s[2], rnd()), 0.6); c.beginPath(); c.ellipse(R * (0.5 + rnd()), R * (0.4 + rnd() * 0.8), R * 0.12, R * 0.07, rnd() * TAU, 0, TAU); c.fill(); }
+  c.restore();
+  c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath();
+  c.strokeStyle = css(ROCK[0], 0.8); c.lineWidth = Math.max(1, S * 0.02); c.stroke();
+}
+
 /* ----- the pictures: made a few at a time, then stamped ----- */
 
-const KINDS = ['m', 'a', 'o', 'p', 's', 'b'];
+const KINDS = ['m', 'a', 'o', 'p', 's', 'b', 'r'];
 const VARIANTS = 4;
-const SIDE_ASPECT = { m: 0.34, a: 0.34, o: 0.4, p: 0.24, s: 1.1, b: 1.4 }; // width over height of the side pictures
-const SIDE_H = { m: 340, a: 340, o: 330, p: 360, s: 130, b: 104 };
+const SIDE_ASPECT = { m: 0.34, a: 0.34, o: 0.4, p: 0.24, s: 1.1, b: 1.4, r: 1.4 }; // width over height of the side pictures
+const SIDE_H = { m: 340, a: 340, o: 330, p: 360, s: 130, b: 104, r: 110 };
 const TOP = 160;
 
 const pics = { side: new Map(), top: new Map() };
@@ -312,14 +363,15 @@ function build(task) {
     const H = SIDE_H[kind];
     const cv = make(H * SIDE_ASPECT[kind], H);
     const c = cv.getContext('2d');
-    if (kind === 'p') pineSide(c, cv.width, cv.height, rnd);
+    if (kind === 'r') rockSide(c, cv.width, cv.height, rnd);
+    else if (kind === 'p') pineSide(c, cv.width, cv.height, rnd);
     else if (kind === 's' || kind === 'b') bushSide(c, cv.width, cv.height, kind, rnd);
     else crownSide(c, cv.width, cv.height, kind, rnd);
     pics.side.set(`${kind}${v}`, levels(cv));
   } else {
     const cv = make(TOP, TOP);
     const c = cv.getContext('2d');
-    if (kind === 'p') pineTop(c, TOP, rnd); else crownTop(c, TOP, kind, rnd);
+    if (kind === 'r') rockTop(c, TOP, rnd); else if (kind === 'p') pineTop(c, TOP, rnd); else crownTop(c, TOP, kind, rnd);
     pics.top.set(`${kind}${v}`, levels(cv));
   }
 }

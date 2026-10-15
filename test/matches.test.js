@@ -215,7 +215,7 @@ test('a match can be played on the second course: it starts on hole 101, plays t
   const made = store.create(ANA, { gp, holes: 9, course: 2, invite: null, bag: null });
   assert.strictEqual(made.course, 2);
   assert.strictEqual(store.create(ANA, { gp, holes: 9, invite: null, bag: null }).course, 1, 'no course picked: the first');
-  assert.throws(() => store.create(ANA, { gp, holes: 9, course: 3, invite: null, bag: null }), /course/i);
+  assert.throws(() => store.create(ANA, { gp, holes: 9, course: 4, invite: null, bag: null }), /course/i);
   const started = begin(store, gp, made.id);
   assert.strictEqual(started.round.holeId, 101, 'the second course starts on its first hole');
   const users = { u1: ANA, u2: BEN };
@@ -233,6 +233,29 @@ test('a match can be played on the second course: it starts on hole 101, plays t
   assert.deepStrictEqual([...seen].sort((x, y) => x - y), Array.from({ length: 9 }, (_, i) => 101 + i), 'the nine holes of Quarry Ridge, in order');
   assert.strictEqual(m.cards.u1.length, 9);
   assert.strictEqual(store.view(m, 'u1').course, 2);
+});
+
+test('a match can be played on the third course too: mandatories and all, it starts on hole 201 and plays through', async () => {
+  const gp = await gameplay();
+  const store = createMatchStore(tmp('matches.json'));
+  const made = store.create(ANA, { gp, holes: 9, course: 3, invite: null, bag: null });
+  assert.strictEqual(made.course, 3);
+  const started = begin(store, gp, made.id);
+  assert.strictEqual(started.round.holeId, 201);
+  const users = { u1: ANA, u2: BEN };
+  const seen = new Set([201]);
+  let guard = 0;
+  while (store.get(made.id).status === 'active' && guard++ < 1200) {
+    const m = store.get(made.id);
+    seen.add(m.round.holeId);
+    const who = m.round.turn;
+    const mv = plan(gp, store.view(m, who), who);
+    store.move(users[who], made.id, mv.kind, mv.body, gp);
+  }
+  const m = store.get(made.id);
+  assert.strictEqual(m.status, 'done');
+  assert.deepStrictEqual([...seen].sort((x, y) => x - y), Array.from({ length: 9 }, (_, i) => 201 + i), 'the nine holes of Timberline Peak, in order');
+  assert.ok(gp.hole(202).mando && gp.hole(202).mando.len > 0, 'its mandatories are always there');
 });
 
 test('a whole nine-hole match plays out to a winner', async () => {

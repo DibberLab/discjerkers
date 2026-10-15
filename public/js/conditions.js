@@ -3,7 +3,7 @@
    server, which re-plays every throw, finds the same basket and the same wind as the page. Nothing here rolls dice: a seed in, a
    description out. A hole with no seed is the classic hole. Feet; x east, y north. */
 
-import { surfaceAt, treesIn, slopeAt } from './course.js?v=13';
+import { surfaceAt, treesIn, slopeAt } from './course.js?v=14';
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 function rngOf(seed) {
@@ -56,7 +56,7 @@ export function variantFor(seed, hole, { idx = 0, n = 1, rain: allowRain = false
   const dusk = n >= 6 ? clamp(idx / (n - 1) - 0.6, 0, 0.4) / 0.4 : 0;
   const pins = pinSpots(hole);
   const pin = pins[Math.floor(rnd() * pins.length)].k;
-  const mando = !!hole.mandoSpec && rnd() < 0.55;
+  const mando = !!hole.mandoSpec && (hole.mandoAlways ? (rnd(), true) : rnd() < 0.55); // a mountain course's mandos are always there (the die is thrown all the same)
   return { seed: Number(seed), wind: { mph: rain ? mph + 3 : mph, from }, rain, dusk: Math.round(dusk * 100) / 100, pin, mando };
 }
 
