@@ -377,25 +377,26 @@ function haze(ctx, view, hy) {
 const autumn = (t) => ((Math.abs(Math.sin(t.x * 12.9898 + t.y * 78.233)) * 43758.5453) % 1) < 0.2; // the same fifth of the maples are turning, as on the map
 
 // white pine (a narrow cone of boughs), maple (round, some turning), oak (broad with a thick trunk), shrubs and bushes (low blobs)
-function drawTree(ctx, cam, b, view, t) {
+function drawTree(ctx, cam, b, view, t, ts = 1) { // ts: how much of its height to draw (a camera high over the hole shrinks the trees so they do not hide it)
   const base = project(cam, view, t.x, t.y, t.z || 0); // a tree stands on the ground under it
   if (!base || base.d > FAR) return;
   const sx = base.x;
   if (sx < -250 || sx > view.W + 250) return;
   const fog = fogAt(base.d);
   const k = t.k || (t.h < 20 ? 's' : 'm');
-  const th = t.h * ZS;
+  const th = t.h * ZS * ts;
   const s = base.s;
   const blob = (color, cx, cy, rx, ry) => { ctx.fillStyle = mixTo(hex(color), HAZE, fog); ctx.beginPath(); ctx.ellipse(cx, cy, Math.max(1.2, rx), Math.max(1.2, ry), 0, 0, Math.PI * 2); ctx.fill(); };
   // the drawn picture of this kind of tree, when it is ready and big enough to be worth it (else the flat shapes below)
   const low = k === 's' || k === 'b' || k === 'r';
   const pw = (k === 'r' ? 2 * t.r * 1.1 : low ? 2 * t.r * (k === 'b' ? 1.3 : 1.45) : 2 * t.r * (k === 'o' ? 1.8 : 1.6)) * s / 0.96;
   const ph = th * s * (low ? 1.05 : 1.02);
+  const wscale = low ? 1 : 0.55 + 0.45 * ts; // a shrunk tree is also a little slimmer
   if (ph >= 7 && pw >= 3) {
     const pic = FO.side(t, ph * 1.6, k === 'm' && autumn(t));
     if (pic) {
       const img = FO.tint(pic.img, fog, HAZE, pic.id);
-      ctx.drawImage(img, sx - pw / 2, base.y - ph + ph * 0.02, pw, ph);
+      ctx.drawImage(img, sx - (pw * wscale) / 2, base.y - ph + ph * 0.02, pw * wscale, ph);
       return;
     }
   }
@@ -832,7 +833,7 @@ export function drawScene(ctx, scene) {
   const things = [];
   for (const tr of hole.trees) {
     const c = toCam(cam, b, tr.x, tr.y, 0);
-    if (c[2] >= NEAR && c[2] <= FAR) things.push({ d: c[2], draw: () => drawTree(ctx, cam, b, view, tr) });
+    if (c[2] >= NEAR && c[2] <= FAR) things.push({ d: c[2], draw: () => drawTree(ctx, cam, b, view, tr, scene.treeScale ?? 1) });
   }
   if (hole.mando) things.push({ d: toCam(cam, b, hole.mando.x, hole.mando.y, 0)[2], draw: () => drawMando(ctx, cam, b, view, hole) });
   const dB = toCam(cam, b, hole.basket.x, hole.basket.y, 0)[2];

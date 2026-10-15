@@ -7,12 +7,12 @@ import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, COURSES, courseById, holeById, holesFor } from './course.js?v=14';
 import * as G from './gamecore.js?v=34';
 import * as T from './trash.js?v=11';
-import * as C3 from './cam3d.js?v=22';
+import * as C3 from './cam3d.js?v=23';
 import * as FO from './foliage.js?v=2';
 import * as PL from './player.js?v=1';
 import * as GS from './gesture.js?v=2';
 import { ANGLE_MAX } from './flightmodel.js?v=1';
-import * as PF from './puttfx.js?v=18';
+import * as PF from './puttfx.js?v=19';
 import * as GR from './ground.js?v=8';
 import * as SND from './sound.js?v=4';
 import * as MB from './marebear.js?v=2';
@@ -83,6 +83,7 @@ function discChip(disc, item) {
 /* ---------- state ---------- */
 
 const S = {
+  orbit: { yaw: 0, pitch: 0, zoom: 1 }, // the camera of the Find pin view: swung round, tilted, zoomed
   courseId: (() => { try { return courseById(localStorage.getItem('dj_course')).id; } catch { return 1; } })(), // the course picked on the menu (remembered)
   hole: HOLES[0],
   round: null,
@@ -1630,6 +1631,7 @@ function next() {
   setDisc(suggest()); // a driver from the tee, a putter on the green: you can change it
   S.aimOff = 0;
   S.view3 = 'behind';
+  S.orbit = { yaw: 0, pitch: 0, zoom: 1 };
   setPhase('pick');
   retarget(false);
 }
@@ -2539,12 +2541,19 @@ function aimCamWant(lie) {
     const ux = dx / l;
     const uy = dy / l;
     const back = clamp(l * 0.22, 26, 80);
-    const x = lie.x - ux * back;
-    const y = lie.y - uy * back;
-    const z = gnd(x, y) + clamp(l * 0.3, 30, 120);
-    const lx = lie.x + ux * l * 0.55;
+    const lx = lie.x + ux * l * 0.55; // the point it looks at: more than halfway to the basket
     const ly = lie.y + uy * l * 0.55;
-    return { x, y, z, yaw: Math.atan2(ux, uy), pitch: Math.atan2(gnd(lx, ly) - z, Math.hypot(lx - x, ly - y)), fov: 70 * RAD };
+    const lz = gnd(lx, ly);
+    // the camera starts behind the disc and high; the player can swing it round that point, tilt it and move it in or out
+    const o = S.orbit;
+    const offX = lie.x - ux * back - lx;
+    const offY = lie.y - uy * back - ly;
+    const cy = Math.cos(o.yaw);
+    const sy = Math.sin(o.yaw);
+    const x = lx + (offX * cy - offY * sy) * o.zoom;
+    const y = ly + (offX * sy + offY * cy) * o.zoom;
+    const z = Math.max(gnd(x, y) + 9, gnd(x, y) + clamp(l * 0.3, 30, 120) * (1 + o.pitch) * o.zoom);
+    return { x, y, z, yaw: Math.atan2(lx - x, ly - y), pitch: Math.atan2(lz - z, Math.hypot(lx - x, ly - y)), fov: 70 * RAD };
   }
   const yaw = heading() * RAD;
   const ux = Math.sin(yaw);
@@ -2555,8 +2564,22 @@ function aimCamWant(lie) {
   const ahead = gnd(lie.x + ux * 140, lie.y + uy * 140);
   return { x, y, z, yaw, pitch: clamp(Math.atan2(ahead + 2 - z, 160) - 0.03, -0.25, 0.1), fov: 64 * RAD };
 }
+// Find pin (the view from above): a drag swings the camera round the middle of the hole and tilts it, the wheel moves it in and out, Q and E swing it; a tap still aims
+const pinLook = () => S.phase === 'pick' && S.view3 === 'pin' && aimIn3D();
+function pinMove(e) {
+  const d = S.pinDrag;
+  const dx = e.clientX - d.x;
+  const dy = e.clientY - d.y;
+  if (!d.moved && Math.hypot(dx, dy) > 8) d.moved = true;
+  if (!d.moved) return;
+  S.orbit.yaw = clamp(d.yaw0 + dx * 0.008, -1.9, 1.9);
+  S.orbit.pitch = clamp(d.pitch0 - dy * 0.004, -0.5, 0.7);
+  S.pinHintT = 0;
+}
 function toggleView3() {
   S.view3 = S.view3 === 'pin' ? 'behind' : 'pin';
+  S.orbit = { yaw: 0, pitch: 0, zoom: 1 }; // each look from above starts square behind the disc
+  S.pinHintT = performance.now();
   showViewBtn();
 }
 function showViewBtn() {
@@ -2644,7 +2667,8 @@ function drawAim3D(t) {
     const g2 = off.getContext('2d');
     g2.setTransform(dpr, 0, 0, dpr, 0, 0);
     g2.clearRect(0, 0, W, H);
-    C3.drawScene(g2, { hole: S.hole, cam: c, view, disc: { x: lie.x, y: lie.y, h: 0.3 }, hideDisc: true, trail: [], dz: 1, dusk: S.hole.weather?.dusk || 0, color, t, pin: false });
+    const lift = clamp((c.z - C3.groundAt(S.hole, c.x, c.y) - 9) / 40, 0, 1); // the higher the camera, the shorter the trees are drawn, so they do not hide the hole
+    C3.drawScene(g2, { hole: S.hole, cam: c, view, disc: { x: lie.x, y: lie.y, h: 0.3 }, hideDisc: true, trail: [], dz: 1, dusk: S.hole.weather?.dusk || 0, color, t, pin: false, treeScale: 1 - 0.68 * lift });
     S.aimPic = { key, canvas: off };
   }
   ctx.save();
@@ -2654,6 +2678,20 @@ function drawAim3D(t) {
   C3.drawPlayer(ctx, c, view, S.hole, playerFig(lie, heading() * RAD, PL.kindFor(false, S.settings.style), S.settings.hand, -1, color), 1); // the ghost, ready to throw
   aimOverlay(c, view, lie)(ctx);
   C3.drawPin(ctx, c, C3.basis(c), view, S.hole);
+  if (S.view3 === 'pin' && S.phase === 'pick' && S.pinHintT && performance.now() - S.pinHintT < 6500) { // how to look around, for a few seconds after going up
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.font = '700 12px "Space Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = 'rgba(6,11,7,0.85)';
+    ctx.fillStyle = '#eef1e8';
+    const txt = 'DRAG TO LOOK AROUND · WHEEL OR Q E TO ZOOM AND SWING · TAP TO AIM';
+    const y = Math.min(H - S.dock - 70, 96);
+    ctx.strokeText(txt, W / 2, y);
+    ctx.fillText(txt, W / 2, y);
+    ctx.restore();
+  }
   const fade = 1 - (t - S.aimFade) / 300; // a soft cut from the map (or the last throw) to the view from behind the disc
   if (fade > 0) { ctx.fillStyle = `rgba(6,11,7,${Math.min(1, fade)})`; ctx.fillRect(0, 0, W, H); }
   showViewBtn();
@@ -3065,7 +3103,7 @@ function setInput(kind) { // 'touch' | 'mouse' | 'key' | 'pad': what the player 
   S.input = kind;
   showKeys();
 }
-const KEYMAP = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down', Enter: 'confirm', ' ': 'confirm', Escape: 'back', Backspace: 'back', PageUp: 'prev', PageDown: 'next', '[': 'prev', ']': 'next', a: 'prev', d: 'next', w: 'catPrev', s: 'catNext', v: 'view' }; // (A and D change disc, W and S change kind of disc, as in Disc Golf Masters)
+const KEYMAP = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down', Enter: 'confirm', ' ': 'confirm', Escape: 'back', Backspace: 'back', PageUp: 'prev', PageDown: 'next', '[': 'prev', ']': 'next', a: 'prev', d: 'next', w: 'catPrev', s: 'catNext', v: 'view', q: 'lookL', e: 'lookR' }; // (A and D change disc, W and S change kind of disc, as in Disc Golf Masters)
 
 // the first disc of the next (or previous) kind in the bag: putters, midranges, fairway and distance drivers
 function selectKind(step) {
@@ -3109,6 +3147,7 @@ function act(name, o = {}) {
   const amt = o.amount ?? 1;
   if (S.replay) return false;
   if (name === 'view') { if (!aimIn3D()) return false; toggleView3(); return true; } // the 3/4 view, to find the pin
+  if (name === 'lookL' || name === 'lookR') { if (!pinLook()) return false; S.orbit.yaw = clamp(S.orbit.yaw + (name === 'lookL' ? -0.14 : 0.14), -1.9, 1.9); S.pinHintT = 0; return true; }
   if (S.phase === 'flight') { // a ride can be skipped
     if ((name === 'confirm' || name === 'back') && S.anim && riding()) { S.anim.t0 -= 1e7; return true; }
     return false;
@@ -4031,11 +4070,23 @@ async function boot() {
     if (riding()) { S.anim.t0 -= 1e7; return; } // tap to skip the ride
     if (S.phase === 'swipe') { beginSwipe(e); return; }
     try { cv.setPointerCapture?.(e.pointerId); } catch { /* a pointer that is already gone */ }
+    if (pinLook()) { S.pinDrag = { x: e.clientX, y: e.clientY, moved: false, yaw0: S.orbit.yaw, pitch0: S.orbit.pitch }; return; } // from above, a drag looks around; a tap aims (on the up)
     setAimFromPointer(e, true);
   });
-  cv.addEventListener('pointermove', (e) => { if (S.phase === 'swipe') { moveSwipe(e); return; } if (e.buttons || e.pointerType === 'touch') setAimFromPointer(e); });
-  cv.addEventListener('pointerup', (e) => { S.aimSnap = null; endSwipe(e); });
-  cv.addEventListener('pointercancel', () => { S.aimSnap = null; if (S.meter) S.meter.drag = null; });
+  cv.addEventListener('wheel', (e) => { if (!pinLook()) return; e.preventDefault(); S.orbit.zoom = clamp(S.orbit.zoom * (1 + e.deltaY * 0.0012), 0.55, 1.8); }, { passive: false });
+  cv.addEventListener('pointermove', (e) => {
+    if (S.phase === 'swipe') { moveSwipe(e); return; }
+    if (S.pinDrag) { pinMove(e); return; }
+    if (e.buttons || e.pointerType === 'touch') setAimFromPointer(e);
+  });
+  cv.addEventListener('pointerup', (e) => {
+    const d = S.pinDrag;
+    S.pinDrag = null;
+    if (d && !d.moved) { S.aimSnap = null; setAimFromPointer(e, true); } // a tap from above: aim there
+    S.aimSnap = null;
+    endSwipe(e);
+  });
+  cv.addEventListener('pointercancel', () => { S.aimSnap = null; S.pinDrag = null; if (S.meter) S.meter.drag = null; });
   $('#gm-view').addEventListener('click', () => { toggleView3(); SND.play('tap'); });
 
   onAccountChange(() => {
