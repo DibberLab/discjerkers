@@ -531,9 +531,9 @@ function panelPickPhone() {
   const leave = S.mode === 'match' ? '<button class="chip" type="button" data-mp-leave>Forfeit</button>' : '<button class="chip" type="button" data-quit>Quit</button>';
   let body;
   if (S.step === 'disc') {
-    body = `${betHtml()}${discRow()}${pickInfo(d, { wind: G.windFor(S.hole, heading()) }, putting)}${putting && puttDd() > G.LONG_PUTT ? '<p class="gm-note">Past 30 feet the target is a pinprick.</p>' : ''}${slopeNote()}`;
+    body = `${betHtml()}${putting ? '' : styleChips()}${discRow()}${pickInfo(d, { wind: G.windFor(S.hole, heading()) }, putting)}${putting && puttDd() > G.LONG_PUTT ? '<p class="gm-note">Past 30 feet the target is a pinprick.</p>' : ''}${slopeNote()}`;
   } else if (S.step === 'grip') {
-    body = `${gripChips()}${styleChips()}<p class="gm-note">Backhand or forehand, and which hand. The flight bends the other way for a lefty.</p>`;
+    body = `${gripChips()}<p class="gm-note">Backhand or forehand, and which hand. The flight bends the other way for a lefty.</p>`;
   } else if (S.step === 'aim') {
     body = `${aimRow()}<p class="gm-note">Drag on the hole to aim, or use the slider.</p>`;
   } else {
