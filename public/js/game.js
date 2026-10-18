@@ -1209,15 +1209,18 @@ function panelMetersStyle() {
     release: `Tap as the ring closes on the green ring. Early (white) goes toward the turn side, late (orange) toward the fade side.${risk ? ` <b>${risk}% chance the disc slips</b>: a slow arm can grip lock or let go early.` : ''}`,
   };
   const brief = (h) => (isPhone() && tipSeen() ? `${String(h).split('. ')[0].replace(/\.$/, '')}.` : h);
+  // the numbers (distance and speed) are shown with the Tap button; on a phone they go in the title row, because the dock is anchored to the bottom of the screen and anything under the button would lift it
+  const hasRead = kind === 'power' || (kind === 'putt' && S.meter?.stage === 'power');
+  const readout = '<output class="gm-read" id="gm-read" aria-live="off"><b>&nbsp;</b></output>';
   const order = ['nose', 'angle', 'release', 'power'];
   const ps = S.meter?.stage;
   const title = kind === 'putt' ? (ps === 'h' ? '<span>1 ·</span> Line' : ps === 'v' ? '<span>2 ·</span> Height' : ps === 'power' && toBasket() > G.GIMME ? '<span>3 ·</span> Push' : 'Putt') : `<span>${order.indexOf(kind) + 1} ·</span> ${{ nose: 'Nose', angle: 'Hyzer', release: 'Release', power: 'Aim and power' }[kind]}`;
   const steps = kind === 'putt' ? (toBasket() > G.GIMME ? `<div class="gm-steps" aria-hidden="true">${['h', 'v', 'power'].map((k, i) => `<i class="${i <= ['h', 'v', 'power'].indexOf(ps) ? 'is-on' : ''}"></i>`).join('')}</div>` : '') : `<div class="gm-steps" aria-hidden="true">${order.map((k, i) => `<i class="${i <= order.indexOf(kind) ? 'is-on' : ''}"></i>`).join('')}</div>`;
   return `<div class="gm-meter">
       ${steps}
-      <div class="gm-meter__top"><p class="gm-meter__t">${title}</p><button class="chip gm-backout" type="button" data-back-out aria-label="Back out of this throw">Back out</button></div>
+      <div class="gm-meter__top"><p class="gm-meter__t">${title}</p>${hasRead && isPhone() ? readout : ''}<button class="chip gm-backout" type="button" data-back-out aria-label="Back out of this throw">Back out</button></div>
       ${isPhone() && (kind === 'nose' || kind === 'angle' || kind === 'release') ? '' : `<div class="gm-meter__h"><p>${brief(hints[kind])}</p></div>`}
-      ${kind === 'power' || (kind === 'putt' && S.meter?.stage === 'power') ? `<button class="gm-tap" type="button" data-tap>${kind === 'putt' ? 'Putt' : 'Throw'}</button><output class="gm-read" id="gm-read" aria-live="off"><b>&nbsp;</b></output>` : kind === 'putt' ? '<button class="gm-tap" type="button" data-tap>Tap</button>' : ''}
+      ${hasRead ? `<button class="gm-tap" type="button" data-tap>${kind === 'putt' ? 'Putt' : 'Throw'}</button>${isPhone() ? '' : readout}` : kind === 'putt' ? '<button class="gm-tap" type="button" data-tap>Tap</button>' : ''}
     </div>`;
 }
 

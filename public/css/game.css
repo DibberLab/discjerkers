@@ -461,3 +461,8 @@
   .gm-tap--mini { min-height: 48px; font-size: 1.3rem; }
 }
 @media (prefers-reduced-motion: reduce) { .gm-mini__box { animation: none; } }
+
+/* the readout of the push stage, on a phone, sits in the title row between the title and Back out (so nothing is under the Tap button) */
+.gm-meter__top .gm-read { flex: 1; min-width: 0; height: auto; justify-content: flex-end; flex-direction: column; align-items: flex-end; gap: 2px; }
+.gm-meter__top .gm-read b { font-size: 1.15rem; }
+.gm-meter__top .gm-read small { font-size: 0.56rem; }
