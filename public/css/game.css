@@ -459,4 +459,6 @@
   .gm-dial { max-width: 104px; }
   .gm-tap--mini { min-height: 48px; font-size: 1.3rem; }
 }
+.gm-pad { width: 100%; max-width: 330px; aspect-ratio: 25 / 18; justify-self: center; display: block; border: 1px solid var(--hair); border-radius: 10px; }
+@media (max-width: 900px) { .gm-pad { max-width: 270px; } }
 @media (prefers-reduced-motion: reduce) { .gm-mini__box { animation: none; } }

@@ -567,7 +567,7 @@ function panelPick() {
       ${slopeNote()}
     </div>
     ${putting
-      ? `<p class="gm-sub"><b>${ft(dist)}</b> from the basket. One tap: catch the dot inside the green circle as it swirls past. Short putts get a big target and a slow dot; a faster disc shrinks it.${dist > G.LONG_PUTT ? ' <b>Past 30 feet it is a long shot: the target is a pinprick and the dot flies.</b>' : ''}</p>`
+      ? (metersOn() ? `<p class="gm-sub"><b>${ft(dist)}</b> from the basket. Three taps: the line (left and right) and the height on a picture of the basket, then the push on the wedge. A tap-in needs only the last. The farther out, the thinner the green.</p>` : `<p class="gm-sub"><b>${ft(dist)}</b> from the basket. One tap: catch the dot inside the green circle as it swirls past. Short putts get a big target and a slow dot; a faster disc shrinks it.${dist > G.LONG_PUTT ? ' <b>Past 30 feet it is a long shot: the target is a pinprick and the dot flies.</b>' : ''}</p>`)
       : settingsBlock()}
     <div class="gm-go${putting || metersOn() ? '' : ' gm-go--plan'}">
       ${putting || metersOn() ? '' : planRows()}
@@ -881,7 +881,14 @@ function startMeter() {
   if (!d) return;
   if (inPutt() && metersOn()) {
     // the meters style putts with the same wedge as a drive: it fills and drains along the line to the basket, and you tap anywhere to putt
-    S.meter = { kind: 'putt', classic: true, putt: true, before: { ...S.settings }, start: now(), ...buildPuttRuler() }; // (ruler, push, maxFt, sweetRaw)
+    // (a putt is its own little game: aim left and right, then the height, on a picture of the basket, then the wedge for the push. A tap-in is the wedge alone.)
+    const far = clamp(toBasket() / G.PUTT_RANGE, 0, 1);
+    S.meter = {
+      kind: 'putt', classic: true, putt: true, before: { ...S.settings }, start: now(), ...buildPuttRuler(), // (ruler, push, maxFt, sweetRaw)
+      stage: toBasket() <= G.GIMME ? 'power' : 'h', u: { h: 0, v: 0 },
+      K: clamp(1.6 + toBasket() / 12, 1.6, 5.5), // how many times its green the line travels: the farther out, the thinner the green
+      pH: 1.75 - 0.5 * far, pV: 1.5 - 0.4 * far,
+    };
     setPhase('putt');
   } else if (inPutt()) {
     S.meter = { kind: 'putt', before: { ...S.settings }, start: now(), radius: G.puttRadius(puttDd(), d) * G.puttGrip(S.hole), speed: G.puttSpeed(puttDd()), params: G.makePuttSeed(Math.random) };
@@ -903,16 +910,19 @@ function startMeter() {
 
 /* ----- the meters style: a power meter laid along the aim on the map, then a timing window for the nose, the hyzer and the release ----- */
 
-// how far a flat release goes for each arm speed, from here, laid out straight along the aim
+// where a release lands for each arm speed, from here: the wedge follows these, so it has the shape of the throw (its hook or fade), not a straight line
 function buildRuler() {
   const d = curDisc();
   const lie = lieOf();
   const R = [];
   for (let mph = G.ARM.min; mph <= G.ARM.max; mph += G.ARM.step) {
     const end = G.previewThrow(S.hole, d, S.settings, heading(), lie, 8, { mph, nose: S.settings.nose || 0, angle: S.settings.angle || 0 }).end; // with the nose and hyzer chosen in the timing window
-    const ft = G.distance(lie, end);
-    const { ux, uy } = G.headingVec(heading()); // the wedge runs straight along the aim: how far, not where it bends (the dashed flight shows the bend)
-    R.push({ mph, x: lie.x + ux * ft, y: lie.y + uy * ft, ft: Math.round(ft), pos: G.powerPos(mph) });
+    R.push({ mph, x: end.x, y: end.y, ft: Math.round(G.distance(lie, end)), pos: G.powerPos(mph) });
+  }
+  for (let pass = 0; pass < 2; pass++) { // a light smoothing, so the slow end (where a step of speed is a few feet) is not jittery
+    const xs = R.map((r) => r.x);
+    const ys = R.map((r) => r.y);
+    for (let i = 1; i < R.length - 1; i++) { R[i].x = (xs[i - 1] + 2 * xs[i] + xs[i + 1]) / 4; R[i].y = (ys[i - 1] + 2 * ys[i] + ys[i + 1]) / 4; }
   }
   return R;
 }
@@ -1056,7 +1066,7 @@ function wedgeMeter(g, proj) {
 // on the map (3D off) the same wedge is drawn over the hole
 function drawPowerMeter() {
   const m = S.meter;
-  if (!m?.classic || !(S.phase === 'power' || S.phase === 'putt') || !m.ruler) return;
+  if (!m?.classic || !(S.phase === 'power' || (S.phase === 'putt' && m.stage === 'power')) || !m.ruler) return;
   wedgeMeter(ctx, (p) => { const [x, y] = P(p.x, p.y); return { x, y }; });
 }
 
@@ -1066,7 +1076,9 @@ function panelMetersStyle() {
   const d = curDisc();
   const risk = kind === 'release' && d ? Math.round(G.slipChance(d, S.settings) * 100) : 0;
   const hints = {
-    putt: 'The wedge fills and drains along the line to the basket. Tap anywhere (or the button) to putt when the fill reaches the lit stretch: that is the push this putt needs (more uphill, less downhill). Close putts are forgiving; past 30 feet the stretch is thin.',
+    putt: S.meter?.stage === 'h' ? 'Aim left and right: the line sweeps across the basket. Tap when it is inside the green.'
+      : S.meter?.stage === 'v' ? 'Now the height: the line sweeps up and down. Tap when it is inside the green. Too high runs long, too low comes up short.'
+        : 'The wedge fills and drains along the line to the basket. Tap anywhere (or the button) to putt when the fill reaches the lit stretch: that is the push this putt needs (more uphill, less downhill). All three have to be right to drop it.',
     power: 'Drag the hole to aim. The wedge fills and drains with your arm speed: tap anywhere on the hole (or the button) to throw at the speed it is at. The lit stretch is the sweet spot for the nose and hyzer you chose, and the dashed line is the flight at that speed.',
     nose: 'The disc pitches up and down. Tap when it is in the lime arc. Nose up lifts the disc and spends distance; nose down keeps it low and short.',
     angle: 'The disc tilts one way and the other. Tap when it is in the lime arc: tipped right is hyzer, left is anhyzer, level is flat.',
@@ -1074,13 +1086,14 @@ function panelMetersStyle() {
   };
   const brief = (h) => (isPhone() && tipSeen() ? `${String(h).split('. ')[0].replace(/\.$/, '')}.` : h);
   const order = ['nose', 'angle', 'release', 'power'];
-  const title = kind === 'putt' ? 'Putt' : `<span>${order.indexOf(kind) + 1} ·</span> ${{ nose: 'Nose', angle: 'Hyzer', release: 'Release', power: 'Aim and power' }[kind]}`;
-  const steps = kind === 'putt' ? '' : `<div class="gm-steps" aria-hidden="true">${order.map((k, i) => `<i class="${i <= order.indexOf(kind) ? 'is-on' : ''}"></i>`).join('')}</div>`;
+  const ps = S.meter?.stage;
+  const title = kind === 'putt' ? (ps === 'h' ? '<span>1 ·</span> Line' : ps === 'v' ? '<span>2 ·</span> Height' : ps === 'power' && toBasket() > G.GIMME ? '<span>3 ·</span> Push' : 'Putt') : `<span>${order.indexOf(kind) + 1} ·</span> ${{ nose: 'Nose', angle: 'Hyzer', release: 'Release', power: 'Aim and power' }[kind]}`;
+  const steps = kind === 'putt' ? (toBasket() > G.GIMME ? `<div class="gm-steps" aria-hidden="true">${['h', 'v', 'power'].map((k, i) => `<i class="${i <= ['h', 'v', 'power'].indexOf(ps) ? 'is-on' : ''}"></i>`).join('')}</div>` : '') : `<div class="gm-steps" aria-hidden="true">${order.map((k, i) => `<i class="${i <= order.indexOf(kind) ? 'is-on' : ''}"></i>`).join('')}</div>`;
   return `<div class="gm-meter">
       ${steps}
       <div class="gm-meter__top"><p class="gm-meter__t">${title}</p><button class="chip gm-backout" type="button" data-back-out aria-label="Back out of this throw">Back out</button></div>
       <div class="gm-meter__h"><p>${brief(hints[kind])}</p></div>
-      ${kind === 'power' || kind === 'putt' ? `<output class="gm-read" id="gm-read" aria-live="off"><b>&nbsp;</b></output><button class="gm-tap" type="button" data-tap>${kind === 'putt' ? 'Putt' : 'Throw'}</button>` : ''}
+      ${kind === 'power' || (kind === 'putt' && S.meter?.stage === 'power') ? `<output class="gm-read" id="gm-read" aria-live="off"><b>&nbsp;</b></output><button class="gm-tap" type="button" data-tap>${kind === 'putt' ? 'Putt' : 'Throw'}</button>` : ''}
     </div>`;
 }
 
@@ -1100,9 +1113,18 @@ function syncMini() {
   const el = $('#gm-mini');
   if (!el) return;
   const m = S.meter;
-  const on = !!(m?.classic && MINI_ROWS[S.phase]);
+  const pad = !!(m?.classic && m.putt && S.phase === 'putt' && m.stage !== 'power'); // a putt: the basket to aim at
+  const on = pad || !!(m?.classic && MINI_ROWS[S.phase]);
   el.hidden = !on;
   if (!on) { el.innerHTML = ''; return; }
+  if (pad) {
+    el.innerHTML = `<div class="gm-mini__box" role="group" aria-label="Aim the putt">
+      <p class="gm-mini__t">${m.stage === 'h' ? 'Aim left and right: tap when the line is in the green' : 'Now the height: tap when the line is in the green'}</p>
+      <canvas class="gm-pad" id="gm-pad" aria-hidden="true"></canvas>
+      <button class="gm-tap gm-tap--mini" type="button" data-tap>Tap</button>
+    </div>`;
+    return;
+  }
   const hints = { nose: 'Pitch the nose: tap when the disc is in the lime arc', angle: 'Tilt the disc: tap when it is in the lime arc', release: 'Let go: tap as the ring closes on the green ring' };
   el.innerHTML = `<div class="gm-mini__box" role="group" aria-label="Timing window">
       <p class="gm-mini__t">${hints[S.phase]}</p>
@@ -1206,6 +1228,79 @@ function drawDial(cvs, stage, v, state) {
   }
   g.restore();
 }
+// The putt's aiming pad: the basket seen from the front, with a green window around its chains that is as big as the putt is forgiving (it shrinks with distance). A line sweeps
+// across (left and right), you stop it, and then another sweeps up and down (the height); both have to end up inside the green.
+function drawPad(cvs, m, t) {
+  const w = cvs.clientWidth;
+  if (!w) return;
+  const h = Math.round(w * 0.72);
+  if (cvs.width !== Math.round(w * dpr) || cvs.height !== Math.round(h * dpr)) { cvs.width = Math.round(w * dpr); cvs.height = Math.round(h * dpr); }
+  const g = cvs.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const cx = w / 2;
+  const cy = h * 0.48;
+  const Rx = w * 0.43;
+  const Ry = h * 0.42;
+  g.fillStyle = 'rgba(6,11,7,0.55)';
+  g.fillRect(0, 0, w, h);
+  g.fillStyle = 'rgba(40,70,40,0.5)'; // the grass
+  g.fillRect(0, cy + Ry * 0.86, w, h - (cy + Ry * 0.86));
+  // the basket, from the front: pole, tray, the chains from the band down, and the cage on top
+  const bw = w * 0.1;
+  g.strokeStyle = 'rgba(238,241,232,0.5)';
+  g.lineWidth = 3;
+  g.beginPath();
+  g.moveTo(cx, cy + Ry * 0.3);
+  g.lineTo(cx, cy + Ry * 0.86);
+  g.stroke();
+  g.lineWidth = 1.4;
+  for (let k = -3; k <= 3; k++) { g.beginPath(); g.moveTo(cx + (k * bw * 0.9) / 3, cy - Ry * 0.3); g.lineTo(cx + (k * bw * 0.55) / 3, cy + Ry * 0.18); g.stroke(); }
+  for (const [y, rw] of [[cy - Ry * 0.3, bw * 0.95], [cy + Ry * 0.18, bw * 0.62]]) { g.beginPath(); g.ellipse(cx, y, rw, rw * 0.22, 0, 0, Math.PI * 2); g.stroke(); }
+  g.beginPath();
+  g.ellipse(cx, cy + Ry * 0.3, bw * 1.1, bw * 0.24, 0, 0, Math.PI * 2);
+  g.stroke();
+  // the green: how far the line may be off and still drop
+  const wx = Rx / m.K;
+  const wy = Ry / m.K;
+  g.beginPath();
+  g.roundRect(cx - wx, cy - wy, wx * 2, wy * 2, 6);
+  g.fillStyle = 'rgba(163,230,53,0.2)';
+  g.fill();
+  g.strokeStyle = 'rgba(163,230,53,0.95)';
+  g.lineWidth = 2;
+  g.stroke();
+  const sec = (t - m.start) / 1000;
+  const uh = m.stage === 'h' ? G.needleAt(sec, m.pH) : m.u.h;
+  const uv = m.stage === 'v' ? G.needleAt(sec, m.pV) : m.stage === 'power' ? m.u.v : null;
+  const inH = Math.abs(uh) * m.K <= 1;
+  const inV = uv != null && Math.abs(uv) * m.K <= 1;
+  const x = cx + uh * Rx;
+  const y = uv == null ? 0 : cy - uv * Ry;
+  g.lineWidth = 3;
+  g.lineCap = 'round';
+  g.strokeStyle = inH ? '#a3e635' : '#eef1e8';
+  g.beginPath();
+  g.moveTo(x, cy - Ry);
+  g.lineTo(x, cy + Ry);
+  g.stroke();
+  if (uv != null) {
+    g.strokeStyle = inV ? '#a3e635' : '#eef1e8';
+    g.beginPath();
+    g.moveTo(cx - Rx, y);
+    g.lineTo(cx + Rx, y);
+    g.stroke();
+    g.beginPath();
+    g.arc(x, y, 6, 0, Math.PI * 2);
+    g.fillStyle = inH && inV ? '#a3e635' : '#d35400';
+    g.fill();
+  }
+}
+function updatePad(t) {
+  const cvs = $('#gm-pad');
+  if (cvs) drawPad(cvs, S.meter, t);
+}
+
 // every frame the timing window is up: the live dial turns with its marker, the stopped ones stay where they were
 function updateDials(t) {
   const m = S.meter;
@@ -1278,10 +1373,26 @@ function tapMeters(m, t, next) {
     S.settings.spin = null;
     throwDisc(S.mode === 'match' ? m.ex : G.applySlip(m.ex, G.rollSlip(curDisc(), S.settings, Math.random()))); // no swipe: the timing and the wedge are the whole throw
   } else if (S.phase === 'putt') {
-    const feet = ((G.needleAt(t, PUTT_PERIOD) + 1) / 2) * m.maxFt;
-    const shot = { x: 0, y: 0 }; // (no radar in this style: the wedge is the whole putt)
-    if (toBasket() <= G.GIMME) puttDisc(shot, null);
-    else puttDisc(shot, { aim: 0, power: feet / m.push });
+    if (m.stage === 'h') {
+      m.u.h = G.needleAt(t, m.pH);
+      m.stage = 'v';
+      next('putt');
+      toast(Math.abs(m.u.h) * m.K <= 1 ? 'Line locked' : m.u.h < 0 ? 'Line: left' : 'Line: right', Math.abs(m.u.h) * m.K <= 1 ? 'good' : '', 800);
+    } else if (m.stage === 'v') {
+      m.u.v = G.needleAt(t, m.pV);
+      m.stage = 'power';
+      next('putt');
+      toast(Math.abs(m.u.v) * m.K <= 1 ? 'Height locked' : m.u.v < 0 ? 'Height: low' : 'Height: high', Math.abs(m.u.v) * m.K <= 1 ? 'good' : '', 800);
+    } else {
+      const feet = ((G.needleAt(t, PUTT_PERIOD) + 1) / 2) * m.maxFt;
+      const d = curDisc();
+      const radius = G.puttRadius(puttDd(), d) * G.puttGrip(S.hole);
+      const tol = G.swipeTolerance(puttDd());
+      // the line is the swipe's aim, the height is the radar's short or long (high is long), the wedge is the push: all three have to be inside the green
+      const shot = { x: 0, y: clamp(m.u.v * m.K * radius, -1, 1) };
+      if (toBasket() <= G.GIMME) puttDisc({ x: 0, y: 0 }, null);
+      else puttDisc(shot, { aim: m.u.h * m.K * tol.aim, power: feet / m.push });
+    }
   }
 }
 
@@ -2907,7 +3018,7 @@ function drawPutt3D(t) {
   c.fov += ((baseFov + (S.pfov || 0)) - c.fov) * (1 - Math.exp(-dt * 6));
   const puttColor = (a ? discLook(S.last.disc.id, S.last.who) : discLook(curDisc()?.id ?? S.last?.disc.id, 'me')).color;
   const player = playerFig(lie, Math.atan2(dir.x, dir.y), 'putt', a ? a.hand : S.settings.hand, a ? t - (a.t0 - (a.lead || 0)) : -1, puttColor);
-  const wedge = !a && S.phase === 'putt' && S.meter?.classic && S.meter.putt && S.meter.ruler // the meters style: the wedge along the line to the basket
+  const wedge = !a && S.phase === 'putt' && S.meter?.classic && S.meter.putt && S.meter.stage === 'power' && S.meter.ruler // the meters style: the wedge along the line to the basket
     ? (g) => wedgeMeter(g, (p) => C3.project(c, view, p.x, p.y, C3.groundAt(S.hole, p.x, p.y) + 0.15))
     : null;
   C3.drawScene(ctx, { hole: S.hole, cam: c, view, disc, trail, dz: 1, chain, dusk: S.hole.weather?.dusk || 0, color: puttColor, t, player, hideDisc: !a || t < a.t0, overlay: wedge });
@@ -3309,6 +3420,7 @@ function update(t) {
   const mark = $('#gm-mark');
   if (S.phase === 'putt' && !m?.classic) drawPuttMeter(t);
   if (m?.classic && MINI_ROWS[S.phase]) updateDials(t);
+  else if (m?.classic && S.phase === 'putt' && m.stage !== 'power') updatePad(t);
   else if (m?.classic && S.phase === 'putt') {
     const v = (G.needleAt((t - m.start) / 1000, PUTT_PERIOD) + 1) / 2;
     const ft = Math.round(v * m.maxFt);
