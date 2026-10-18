@@ -436,3 +436,29 @@
   .gm-plan .fg-rng__top output { min-width: 84px; font-size: 0.68rem; }
   .gm-plan .fg-rng__bar button { min-width: 40px; min-height: 40px; }
 }
+
+/* ---------- the meters style: the timing window over the 3D view ---------- */
+.gm-mini { position: absolute; left: 50%; bottom: calc(var(--dock, 0px) + 52px); transform: translateX(-50%); z-index: 3; width: min(470px, calc(100% - 24px)); }
+.gm-mini__box {
+  display: grid; gap: 8px; padding: 10px 12px 12px; border: 1px solid var(--hair); border-radius: 14px;
+  background: rgba(17, 23, 15, 0.94); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6); animation: gm-mini-in 0.18s ease-out;
+}
+@keyframes gm-mini-in { from { opacity: 0; transform: translateY(10px) scale(0.97); } to { opacity: 1; transform: none; } }
+.gm-mini__t { margin: 0; font: 400 1.25rem/1 var(--display); letter-spacing: 0.04em; text-transform: uppercase; }
+.gm-mini__t small { margin-left: 8px; font: 0.62rem var(--mono); letter-spacing: 0.14em; color: var(--bone-faint); }
+.gm-mrow { display: grid; grid-template-columns: 4.4rem 1fr 6.2rem; align-items: center; gap: 10px; transition: opacity 0.15s; }
+.gm-mrow__l { font: 700 0.64rem var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--bone-dim); }
+.gm-mrow .gm-bar { height: 30px; }
+.gm-mrow__v { min-height: 1em; font: 700 0.64rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--lime); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gm-mrow.is-wait { opacity: 0.42; }
+.gm-mrow.is-done .gm-mark { background: var(--lime); box-shadow: none; }
+.gm-mrow.is-on .gm-bar { border-color: var(--lime); box-shadow: 0 0 0 1px var(--lime), 0 0 14px rgba(163, 230, 53, 0.25); }
+.gm-mrow.is-on .gm-mrow__l { color: var(--bone); }
+.gm-tap--mini { min-height: 56px; font-size: 1.5rem; }
+@media (max-width: 900px) {
+  .gm-mini { bottom: calc(var(--dock, 0px) + 12px); }
+  .gm-mrow { grid-template-columns: 3.6rem 1fr 4.6rem; gap: 8px; }
+  .gm-mrow .gm-bar { height: 32px; }
+  .gm-tap--mini { min-height: 52px; font-size: 1.35rem; }
+}
+@media (prefers-reduced-motion: reduce) { .gm-mini__box { animation: none; } }

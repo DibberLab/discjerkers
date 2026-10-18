@@ -916,3 +916,22 @@ test('a missed putt never ends up behind where it was thrown from, and a short m
     }
   }
 });
+
+test('the meters style: a faster arm lands farther along the aim, and the sweet spot is a stretch of that ruler', async () => {
+  const G = await load();
+  const hole = G.HOLES[0];
+  const from = hole.tee;
+  let last = 0;
+  const ft = [];
+  for (let mph = G.ARM.min; mph <= G.ARM.max; mph += G.ARM.step) {
+    const end = G.previewThrow(hole, DRIVER, RIGHT, G.headingTo(from, hole.basket), from, 8, { mph, nose: 0, angle: 0 }).end;
+    const d = G.distance(from, end);
+    assert.ok(d >= last - 1, `${mph} mph goes at least as far as the speed before`);
+    last = d;
+    ft.push(d);
+  }
+  assert.ok(ft.at(-1) > ft[0] * 4, 'the ruler is long');
+  const sweet = G.sweetSpots(hole, DRIVER, { ...RIGHT, spin: null, nose: 0, angle: 0 }, G.headingTo(from, hole.basket), from, 'power');
+  assert.strictEqual(sweet.values.length, ft.length, 'one sweet value per tick of the ruler');
+  assert.ok(sweet.ok.some(Boolean), 'there is a sweet spot');
+});

@@ -84,6 +84,7 @@ function discChip(disc, item) {
 
 const S = {
   orbit: { yaw: 0, pitch: 0, zoom: 1 }, // the camera of the Find pin view: swung round, tilted, zoomed
+  throwStyle: (() => { try { return localStorage.getItem('dj_tstyle') === 'meters' ? 'meters' : 'swing'; } catch { return 'swing'; } })(), // 'swing' (plan the flight, then swing) or 'meters' (the experiment: a power meter on the map, then a timing window)
   courseId: (() => { try { return courseById(localStorage.getItem('dj_course')).id; } catch { return 1; } })(), // the course picked on the menu (remembered)
   hole: HOLES[0],
   round: null,
@@ -164,6 +165,15 @@ function saveSettings() {
   try { localStorage.setItem('dj_game_throw', JSON.stringify({ hand: S.settings.hand, style: S.settings.style })); } catch { /* not saved */ }
 }
 const bestKey = () => (S.course && S.course.length > 1 ? `dj_game_best_${S.course.length}${S.course.courseId > 1 ? `_c${S.course.courseId}` : ''}` : `dj_game_best_h${S.hole.id}`);
+const metersOn = () => S.throwStyle === 'meters';
+function setThrowStyle(v) {
+  S.throwStyle = v === 'meters' ? 'meters' : 'swing';
+  try { localStorage.setItem('dj_tstyle', S.throwStyle); } catch { /* not saved */ }
+  if (metersOn()) { S.settings.nose = 0; S.settings.angle = 0; }
+  S.previewKey = null;
+  renderPanel(`[data-tstyle="${S.throwStyle}"]`);
+  if (S.round) retarget(false);
+}
 const parTotal = (holes) => holes.reduce((n, h) => n + h.par, 0);
 // the course on the menu, and the holes of a course (a match carries its own)
 const courseHoles = (id = S.courseId) => courseById(id).holes;
@@ -322,10 +332,17 @@ function showMenu() {
 
 function setPhase(phase, focusSel) {
   S.phase = phase;
+  if (phase === 'pick' && metersOn() && S.round && !inPutt()) { // the meters decide the nose, hyzer and arm each throw: the line on the ground is a typical throw
+    S.settings.nose = 0;
+    S.settings.angle = 0;
+    const d = curDisc();
+    if (d) { S.settings.mph = G.typicalArm(d); S.settings.spin = null; }
+  }
   keepAwake(PLAYING.has(phase) || phase === 'mwait'); // a phone should not dim in the middle of a throw, or while you wait for a friend
   document.body.classList.toggle('gm-playing', PLAYING.has(phase)); // on a phone the site's header steps aside while you play
   syncTop();
   renderPanel(focusSel);
+  syncMini();
   updateHud();
   showKeys();
 }
@@ -437,7 +454,7 @@ function settingsBlock() {
       <p class="gm-h">Your throw <span>· hand and aim</span></p>
       ${gripChips()}
       ${aimRow()}
-      <p class="gm-note">Plan the flight below (hyzer or anhyzer, nose, arm speed) and watch the dashed line over the ground: it is the throw you have planned from a clean release, and the shaded band is where a mistimed release can land. A faster arm is harder to release on time.</p>
+      <p class="gm-note">${metersOn() ? 'Meters style: aim (drag or tap the hole), press Throw, stop the power meter on the map, then hit the sweet spots in the timing window. The dashed line is a typical throw with this disc.' : 'Plan the flight below (hyzer or anhyzer, nose, arm speed) and watch the dashed line over the ground: it is the throw you have planned from a clean release, and the shaded band is where a mistimed release can land. A faster arm is harder to release on time.'}</p>
     </div>`;
 }
 
@@ -497,13 +514,14 @@ function updateBubble() {
 }
 
 const PHONE_STEPS = ['disc', 'grip', 'aim', 'flight']; // the steps of setting up a throw on a phone, in order
+const phoneSteps = () => (metersOn() ? PHONE_STEPS.filter((k) => k !== 'flight') : PHONE_STEPS); // (the meters style has no sliders to plan with)
 function panelPickPhone() {
   const d = curDisc();
   if (!d) return panelNoDiscs();
   const putting = inPutt();
   const key = `${S.mode}:${S.hole.id}:${S.round.strokes}`;
   if (S.stepKey !== key) { S.stepKey = key; S.step = 'disc'; } // each throw starts with the disc
-  const steps = putting ? ['disc'] : PHONE_STEPS;
+  const steps = putting ? ['disc'] : phoneSteps();
   if (!steps.includes(S.step)) S.step = steps[0];
   const names = { disc: 'Disc', grip: 'Grip', aim: 'Aim', flight: 'Flight' };
   const i = steps.indexOf(S.step);
@@ -515,7 +533,7 @@ function panelPickPhone() {
   if (S.step === 'disc') {
     body = `${betHtml()}${discRow()}${pickInfo(d, { wind: G.windFor(S.hole, heading()) }, putting)}${putting && puttDd() > G.LONG_PUTT ? '<p class="gm-note">Past 30 feet the target is a pinprick.</p>' : ''}${slopeNote()}`;
   } else if (S.step === 'grip') {
-    body = `${gripChips()}<p class="gm-note">Backhand or forehand, and which hand. The flight bends the other way for a lefty.</p>`;
+    body = `${gripChips()}${styleChips()}<p class="gm-note">Backhand or forehand, and which hand. The flight bends the other way for a lefty.</p>`;
   } else if (S.step === 'aim') {
     body = `${aimRow()}<p class="gm-note">Drag on the hole to aim, or use the slider.</p>`;
   } else {
@@ -541,6 +559,7 @@ function panelPick() {
   const strokes = S.round.strokes;
   const caddy = S.round.strokes === 0 && S.hole.note ? `<p class="gm-caddy"><b>${esc(S.hole.name)}.</b> ${esc(S.hole.note)}${K.briefing(S.hole.variant, S.hole) ? ` <b>Today:</b> ${esc(K.briefing(S.hole.variant, S.hole))}` : ''}</p>` : '';
   return `${roundBar()}${caddy || quipHtml()}${betHtml()}${S.mode === 'match' ? boardHtml() : tipHtml()}${bagBar()}
+    ${putting ? '' : `<div class="gm-block">${styleChips()}</div>`}
     <div class="gm-block">
       <p class="gm-h">Your disc <span>· ${available().length} left in the bag</span></p>
       ${discRow()}
@@ -550,8 +569,8 @@ function panelPick() {
     ${putting
       ? `<p class="gm-sub"><b>${ft(dist)}</b> from the basket. One tap: catch the dot inside the green circle as it swirls past. Short putts get a big target and a slow dot; a faster disc shrinks it.${dist > G.LONG_PUTT ? ' <b>Past 30 feet it is a long shot: the target is a pinprick and the dot flies.</b>' : ''}</p>`
       : settingsBlock()}
-    <div class="gm-go${putting ? '' : ' gm-go--plan'}">
-      ${putting ? '' : planRows()}
+    <div class="gm-go${putting || metersOn() ? '' : ' gm-go--plan'}">
+      ${putting || metersOn() ? '' : planRows()}
       <button class="btn" type="button" data-go>${putting ? 'Putt' : 'Throw'}</button>
       <p class="gm-go__line">Stroke <b>${strokes + 1}</b> · Par <b>${S.hole.par}</b> · ${putting ? `${ft(dist)} out` : `${ft(dist)} to the basket`}${slopeBit(S.hole, lieOf())}</p>
     </div>`;
@@ -561,6 +580,9 @@ function panelPick() {
 function courseChooser() {
   return `<div class="gm-courses" role="group" aria-label="Course">${COURSES.map((c) => `<button class="gm-course" type="button" data-course="${c.id}" aria-pressed="${c.id === S.courseId}"><b>${esc(c.name)}</b><small>${esc(c.blurb)}</small><span>18 holes · par ${parTotal(c.holes)}</span></button>`).join('')}</div>`;
 }
+// how you throw: swing (plan the flight, then swing) or the meters experiment (aim, a power meter on the map, then a timing window)
+const styleChips = () => `<div class="gm-row gm-style" role="group" aria-label="Throwing style"><span class="fg-wind__l">Throwing</span>
+        <div class="fg-seg"><button class="chip" type="button" data-tstyle="swing" aria-pressed="${!metersOn()}">Swing</button><button class="chip" type="button" data-tstyle="meters" aria-pressed="${metersOn()}">Meters (try it)</button></div></div>`;
 function panelMenu() {
   const ch = courseHoles();
   const course = courseById(S.courseId);
@@ -580,6 +602,7 @@ function panelMenu() {
       </div>
       <button class="btn btn--ghost" type="button" data-versus>Play with friends <small>up to 8 players, turn by turn</small></button>
       ${BETTING_ON ? `<p class="gm-note">Marebear Bucks: <b>${bucks()}</b> · she bets on every hole.</p>` : ''}
+      ${styleChips()}
       <label class="gm-check"><input type="checkbox" data-cond${condOn() ? ' checked' : ''}> <span>Varied conditions: each round has its own wind, pin positions, a mando here and there, and dusk on the last holes.</span></label>
       <label class="gm-check"><input type="checkbox" data-rain${rainOn() ? ' checked' : ''}> <span>Allow rain: wet days where discs skid on landing and putts are slicker (off, unless you want it).</span></label>
       <div class="gm-row">
@@ -644,6 +667,7 @@ function barMarkup(kind) {
 const releaseHint = (risk) => `Tap when the needle crosses the middle. Early goes toward the turn side, late toward the fade side.${risk ? ` <b>${risk}% chance the disc slips</b>: a slow arm can grip lock or let go early.` : ''}`;
 
 function panelMeter() {
+  if (S.meter?.classic) return panelMetersStyle();
   const kind = S.phase;
   const d = curDisc();
   const stages = kind === 'putt' ? [] : S.meter?.plan ? ['release'] : METER_STAGES;
@@ -858,12 +882,179 @@ function startMeter() {
   if (inPutt()) {
     S.meter = { kind: 'putt', before: { ...S.settings }, start: now(), radius: G.puttRadius(puttDd(), d) * G.puttGrip(S.hole), speed: G.puttSpeed(puttDd()), params: G.makePuttSeed(Math.random) };
     setPhase('putt');
+  } else if (metersOn()) {
+    // the meters style: the power is a meter on the map, laid along the aim; the nose, hyzer and release are a timing window
+    S.settings.spin = null;
+    S.meter = { kind: 'power', classic: true, before: { ...S.settings }, start: now(), mph: null, rel: null, sweet: {}, pos: {}, shown: {}, ruler: buildRuler() };
+    sweetFor('power');
+    setPhase('power');
+    retarget(false);
   } else {
     // the arm speed, nose and hyzer were planned (and shown) before this: what is left is the swing itself (how smooth it is is the release, how fast it goes is the distance)
     S.settings.spin = null;
     S.meter = { before: { ...S.settings } };
     startSwipe(null, { pending: true });
   }
+}
+
+/* ----- the meters style: a power meter laid along the aim on the map, then a timing window for the nose, the hyzer and the release ----- */
+
+// where a flat release lands for each arm speed, from here along the aim: the marker slides along these
+function buildRuler() {
+  const d = curDisc();
+  const lie = lieOf();
+  const R = [];
+  for (let mph = G.ARM.min; mph <= G.ARM.max; mph += G.ARM.step) {
+    const end = G.previewThrow(S.hole, d, S.settings, heading(), lie, 8, { mph, nose: 0, angle: 0 }).end;
+    R.push({ mph, x: end.x, y: end.y, ft: Math.round(G.distance(lie, end)) });
+  }
+  return R;
+}
+const rulerAt = (mph) => { const R = S.meter.ruler; return R[clamp(Math.round((mph - G.ARM.min) / G.ARM.step), 0, R.length - 1)]; };
+function powerReadout(mph) {
+  const risk = Math.round(G.slipChance(curDisc(), { ...S.settings, mph, spin: null, angle: 0, nose: 0 }) * 100);
+  return `<b>${mph} mph</b><small>${rulerAt(mph).ft} ft${risk ? ` · ${risk}% slip` : ''}</small>`;
+}
+
+// the ruler over the hole: the track the landing spot slides along (lime where the sweet spot is), a number every 10 mph, and the marker with its distance
+function drawPowerMeter(t) {
+  const m = S.meter;
+  if (!m?.classic || S.phase !== 'power' || !m.ruler) return;
+  const R = m.ruler;
+  const ok = (i) => !!m.sweetRaw?.ok?.[i];
+  const [lx, ly] = P(lieOf().x, lieOf().y);
+  const pts = R.map((r) => P(r.x, r.y));
+  const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const norm = (i) => { // a step to the right of the way the track runs, on screen
+    const a = pts[Math.max(0, i - 1)];
+    const b = pts[Math.min(pts.length - 1, i + 1)];
+    const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    return [-(b[1] - a[1]) / l, (b[0] - a[0]) / l];
+  };
+  const word = (text, x, y, color, size, align = 'center', font = '"Anton", Impact, sans-serif') => {
+    ctx.font = `400 ${size}px ${font}`;
+    ctx.textAlign = align;
+    ctx.fillStyle = color;
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.lineWidth = 4;
+    ctx.strokeText(text, x, y);
+    ctx.fillText(text, x, y);
+  };
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const track = () => { ctx.beginPath(); ctx.moveTo(lx, ly); pts.forEach(([x, y]) => ctx.lineTo(x, y)); };
+  track();
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+  ctx.lineWidth = 10;
+  ctx.stroke();
+  track();
+  ctx.strokeStyle = 'rgba(238,241,232,0.55)';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  // the sweet spot: the speeds that land nearest the basket from here
+  ctx.lineCap = 'butt';
+  ctx.strokeStyle = 'rgba(163,230,53,0.95)';
+  ctx.lineWidth = 9;
+  let best = null;
+  let run = null;
+  R.forEach((_, i) => {
+    if (!ok(i)) { run = null; return; }
+    const a = i ? mid(pts[i - 1], pts[i]) : pts[0];
+    const b = i < R.length - 1 ? mid(pts[i], pts[i + 1]) : pts[i];
+    ctx.beginPath();
+    ctx.moveTo(a[0], a[1]);
+    ctx.lineTo(b[0], b[1]);
+    ctx.stroke();
+    if (!run) { run = { from: i, to: i }; if (!best || best.to - best.from < 0) best = run; }
+    run.to = i;
+    if (!best || run.to - run.from > best.to - best.from) best = run;
+  });
+  if (best) {
+    const i = Math.round((best.from + best.to) / 2);
+    const n = norm(i);
+    word('SWEET SPOT', pts[i][0] - n[0] * 24, pts[i][1] - n[1] * 24, '#a3e635', 11, n[0] > 0 ? 'right' : 'left', '"Space Mono", monospace');
+  }
+  // a number every ten miles an hour
+  let lastTick = null;
+  R.forEach((r, i) => {
+    if (r.mph % 10) return;
+    if (lastTick && Math.hypot(pts[i][0] - lastTick[0], pts[i][1] - lastTick[1]) < 22) return; // the fast end bunches up: skip a number that would sit on the last
+    lastTick = pts[i];
+    const n = norm(i);
+    ctx.strokeStyle = 'rgba(238,241,232,0.8)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(pts[i][0] - n[0] * 7, pts[i][1] - n[1] * 7);
+    ctx.lineTo(pts[i][0] + n[0] * 7, pts[i][1] + n[1] * 7);
+    ctx.stroke();
+    word(String(r.mph), pts[i][0] + n[0] * 17, pts[i][1] + n[1] * 17 + 4, '#eef1e8', 11, 'center', '"Space Mono", monospace');
+  });
+  // the marker
+  const mph = G.mphAt(G.powerAt((t - m.start) / 1000));
+  const i = clamp(Math.round((mph - G.ARM.min) / G.ARM.step), 0, R.length - 1);
+  const [mx, my] = pts[i];
+  const good = ok(i);
+  ctx.beginPath();
+  ctx.arc(mx, my, 11, 0, Math.PI * 2);
+  ctx.fillStyle = '#eef1e8';
+  ctx.fill();
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = good ? '#a3e635' : '#d35400';
+  ctx.stroke();
+  const side = mx > W * 0.6 ? -1 : 1; // the label goes to whichever side has room
+  word(`${mph} mph · ${R[i].ft} ft`, mx + side * 20, my - 8, good ? '#a3e635' : '#eef1e8', 20, side > 0 ? 'left' : 'right');
+  ctx.restore();
+}
+
+// the panel of the meters style: the power stage, or a short note beside the timing window
+function panelMetersStyle() {
+  const kind = S.phase;
+  const d = curDisc();
+  const risk = kind === 'release' && d ? Math.round(G.slipChance(d, S.settings) * 100) : 0;
+  const hints = {
+    power: 'Tap anywhere (or the button) to stop the marker. It slides along your aim to where a flat throw lands at that arm speed; the lime stretch is the sweet spot from here. Past the last few ticks the marker flies.',
+    nose: 'Tap when the marker is in the lime band. Nose up lifts the disc and spends distance; nose down keeps it low and short. The white tick is level.',
+    angle: 'Tap in the lime band. Right of the middle is hyzer, left is anhyzer; the middle is flat.',
+    release: `Tap as the needle crosses the green zone. Early goes toward the turn side, late toward the fade side.${risk ? ` <b>${risk}% chance the disc slips</b>: a slow arm can grip lock or let go early.` : ''}`,
+  };
+  const brief = (h) => (isPhone() && tipSeen() ? `${String(h).split('. ')[0].replace(/\.$/, '')}.` : h);
+  const title = kind === 'power' ? '<span>1 ·</span> Power' : `<span>${kind === 'nose' ? 2 : kind === 'angle' ? 3 : 4} ·</span> ${{ nose: 'Nose', angle: 'Hyzer', release: 'Release' }[kind]}`;
+  const steps = `<div class="gm-steps" aria-hidden="true">${METER_STAGES.map((k, i) => `<i class="${i <= METER_STAGES.indexOf(kind) ? 'is-on' : ''}"></i>`).join('')}</div>`;
+  return `<div class="gm-meter">
+      ${steps}
+      <div class="gm-meter__top"><p class="gm-meter__t">${title}</p><button class="chip gm-backout" type="button" data-back-out aria-label="Back out of this throw">Back out</button></div>
+      <div class="gm-meter__h"><p>${brief(hints[kind])}</p></div>
+      ${kind === 'power' ? `<output class="gm-read" id="gm-read" aria-live="off"><b>&nbsp;</b></output><button class="gm-tap" type="button" data-tap>Tap</button>` : ''}
+    </div>`;
+}
+
+// the timing window: a row each for the nose, the hyzer and the release, over the 3D view
+const MINI_ROWS = { nose: 'Nose', angle: 'Hyzer', release: 'Release' };
+function miniRow(stage) {
+  const m = S.meter;
+  const state = S.phase === stage ? 'on' : stage in m.pos ? 'done' : 'wait';
+  const pos = m.pos[stage];
+  const inner = stage === 'release'
+    ? `<i class="gm-zone" style="left:${(0.5 - m.rel.w / 2) * 100}%;width:${m.rel.w * 100}%"></i>`
+    : `${sweetMarkup(stage)}<i class="gm-tick" style="left:50%"></i>`;
+  const val = state !== 'done' ? '' : stage === 'nose' ? G.noseName(G.noseAt(pos * 2 - 1)) : stage === 'angle' ? angleName({ angle: G.angleAt(pos * 2 - 1) }) : '';
+  return `<div class="gm-mrow is-${state}"><span class="gm-mrow__l">${MINI_ROWS[stage]}</span>
+      <div class="gm-bar" id="gm-bar-${stage}">${inner}<b class="gm-mark" id="gm-mark-${stage}"${state === 'wait' ? ' hidden' : ''} style="left:${pos == null ? 0 : pos * 100}%"></b></div>
+      <output class="gm-mrow__v" id="gm-read-${stage}" aria-live="off">${val}</output></div>`;
+}
+function syncMini() {
+  const el = $('#gm-mini');
+  if (!el) return;
+  const m = S.meter;
+  const on = !!(m?.classic && MINI_ROWS[S.phase]);
+  el.hidden = !on;
+  if (!on) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="gm-mini__box" role="group" aria-label="Timing window">
+      <p class="gm-mini__t">Timing <small>tap in the lime, then in the green</small></p>
+      ${Object.keys(MINI_ROWS).map(miniRow).join('')}
+      <button class="gm-tap gm-tap--mini" type="button" data-tap>Tap</button>
+    </div>`;
 }
 
 // where a bar's sweet spot is, given what the earlier bars set: worked out as a bar begins, then drawn on it
@@ -881,9 +1072,11 @@ function sweetFor(stage) {
     const t0 = performance.now();
     while (!job.done() && performance.now() - t0 < 5) job.next(2);
     if (!job.done()) { setTimeout(pump, 0); return; }
-    meter.sweet[stage] = G.sweetBands(job.result());
-    const bar = $('#gm-bar');
-    if (bar && S.phase === stage) { bar.querySelectorAll('.gm-zone--sweet').forEach((e) => e.remove()); bar.insertAdjacentHTML('afterbegin', sweetMarkup(stage)); }
+    const res = job.result();
+    meter.sweet[stage] = G.sweetBands(res);
+    if (stage === 'power') meter.sweetRaw = res; // (the map's meter draws its own)
+    const bar = $(meter.classic && stage !== 'power' ? `#gm-bar-${stage}` : '#gm-bar');
+    if (bar && (meter.classic ? stage !== 'power' : S.phase === stage)) { bar.querySelectorAll('.gm-zone--sweet').forEach((e) => e.remove()); bar.insertAdjacentHTML('afterbegin', sweetMarkup(stage)); }
   };
   setTimeout(pump, 0);
 }
@@ -895,6 +1088,7 @@ function tap() {
   if (navigator.vibrate) navigator.vibrate(8); // a small click under the thumb
   const t = (now() - m.start) / 1000;
   const next = (phase) => { m.start = now(); setPhase(phase); };
+  if (m.classic && S.phase !== 'power') m.pos[S.phase] = S.phase === 'release' ? (G.releaseAt(t, m.rel) + 1) / 2 : (G.needleAt(t, G.METER[S.phase].period) + 1) / 2; // where the marker was stopped, kept on its row
   if (S.phase === 'power') {
     m.mph = G.mphAt(G.powerAt(t));
     S.settings.mph = m.mph;
@@ -903,6 +1097,7 @@ function tap() {
     sweetFor('nose');
     next('nose');
     toast(`${m.mph} mph`, '', 900);
+    if (m.classic) retarget(false);
   } else if (S.phase === 'nose') {
     S.settings.nose = G.noseAt(G.needleAt(t, G.METER.nose.period));
     sweetFor('angle');
@@ -913,7 +1108,9 @@ function tap() {
     next('release');
     toast(angleName(S.settings), '', 900);
   } else if (S.phase === 'release') {
-    startSwipe(null, G.combine(G.readRelease(G.releaseAt(t, m.rel), m.rel.w))); // the release is timed; the swipe is the throw itself
+    const ex = G.combine(G.readRelease(G.releaseAt(t, m.rel), m.rel.w));
+    if (m.classic) throwDisc(S.mode === 'match' ? ex : G.applySlip(ex, G.rollSlip(curDisc(), S.settings, Math.random()))); // the meters style: the timing is the whole release, no swipe
+    else startSwipe(null, ex); // the release is timed; the swipe is the throw itself
   } else if (S.phase === 'putt') {
     const shot = G.puttCursorAt(m.params, t, m.speed);
     if (toBasket() <= G.GIMME) puttDisc(shot, null); // a tap-in needs no swipe
@@ -1714,6 +1911,11 @@ function retarget(snap, extra = []) {
   const putting = inPutt();
   const pts = [lie, b, ...extra.filter((_, i) => i % 6 === 0)];
   if (S.phase === 'pick' && !putting && curDisc()) pts.push(G.previewThrow(S.hole, curDisc(), S.settings, heading(), lie, 12).end);
+  if (S.meter?.classic && S.phase === 'power' && S.meter.ruler) { // the power meter on the map: room for its ruler, out to a little past the basket
+    const R = S.meter.ruler;
+    const want = G.distance(lie, b) * 1.3 + 40;
+    pts.push(R[0], R.find((r) => r.ft >= want) || R.at(-1));
+  }
   const xs = pts.map((p) => p.x);
   const ys = pts.map((p) => p.y);
   const pad = putting ? 16 : 26;
@@ -2593,12 +2795,89 @@ function showViewBtn() {
   if (btn.textContent !== txt) { btn.textContent = txt; btn.setAttribute('aria-pressed', String(pin)); }
 }
 // the aim line, the band a mistimed release can reach, and where it ends, laid over the 3D ground
+// The power meter in the meters style, laid on the aim line: the ground the disc would land on for each arm speed is a track along the aim (lime where
+// the sweet spot is, a number every 10 mph), the marker rides it, and the dashed flight is the throw at the speed the marker is at, growing and
+// shrinking with it.
+function powerOverlay(g, ground, air, lie) {
+  const m = S.meter;
+  const R = m.ruler;
+  const q = R.map(ground);
+  const ok = (i) => !!m.sweetRaw?.ok?.[i];
+  const mph = G.mphAt(G.powerAt((now() - m.start) / 1000));
+  const i = clamp(Math.round((mph - G.ARM.min) / G.ARM.step), 0, R.length - 1);
+  const line = (m.lines ||= {})[mph] ||= G.previewThrow(S.hole, curDisc(), S.settings, heading(), lie, 28, { mph, nose: 0, angle: 0 }).line;
+  const word = (text, x, y, color, size, font = '"Anton", Impact, sans-serif') => {
+    g.font = `400 ${size}px ${font}`;
+    g.textAlign = 'center';
+    g.textBaseline = 'bottom';
+    g.lineWidth = 4;
+    g.strokeStyle = 'rgba(6,11,7,0.85)';
+    g.strokeText(text, x, y);
+    g.fillStyle = color;
+    g.fillText(text, x, y);
+  };
+  const run = (from, to, style, w) => {
+    g.beginPath();
+    let on = false;
+    for (let k = from; k <= to; k++) {
+      if (!q[k]) { on = false; continue; }
+      if (!on) { g.moveTo(q[k].x, q[k].y); on = true; continue; }
+      if (k < to && q[k + 1]) g.quadraticCurveTo(q[k].x, q[k].y, (q[k].x + q[k + 1].x) / 2, (q[k].y + q[k + 1].y) / 2); // a smooth curve through the points
+      else g.lineTo(q[k].x, q[k].y);
+    }
+    g.strokeStyle = style;
+    g.lineWidth = w;
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    g.stroke();
+  };
+  run(0, R.length - 1, 'rgba(6,11,7,0.5)', 8);
+  run(0, R.length - 1, 'rgba(238,241,232,0.55)', 3);
+  let best = null;
+  for (let k = 0; k < R.length; k++) {
+    if (!ok(k)) continue;
+    let e = k;
+    while (e + 1 < R.length && ok(e + 1)) e++;
+    run(k, Math.min(R.length - 1, e), 'rgba(163,230,53,0.95)', 7);
+    if (!best || e - k > best.to - best.from) best = { from: k, to: e };
+    k = e;
+  }
+  g.setLineDash([8, 6]);
+  g.beginPath();
+  let on = false;
+  for (const p of line) { const a = air(p); if (!a) { on = false; continue; } if (on) g.lineTo(a.x, a.y); else g.moveTo(a.x, a.y); on = true; }
+  g.strokeStyle = 'rgba(163,230,53,0.92)';
+  g.lineWidth = 2.6;
+  g.lineCap = 'round';
+  g.stroke();
+  g.setLineDash([]);
+  let last = null;
+  R.forEach((r, k) => {
+    if (r.mph % 10 || !q[k] || (last && Math.hypot(q[k].x - last.x, q[k].y - last.y) < 24)) return;
+    last = q[k];
+    word(String(r.mph), q[k].x, q[k].y - 6, '#eef1e8', 11, '"Space Mono", monospace');
+  });
+  const e = q[i];
+  if (best) { const k = Math.round((best.from + best.to) / 2); if (q[k] && !(e && Math.hypot(q[k].x - e.x, q[k].y - e.y) < 110)) word('SWEET SPOT', q[k].x, q[k].y - 22, '#a3e635', 11, '"Space Mono", monospace'); } // (not while the marker is on top of it)
+  if (e) {
+    const good = ok(i);
+    g.beginPath();
+    g.ellipse(e.x, e.y, Math.max(7, 11 * e.s), Math.max(4, 6 * e.s), 0, 0, Math.PI * 2);
+    g.fillStyle = 'rgba(238,241,232,0.9)';
+    g.fill();
+    g.lineWidth = 3;
+    g.strokeStyle = good ? '#a3e635' : '#d35400';
+    g.stroke();
+    word(`${mph} mph · ${R[i].ft} ft`, e.x, e.y - Math.max(12, 16 * e.s) - 4, good ? '#a3e635' : '#eef1e8', 20);
+  }
+}
 function aimOverlay(c, view, lie) {
   return (g) => {
     if (!S.showLine || !curDisc()) return;
-    const { pv, end } = previewNow(lie);
     const ground = (p) => C3.project(c, view, p.x, p.y, C3.groundAt(S.hole, p.x, p.y) + 0.15);
     const air = (p) => C3.project(c, view, p.x, p.y, C3.groundAt(S.hole, p.x, p.y) + (p.h || 0) * C3.ZS);
+    if (S.meter?.classic && S.phase === 'power' && S.meter.ruler) { powerOverlay(g, ground, air, lie); return; } // the meters style: the power meter is the aim line itself
+    const { pv, end } = previewNow(lie);
     if (S.phase === 'pick') {
       g.beginPath();
       let pen = false;
@@ -2788,6 +3067,7 @@ function drawWorld(t) {
   drawMandoMap();
   drawBasket();
   drawPreview();
+  drawPowerMeter(t);
   drawOpp(t);
   drawLie(t);
   drawFlight(t);
@@ -2879,19 +3159,26 @@ function update(t) {
   cam.s += (cam.ts - cam.s) * 0.14;
   if (S.toast.until && t > S.toast.until) { $('#gm-toast').classList.remove('is-on'); S.toast.until = 0; }
   const m = S.meter;
-  const mark = $('#gm-mark');
+  const row = m?.classic && S.phase !== 'power' ? `-${S.phase}` : ''; // the timing window has a bar for each of its rows
+  const mark = $(`#gm-mark${row}`);
   if (S.phase === 'putt') drawPuttMeter(t);
-  if (mark && m && METER_STAGES.includes(S.phase)) {
+  if (m?.classic && S.phase === 'power') {
+    const mph = G.mphAt(G.powerAt((t - m.start) / 1000));
+    const read = $('#gm-read');
+    const text = powerReadout(mph);
+    if (read && read.dataset.t !== text) { read.dataset.t = text; read.innerHTML = text; }
+  } else if (mark && m && METER_STAGES.includes(S.phase)) {
     const sec = (t - m.start) / 1000;
     const v = S.phase === 'power' ? G.powerAt(sec) : S.phase === 'release' ? (G.releaseAt(sec, m.rel) + 1) / 2 : (G.needleAt(sec, G.METER[S.phase].period) + 1) / 2;
     mark.style.left = `${v * 100}%`;
-    const read = $('#gm-read');
+    mark.hidden = false;
+    const read = $(`#gm-read${row}`);
     if (read && S.phase !== 'release') {
       const [big, small] = S.phase === 'power' ? (() => { const mph = G.mphAt(v); const risk = Math.round(G.slipChance(curDisc(), { ...S.settings, mph, spin: null, angle: 0, nose: 0 }) * 100); return [`${mph} mph`, `${tierName(Math.max(30, mph))}${risk ? ` · ${risk}% slip` : ''}`]; })()
         : S.phase === 'nose' ? [G.noseName(G.noseAt(v * 2 - 1)), '']
           : [angleName({ angle: G.angleAt(v * 2 - 1) }), ''];
       const text = `${big}|${small}`;
-      if (read.dataset.t !== text) { read.dataset.t = text; read.innerHTML = `<b>${big}</b>${small ? `<small>${small}</small>` : ''}`; }
+      if (read.dataset.t !== text) { read.dataset.t = text; read.innerHTML = row ? big : `<b>${big}</b>${small ? `<small>${small}</small>` : ''}`; }
     }
   }
 }
@@ -2965,7 +3252,10 @@ function onPanelClick(e) {
   const t = e.target;
   const hand = t.closest('[data-hand]');
   const style = t.closest('[data-style]');
-  if (hand || style) {
+  const tstyle = t.closest('[data-tstyle]');
+  if (tstyle) {
+    setThrowStyle(tstyle.dataset.tstyle);
+  } else if (hand || style) {
     const key = hand ? 'hand' : 'style';
     S.settings[key] = (hand || style).dataset[key];
     saveSettings();
@@ -2979,7 +3269,8 @@ function onPanelClick(e) {
     S.step = t.closest('[data-step]').dataset.step;
     renderPanel();
   } else if (t.closest('[data-next-step]')) {
-    S.step = PHONE_STEPS[Math.min(PHONE_STEPS.length - 1, PHONE_STEPS.indexOf(S.step) + 1)]; // the next one (it used to know only three)
+    const order = phoneSteps();
+    S.step = order[Math.min(order.length - 1, order.indexOf(S.step) + 1)]; // the next one (it used to know only three)
     renderPanel();
   } else if (t.closest('[data-go]')) {
     startMeter();
@@ -4062,6 +4353,7 @@ async function boot() {
   p.addEventListener('input', onPanelInput);
   // the meter answers the moment a finger lands, not when it lifts
   p.addEventListener('pointerdown', (e) => { if (e.target.closest('[data-tap], .gm-bar, #gm-putt') && isMeter()) { e.preventDefault(); tap(); } });
+  $('#gm-mini').addEventListener('pointerdown', (e) => { if (isMeter() && S.meter?.classic) { e.preventDefault(); tap(); } }); // anywhere in the timing window is the tap
   p.addEventListener('keydown', (e) => { if (e.target.matches('[data-tap]') && (e.key === ' ' || e.key === 'Enter')) e.preventDefault(); });
   document.addEventListener('keydown', onKey);
   cv.addEventListener('contextmenu', (e) => e.preventDefault()); // a right click is a throw, not a menu
@@ -4069,6 +4361,7 @@ async function boot() {
   cv.addEventListener('pointerdown', (e) => {
     if (riding()) { S.anim.t0 -= 1e7; return; } // tap to skip the ride
     if (S.phase === 'swipe') { beginSwipe(e); return; }
+    if (S.meter?.classic && isMeter()) { tap(); return; } // the meters style: tap anywhere on the hole to stop the marker
     try { cv.setPointerCapture?.(e.pointerId); } catch { /* a pointer that is already gone */ }
     if (pinLook()) { S.pinDrag = { x: e.clientX, y: e.clientY, moved: false, yaw0: S.orbit.yaw, pitch0: S.orbit.pitch }; return; } // from above, a drag looks around; a tap aims (on the up)
     setAimFromPointer(e, true);
