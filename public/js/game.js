@@ -1203,7 +1203,7 @@ function panelMetersStyle() {
       ${steps}
       <div class="gm-meter__top"><p class="gm-meter__t">${title}</p><button class="chip gm-backout" type="button" data-back-out aria-label="Back out of this throw">Back out</button></div>
       ${isPhone() && (kind === 'nose' || kind === 'angle' || kind === 'release') ? '' : `<div class="gm-meter__h"><p>${brief(hints[kind])}</p></div>`}
-      ${kind === 'power' || (kind === 'putt' && S.meter?.stage === 'power') ? `<output class="gm-read" id="gm-read" aria-live="off"><b>&nbsp;</b></output><button class="gm-tap" type="button" data-tap>${kind === 'putt' ? 'Putt' : 'Throw'}</button>` : kind === 'putt' ? '<button class="gm-tap" type="button" data-tap>Tap</button>' : ''}
+      ${kind === 'power' || (kind === 'putt' && S.meter?.stage === 'power') ? `<button class="gm-tap" type="button" data-tap>${kind === 'putt' ? 'Putt' : 'Throw'}</button><output class="gm-read" id="gm-read" aria-live="off"><b>&nbsp;</b></output>` : kind === 'putt' ? '<button class="gm-tap" type="button" data-tap>Tap</button>' : ''}
     </div>`;
 }
 
