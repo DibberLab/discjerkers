@@ -84,7 +84,6 @@ function discChip(disc, item) {
 
 const S = {
   orbit: { yaw: 0, pitch: 0, zoom: 1 }, // the camera of the Find pin view: swung round, tilted, zoomed
-  throwStyle: (() => { try { return localStorage.getItem('dj_tstyle') === 'meters' ? 'meters' : 'swing'; } catch { return 'swing'; } })(), // 'swing' (plan the flight, then swing) or 'meters' (the experiment: a power meter on the map, then a timing window)
   courseId: (() => { try { return courseById(localStorage.getItem('dj_course')).id; } catch { return 1; } })(), // the course picked on the menu (remembered)
   hole: HOLES[0],
   round: null,
@@ -165,15 +164,7 @@ function saveSettings() {
   try { localStorage.setItem('dj_game_throw', JSON.stringify({ hand: S.settings.hand, style: S.settings.style })); } catch { /* not saved */ }
 }
 const bestKey = () => (S.course && S.course.length > 1 ? `dj_game_best_${S.course.length}${S.course.courseId > 1 ? `_c${S.course.courseId}` : ''}` : `dj_game_best_h${S.hole.id}`);
-const metersOn = () => S.throwStyle === 'meters';
-function setThrowStyle(v) {
-  S.throwStyle = v === 'meters' ? 'meters' : 'swing';
-  try { localStorage.setItem('dj_tstyle', S.throwStyle); } catch { /* not saved */ }
-  if (metersOn()) { S.settings.nose = 0; S.settings.angle = 0; }
-  S.previewKey = null;
-  renderPanel(`[data-tstyle="${S.throwStyle}"]`);
-  if (S.round) retarget(false);
-}
+const metersOn = () => true; // the meters throw (timing dials, then the aim and power wedge) is the only way to throw now; the swing code below is dormant
 const parTotal = (holes) => holes.reduce((n, h) => n + h.par, 0);
 // the course on the menu, and the holes of a course (a match carries its own)
 const courseHoles = (id = S.courseId) => courseById(id).holes;
@@ -531,7 +522,7 @@ function panelPickPhone() {
   const leave = S.mode === 'match' ? '<button class="chip" type="button" data-mp-leave>Forfeit</button>' : '<button class="chip" type="button" data-quit>Quit</button>';
   let body;
   if (S.step === 'disc') {
-    body = `${betHtml()}${putting ? '' : styleChips()}${discRow()}${pickInfo(d, { wind: G.windFor(S.hole, heading()) }, putting)}${putting && puttDd() > G.LONG_PUTT ? '<p class="gm-note">Past 30 feet the target is a pinprick.</p>' : ''}${slopeNote()}`;
+    body = `${betHtml()}${discRow()}${pickInfo(d, { wind: G.windFor(S.hole, heading()) }, putting)}${putting && puttDd() > G.LONG_PUTT ? '<p class="gm-note">Past 30 feet the target is a pinprick.</p>' : ''}${slopeNote()}`;
   } else if (S.step === 'grip') {
     body = `${gripChips()}<p class="gm-note">Backhand or forehand, and which hand. The flight bends the other way for a lefty.</p>`;
   } else if (S.step === 'aim') {
@@ -559,7 +550,6 @@ function panelPick() {
   const strokes = S.round.strokes;
   const caddy = S.round.strokes === 0 && S.hole.note ? `<p class="gm-caddy"><b>${esc(S.hole.name)}.</b> ${esc(S.hole.note)}${K.briefing(S.hole.variant, S.hole) ? ` <b>Today:</b> ${esc(K.briefing(S.hole.variant, S.hole))}` : ''}</p>` : '';
   return `${roundBar()}${caddy || quipHtml()}${betHtml()}${S.mode === 'match' ? boardHtml() : tipHtml()}${bagBar()}
-    ${putting ? '' : `<div class="gm-block">${styleChips()}</div>`}
     <div class="gm-block">
       <p class="gm-h">Your disc <span>· ${available().length} left in the bag</span></p>
       ${discRow()}
@@ -580,9 +570,6 @@ function panelPick() {
 function courseChooser() {
   return `<div class="gm-courses" role="group" aria-label="Course">${COURSES.map((c) => `<button class="gm-course" type="button" data-course="${c.id}" aria-pressed="${c.id === S.courseId}"><b>${esc(c.name)}</b><small>${esc(c.blurb)}</small><span>18 holes · par ${parTotal(c.holes)}</span></button>`).join('')}</div>`;
 }
-// how you throw: swing (plan the flight, then swing) or the meters experiment (aim, a power meter on the map, then a timing window)
-const styleChips = () => `<div class="gm-row gm-style" role="group" aria-label="Throwing style"><span class="fg-wind__l">Throwing</span>
-        <div class="fg-seg"><button class="chip" type="button" data-tstyle="swing" aria-pressed="${!metersOn()}">Swing</button><button class="chip" type="button" data-tstyle="meters" aria-pressed="${metersOn()}">Meters (try it)</button></div></div>`;
 function panelMenu() {
   const ch = courseHoles();
   const course = courseById(S.courseId);
@@ -602,7 +589,6 @@ function panelMenu() {
       </div>
       <button class="btn btn--ghost" type="button" data-versus>Play with friends <small>up to 8 players, turn by turn</small></button>
       ${BETTING_ON ? `<p class="gm-note">Marebear Bucks: <b>${bucks()}</b> · she bets on every hole.</p>` : ''}
-      ${styleChips()}
       <label class="gm-check"><input type="checkbox" data-cond${condOn() ? ' checked' : ''}> <span>Varied conditions: each round has its own wind, pin positions, a mando here and there, and dusk on the last holes.</span></label>
       <label class="gm-check"><input type="checkbox" data-rain${rainOn() ? ' checked' : ''}> <span>Allow rain: wet days where discs skid on landing and putts are slicker (off, unless you want it).</span></label>
       <div class="gm-row">
@@ -1392,7 +1378,7 @@ function drawPad(cvs, m, t) {
   const wx = Rx / m.K;
   const wy = Ry / m.K;
   g.beginPath();
-  g.roundRect(cx - wx, cy - wy, wx * 2, wy * 2, 6);
+  g.rect(cx - wx, cy - wy, wx * 2, wy * 2); // (no roundRect: older phones do not have it)
   g.fillStyle = 'rgba(163,230,53,0.2)';
   g.fill();
   g.strokeStyle = 'rgba(163,230,53,0.95)';
@@ -3555,8 +3541,8 @@ function update(t) {
   const m = S.meter;
   const mark = $('#gm-mark');
   if (S.phase === 'putt' && !m?.classic) drawPuttMeter(t);
-  if (m?.classic && MINI_ROWS[S.phase]) updateDials(t);
-  else if (m?.classic && S.phase === 'putt' && m.stage !== 'power') updatePad(t);
+  if (m?.classic && MINI_ROWS[S.phase]) { try { updateDials(t); } catch (err) { console.error('dials', err); } }
+  else if (m?.classic && S.phase === 'putt' && m.stage !== 'power') { try { updatePad(t); } catch (err) { console.error('pad', err); } }
   else if (m?.classic && S.phase === 'putt') {
     const v = (G.needleAt((t - m.start) / 1000, m.pP) + 1) / 2;
     const ft = Math.round(v * m.maxFt);
@@ -3654,10 +3640,7 @@ function onPanelClick(e) {
   const t = e.target;
   const hand = t.closest('[data-hand]');
   const style = t.closest('[data-style]');
-  const tstyle = t.closest('[data-tstyle]');
-  if (tstyle) {
-    setThrowStyle(tstyle.dataset.tstyle);
-  } else if (hand || style) {
+  if (hand || style) {
     const key = hand ? 'hand' : 'style';
     S.settings[key] = (hand || style).dataset[key];
     saveSettings();
@@ -4764,7 +4747,7 @@ async function boot() {
     if (riding()) { S.anim.t0 -= 1e7; return; } // tap to skip the ride
     if (S.phase === 'swipe') { beginSwipe(e); return; }
     if (S.meter?.classic && isMeter()) { // the meters style: tap anywhere on the hole to stop the marker; on the last stage a drag aims, a tap throws
-      if (S.phase === 'power') { S.wedgeDown = { x: e.clientX, y: e.clientY, moved: false }; try { cv.setPointerCapture?.(e.pointerId); } catch { /* gone */ } } else tap();
+      if (S.phase === 'power') { S.wedgeDown = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false, thr: e.pointerType === 'mouse' ? 9 : 28 }; try { cv.setPointerCapture?.(e.pointerId); } catch { /* gone */ } } else tap();
       return;
     }
     try { cv.setPointerCapture?.(e.pointerId); } catch { /* a pointer that is already gone */ }
@@ -4776,7 +4759,7 @@ async function boot() {
     if (S.phase === 'swipe') { moveSwipe(e); return; }
     const wd = S.wedgeDown;
     if (wd) {
-      const first = !wd.moved && Math.hypot(e.clientX - wd.x, e.clientY - wd.y) > 9;
+      const first = !wd.moved && Math.hypot(e.clientX - wd.x, e.clientY - wd.y) > wd.thr; // a finger wobbles: it takes a real drag (28 px) to aim
       if (first) wd.moved = true;
       if (wd.moved && S.meter?.classic && S.phase === 'power') {
         const before = S.aimOff;
@@ -4793,7 +4776,8 @@ async function boot() {
     if (wd) { // the last stage of the meters style: a drag aimed (the sweet spot is worked out again), a plain tap is the throw
       S.wedgeDown = null;
       S.aimSnap = null;
-      if (S.meter?.classic && S.phase === 'power') { if (wd.moved) { retarget(false); sweetFor('arm'); } else tap(); }
+      const quick = performance.now() - wd.t < 260 && Math.hypot(e.clientX - wd.x, e.clientY - wd.y) < wd.thr * 2; // a quick short slide is still a tap
+      if (S.meter?.classic && S.phase === 'power') { if (wd.moved && !quick) { retarget(false); sweetFor('arm'); } else { if (wd.moved) rebuildWedge(); tap(); } }
       return;
     }
     const d = S.pinDrag;
