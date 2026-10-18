@@ -1085,6 +1085,109 @@ function wedgeMeter(g, proj) {
   }
   g.restore();
 }
+// The arm-speed wedge in the 3D view, drawn flat on the screen from the bottom (the disc) to the top (the longest throw) with a straight distance scale, so the sweet spot
+// is easy to see: seen on the ground in perspective the far end is a sliver. It keeps the throw's curve (sideways, to a scale that shows it) and its width grows with distance.
+function screenWedge(g) {
+  const m = S.meter;
+  const W_ = wedgeGeom();
+  const lie = lieOf();
+  const { ux, uy, rx, ry } = G.headingVec(heading());
+  const top = 86;
+  const bottom = H - (S.dockV ?? S.dock) - 26;
+  const maxFt = W_.pts.at(-1).ft;
+  const cx = W / 2;
+  const yOf = (ft) => bottom - (ft / maxFt) * (bottom - top);
+  const kx = ((bottom - top) / maxFt) * 1.0; // the curve, to the same scale as the length
+  const half = (ft) => 9 + 44 * (ft / maxFt);
+  const rOf = (p) => (p.x - lie.x) * rx + (p.y - lie.y) * ry;
+  const rs = W_.pts.map(rOf);
+  const at = (f, side) => { const k = Math.min(W_.pts.length - 2, Math.max(0, Math.floor(f))); const t = f - k; const ft = W_.pts[k].ft + (W_.pts[k + 1].ft - W_.pts[k].ft) * t; const r = rs[k] + (rs[k + 1] - rs[k]) * t; return { x: cx + r * kx + side * half(ft), y: yOf(ft), ft }; };
+  const shape = (a, b) => {
+    const idx = [a];
+    for (let k = Math.floor(a) + 1; k < b; k++) idx.push(k);
+    idx.push(b);
+    g.beginPath();
+    idx.forEach((f, n) => { const q = at(f, -1); if (n) g.lineTo(q.x, q.y); else g.moveTo(q.x, q.y); });
+    [...idx].reverse().forEach((f) => { const q = at(f, 1); g.lineTo(q.x, q.y); });
+    g.closePath();
+  };
+  const v = G.powerAt((now() - m.start) / 1000);
+  const mph = G.mphAt(v);
+  const f = fillIndex(v);
+  const ok = (i) => !!m.sweetRaw?.ok?.[i - 1];
+  const last = W_.pts.length - 1;
+  const word = (text, x, y, color, size, align = 'center', font = '"Anton", Impact, sans-serif') => {
+    g.font = `400 ${size}px ${font}`;
+    g.textAlign = align;
+    g.textBaseline = 'middle';
+    g.lineWidth = 4;
+    g.strokeStyle = 'rgba(6,11,7,0.85)';
+    g.strokeText(text, x, y);
+    g.fillStyle = color;
+    g.fillText(text, x, y);
+  };
+  g.save();
+  g.lineJoin = 'round';
+  shape(0, last); // the empty wedge
+  g.fillStyle = 'rgba(6,11,7,0.38)';
+  g.fill();
+  g.strokeStyle = 'rgba(238,241,232,0.55)';
+  g.lineWidth = 1.8;
+  g.stroke();
+  let best = null;
+  for (let k = 1; k <= last; k++) { // the sweet spot, lit
+    if (!ok(k)) continue;
+    let e = k;
+    while (e + 1 <= last && ok(e + 1)) e++;
+    shape(Math.max(0, k - 0.5), Math.min(last, e + 0.5));
+    g.fillStyle = 'rgba(163,230,53,0.34)';
+    g.fill();
+    g.strokeStyle = 'rgba(163,230,53,1)';
+    g.lineWidth = 2.6;
+    g.stroke();
+    if (!best || e - k > best.to - best.from) best = { from: k, to: e };
+    k = e;
+  }
+  const inSweet = ok(Math.round(f)) || ok(Math.ceil(f)) || ok(Math.floor(f));
+  if (f > 0.05) { // the fill
+    shape(0, f);
+    g.fillStyle = inSweet ? 'rgba(163,230,53,0.66)' : 'rgba(238,241,232,0.5)';
+    g.fill();
+  }
+  for (let ft = 100; ft < maxFt; ft += 100) { // a scale
+    const q = at(Math.max(0, W_.pts.findIndex((p) => p.ft >= ft) - 0.0), -1);
+    g.beginPath();
+    g.moveTo(q.x - 6, q.y);
+    g.lineTo(q.x + 8, q.y);
+    g.strokeStyle = 'rgba(238,241,232,0.8)';
+    g.lineWidth = 1.5;
+    g.stroke();
+    word(`${ft}`, q.x - 12, q.y, 'rgba(238,241,232,0.9)', 11, 'right', '"Space Mono", monospace');
+  }
+  const bdist = G.distance(lie, S.hole.basket); // where the basket is along it
+  if (bdist < maxFt) {
+    const k = Math.max(1, W_.pts.findIndex((p) => p.ft >= bdist));
+    const q = at(k, 1);
+    word('◂ BASKET', q.x + 8, q.y, '#d35400', 11, 'left', '"Space Mono", monospace');
+  }
+  const hl = at(f, -1);
+  const hr = at(f, 1);
+  g.beginPath();
+  g.moveTo(hl.x, hl.y);
+  g.lineTo(hr.x, hr.y);
+  g.strokeStyle = inSweet ? '#a3e635' : '#eef1e8';
+  g.lineWidth = 5;
+  g.lineCap = 'round';
+  g.stroke();
+  word(`${mph} mph · ${Math.round(hl.ft)} ft`, hr.x + 12, hr.y - 14, inSweet ? '#a3e635' : '#eef1e8', 20, 'left');
+  if (best) {
+    const k = Math.round((best.from + best.to) / 2);
+    const a = at(k, -1);
+    const b = at(k, 1);
+    word('SWEET SPOT', (a.x + b.x) / 2, a.y, '#a3e635', 11, 'center', '"Space Mono", monospace'); // (inside the lit stretch)
+  }
+  g.restore();
+}
 // on the map (3D off) the same wedge is drawn over the hole
 function drawPowerMeter() {
   const m = S.meter;
@@ -3142,8 +3245,8 @@ function showViewBtn() {
 // Tap anywhere to throw at that speed. (`wedgeMeter` draws it, here over the 3D view and on the map when 3D is off.)
 function powerOverlay(g, ground, air, lie) {
   const m = S.meter;
-  wedgeMeter(g, ground);
-  if (m.putt) return; // (a putt is a line, not a flight)
+  if (m.putt) { wedgeMeter(g, ground); return; } // (a putt is a line on the ground)
+  screenWedge(g); // a drive: the perspective squashes the far end of a wedge laid on the ground, so it is drawn flat on the screen, bottom to top
   const mph = G.mphAt(G.powerAt((now() - m.start) / 1000));
   const line = (m.lines ||= {})[mph] ||= G.previewThrow(S.hole, curDisc(), S.settings, heading(), lie, 28, { mph, nose: S.settings.nose || 0, angle: S.settings.angle || 0 }).line;
   g.setLineDash([8, 6]);
