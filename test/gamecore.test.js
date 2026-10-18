@@ -935,3 +935,16 @@ test('the meters style: a faster arm lands farther along the aim, and the sweet 
   assert.strictEqual(sweet.values.length, ft.length, 'one sweet value per tick of the ruler');
   assert.ok(sweet.ok.some(Boolean), 'there is a sweet spot');
 });
+
+test('the meters style: the arm stage works out the sweet spot with the nose and hyzer already chosen', async () => {
+  const G = await load();
+  const hole = G.HOLES[0];
+  const from = hole.tee;
+  const aim = G.headingTo(from, hole.basket);
+  const sweet = G.sweetSpots(hole, DRIVER, { ...RIGHT, spin: null, nose: 0, angle: 2 }, aim, from, 'arm');
+  assert.strictEqual(sweet.stage, 'arm');
+  assert.strictEqual(sweet.values.length, (G.ARM.max - G.ARM.min) / G.ARM.step + 1);
+  assert.ok(sweet.ok.some(Boolean), 'there is a sweet arm speed');
+  const bands = G.sweetBands(sweet);
+  assert.ok(bands.length >= 1 && bands.every((b) => b.from >= 0 && b.to <= 1 && b.to >= b.from), 'bands are stretches of the arm bar');
+});

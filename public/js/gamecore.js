@@ -191,9 +191,10 @@ export function sweetJob(hole, disc, base, aimDeg, from, stage) {
   const angles = ANGLES.filter((a) => a % 2 === 0); // every other angle: it is a guide
   let values;
   let tasks; // [value index, settings to try]
-  if (stage === 'power') {
+  if (stage === 'power' || stage === 'arm') {
     values = Array.from({ length: (ARM.max - ARM.min) / ARM.step + 1 }, (_, i) => ARM.min + i * ARM.step);
-    tasks = values.flatMap((mph, vi) => angles.map((angle) => [vi, { ...base, mph, nose: 0, angle }]));
+    // 'power' is the first bar of the old meter (the best angle for each speed); 'arm' is the last stage of the meters style, with the nose and hyzer already chosen (they are in `base`)
+    tasks = stage === 'arm' ? values.map((mph, vi) => [vi, { ...base, mph }]) : values.flatMap((mph, vi) => angles.map((angle) => [vi, { ...base, mph, nose: 0, angle }]));
   } else if (stage === 'nose') {
     values = Array.from({ length: NOSE_MAX * 2 + 1 }, (_, i) => i - NOSE_MAX);
     tasks = values.flatMap((nose, vi) => angles.map((angle) => [vi, { ...base, nose, angle }]));
@@ -233,8 +234,9 @@ export const angleBarPos = (a) => clamp((a / ANGLE_MAX + 1) / 2, 0, 1);
 // the runs of sweet values as stretches of their bar: [{ from, to }] in 0..1 (each value owns half a step either side)
 export function sweetBands(sweet) {
   const { stage, values, ok } = sweet;
-  const half = stage === 'power' ? ARM.step / 2 : 0.5;
-  const pos = stage === 'power' ? powerPos : stage === 'nose' ? noseBarPos : angleBarPos;
+  const isPower = stage === 'power' || stage === 'arm';
+  const half = isPower ? ARM.step / 2 : 0.5;
+  const pos = isPower ? powerPos : stage === 'nose' ? noseBarPos : angleBarPos;
   const bands = [];
   for (let i = 0; i < values.length; i++) {
     if (!ok[i]) continue;
