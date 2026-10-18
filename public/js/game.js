@@ -1175,6 +1175,7 @@ function screenWedge(g) {
 // on the map (3D off) the same wedge is drawn over the hole
 function drawPowerMeter() {
   const m = S.meter;
+  if (m?.classic && m.putt && S.phase === 'putt' && m.stage !== 'power') { const [x, y] = P(S.hole.basket.x, S.hole.basket.y); puttAim(ctx, x, y); return; } // the line and the height, over the basket
   if (!m?.classic || !(S.phase === 'power' || (S.phase === 'putt' && m.stage === 'power')) || !m.ruler) return;
   wedgeMeter(ctx, (p) => { const [x, y] = P(p.x, p.y); return { x, y }; });
 }
@@ -1185,8 +1186,8 @@ function panelMetersStyle() {
   const d = curDisc();
   const risk = kind === 'release' && d ? Math.round(G.slipChance(d, S.settings) * 100) : 0;
   const hints = {
-    putt: S.meter?.stage === 'h' ? 'Aim left and right: the line sweeps across the basket. Tap when it is inside the green.'
-      : S.meter?.stage === 'v' ? 'Now the height: the line sweeps up and down. Tap when it is inside the green. Too high runs long, too low comes up short.'
+    putt: S.meter?.stage === 'h' ? 'Aim left and right: the line sweeps across the basket in the picture. Tap anywhere (or the button) when it is inside the green.'
+      : S.meter?.stage === 'v' ? 'Now the height: the line sweeps up and down the basket. Tap when it is inside the green. Too high runs long, too low comes up short.'
         : 'The wedge fills and drains along the line to the basket. Tap anywhere (or the button) to putt when the fill reaches the lit stretch: that is the push this putt needs (more uphill, less downhill). All three have to be right to drop it.',
     power: 'Drag the hole to aim. The wedge fills and drains with your arm speed: tap anywhere on the hole (or the button) to throw at the speed it is at. The lit stretch is the sweet spot for the nose and hyzer you chose, and the dashed line is the flight at that speed.',
     nose: 'The disc pitches up and down. Tap when it is in the lime arc. Nose up lifts the disc and spends distance; nose down keeps it low and short.',
@@ -1202,7 +1203,7 @@ function panelMetersStyle() {
       ${steps}
       <div class="gm-meter__top"><p class="gm-meter__t">${title}</p><button class="chip gm-backout" type="button" data-back-out aria-label="Back out of this throw">Back out</button></div>
       <div class="gm-meter__h"><p>${brief(hints[kind])}</p></div>
-      ${kind === 'power' || (kind === 'putt' && S.meter?.stage === 'power') ? `<output class="gm-read" id="gm-read" aria-live="off"><b>&nbsp;</b></output><button class="gm-tap" type="button" data-tap>${kind === 'putt' ? 'Putt' : 'Throw'}</button>` : ''}
+      ${kind === 'power' || (kind === 'putt' && S.meter?.stage === 'power') ? `<output class="gm-read" id="gm-read" aria-live="off"><b>&nbsp;</b></output><button class="gm-tap" type="button" data-tap>${kind === 'putt' ? 'Putt' : 'Throw'}</button>` : kind === 'putt' ? '<button class="gm-tap" type="button" data-tap>Tap</button>' : ''}
     </div>`;
 }
 
@@ -1222,18 +1223,9 @@ function syncMini() {
   const el = $('#gm-mini');
   if (!el) return;
   const m = S.meter;
-  const pad = !!(m?.classic && m.putt && S.phase === 'putt' && m.stage !== 'power'); // a putt: the basket to aim at
-  const on = pad || !!(m?.classic && MINI_ROWS[S.phase]);
+  const on = !!(m?.classic && MINI_ROWS[S.phase]);
   el.hidden = !on;
   if (!on) { el.innerHTML = ''; return; }
-  if (pad) {
-    el.innerHTML = `<div class="gm-mini__box" role="group" aria-label="Aim the putt">
-      <p class="gm-mini__t">${m.stage === 'h' ? 'Aim left and right: tap when the line is in the green' : 'Now the height: tap when the line is in the green'}</p>
-      <canvas class="gm-pad" id="gm-pad" aria-hidden="true"></canvas>
-      <button class="gm-tap gm-tap--mini" type="button" data-tap>Tap</button>
-    </div>`;
-    return;
-  }
   const hints = { nose: 'Pitch the nose: tap when the disc is in the lime arc', angle: 'Tilt the disc: tap when it is in the lime arc', release: 'Let go: tap as the ring closes on the green ring' };
   el.innerHTML = `<div class="gm-mini__box" role="group" aria-label="Timing window">
       <p class="gm-mini__t">${hints[S.phase]}</p>
@@ -1342,77 +1334,69 @@ function drawDial(cvs, stage, v, state) {
   }
   g.restore();
 }
-// The putt's aiming pad: the basket seen from the front, with a green window around its chains that is as big as the putt is forgiving (it shrinks with distance). A line sweeps
-// across (left and right), you stop it, and then another sweeps up and down (the height); both have to end up inside the green.
-function drawPad(cvs, m, t) {
-  const w = cvs.clientWidth;
-  if (!w) return;
-  const h = Math.round(w * 0.72);
-  if (cvs.width !== Math.round(w * dpr) || cvs.height !== Math.round(h * dpr)) { cvs.width = Math.round(w * dpr); cvs.height = Math.round(h * dpr); }
-  const g = cvs.getContext('2d');
-  g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  g.clearRect(0, 0, w, h);
-  const cx = w / 2;
-  const cy = h * 0.48;
-  const Rx = w * 0.43;
-  const Ry = h * 0.42;
-  g.fillStyle = 'rgba(6,11,7,0.55)';
-  g.fillRect(0, 0, w, h);
-  g.fillStyle = 'rgba(40,70,40,0.5)'; // the grass
-  g.fillRect(0, cy + Ry * 0.86, w, h - (cy + Ry * 0.86));
-  // the basket, from the front: pole, tray, the chains from the band down, and the cage on top
-  const bw = w * 0.1;
-  g.strokeStyle = 'rgba(238,241,232,0.5)';
-  g.lineWidth = 3;
-  g.beginPath();
-  g.moveTo(cx, cy + Ry * 0.3);
-  g.lineTo(cx, cy + Ry * 0.86);
-  g.stroke();
-  g.lineWidth = 1.4;
-  for (let k = -3; k <= 3; k++) { g.beginPath(); g.moveTo(cx + (k * bw * 0.9) / 3, cy - Ry * 0.3); g.lineTo(cx + (k * bw * 0.55) / 3, cy + Ry * 0.18); g.stroke(); }
-  for (const [y, rw] of [[cy - Ry * 0.3, bw * 0.95], [cy + Ry * 0.18, bw * 0.62]]) { g.beginPath(); g.ellipse(cx, y, rw, rw * 0.22, 0, 0, Math.PI * 2); g.stroke(); }
-  g.beginPath();
-  g.ellipse(cx, cy + Ry * 0.3, bw * 1.1, bw * 0.24, 0, 0, Math.PI * 2);
-  g.stroke();
-  // the green: how far the line may be off and still drop
+// The putt's aim, drawn on the scene itself (over the 3D putting view, or the map): centred on the basket's chains, a green window as big as the putt is forgiving
+// (it thins with distance), and a line that sweeps across (left and right) until you stop it, then another up and down (the height). Both have to end up inside the green.
+// It is drawn at a fixed size on the screen around the basket's picture, so a far putt is as readable as a near one.
+function puttAim(g, ax, ay) {
+  const m = S.meter;
+  const small = W < 700;
+  const Rx = small ? 84 : 118;
+  const Ry = small ? 62 : 86;
   const wx = Rx / m.K;
   const wy = Ry / m.K;
-  g.beginPath();
-  g.rect(cx - wx, cy - wy, wx * 2, wy * 2); // (no roundRect: older phones do not have it)
-  g.fillStyle = 'rgba(163,230,53,0.2)';
-  g.fill();
-  g.strokeStyle = 'rgba(163,230,53,0.95)';
-  g.lineWidth = 2;
-  g.stroke();
-  const sec = (t - m.start) / 1000;
+  const sec = (now() - m.start) / 1000;
   const uh = m.stage === 'h' ? G.needleAt(sec, m.pH) : m.u.h;
-  const uv = m.stage === 'v' ? G.needleAt(sec, m.pV) : m.stage === 'power' ? m.u.v : null;
+  const uv = m.stage === 'v' ? G.needleAt(sec, m.pV) : null;
   const inH = Math.abs(uh) * m.K <= 1;
   const inV = uv != null && Math.abs(uv) * m.K <= 1;
-  const x = cx + uh * Rx;
-  const y = uv == null ? 0 : cy - uv * Ry;
-  g.lineWidth = 3;
+  g.save();
   g.lineCap = 'round';
-  g.strokeStyle = inH ? '#a3e635' : '#eef1e8';
+  g.setLineDash([4, 5]); // the reach of the sweep
+  g.strokeStyle = 'rgba(238,241,232,0.35)';
+  g.lineWidth = 1.2;
+  g.strokeRect(ax - Rx, ay - Ry, Rx * 2, Ry * 2);
+  g.setLineDash([]);
+  g.fillStyle = 'rgba(163,230,53,0.22)'; // the green
+  g.fillRect(ax - wx, ay - wy, wx * 2, wy * 2);
+  g.strokeStyle = 'rgba(163,230,53,1)';
+  g.lineWidth = 2.4;
+  g.strokeRect(ax - wx, ay - wy, wx * 2, wy * 2);
+  const x = ax + uh * Rx;
+  g.strokeStyle = 'rgba(6,11,7,0.7)'; // the lines, with a dark edge so they read on any ground
+  g.lineWidth = 7;
   g.beginPath();
-  g.moveTo(x, cy - Ry);
-  g.lineTo(x, cy + Ry);
+  g.moveTo(x, ay - Ry);
+  g.lineTo(x, ay + Ry);
+  g.stroke();
+  g.strokeStyle = inH ? '#a3e635' : '#eef1e8';
+  g.lineWidth = 3.5;
   g.stroke();
   if (uv != null) {
-    g.strokeStyle = inV ? '#a3e635' : '#eef1e8';
+    const y = ay - uv * Ry;
+    g.strokeStyle = 'rgba(6,11,7,0.7)';
+    g.lineWidth = 7;
     g.beginPath();
-    g.moveTo(cx - Rx, y);
-    g.lineTo(cx + Rx, y);
+    g.moveTo(ax - Rx, y);
+    g.lineTo(ax + Rx, y);
+    g.stroke();
+    g.strokeStyle = inV ? '#a3e635' : '#eef1e8';
+    g.lineWidth = 3.5;
     g.stroke();
     g.beginPath();
     g.arc(x, y, 6, 0, Math.PI * 2);
     g.fillStyle = inH && inV ? '#a3e635' : '#d35400';
     g.fill();
   }
-}
-function updatePad(t) {
-  const cvs = $('#gm-pad');
-  if (cvs) drawPad(cvs, S.meter, t);
+  g.font = '400 18px "Anton", Impact, sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'bottom';
+  g.lineWidth = 4;
+  g.strokeStyle = 'rgba(6,11,7,0.85)';
+  const label = m.stage === 'h' ? 'LINE: TAP IN THE GREEN' : 'HEIGHT: TAP IN THE GREEN';
+  g.strokeText(label, ax, ay - Ry - 8);
+  g.fillStyle = '#eef1e8';
+  g.fillText(label, ax, ay - Ry - 8);
+  g.restore();
 }
 
 // every frame the timing window is up: the live dial turns with its marker, the stopped ones stay where they were
@@ -3132,9 +3116,10 @@ function drawPutt3D(t) {
   c.fov += ((baseFov + (S.pfov || 0)) - c.fov) * (1 - Math.exp(-dt * 6));
   const puttColor = (a ? discLook(S.last.disc.id, S.last.who) : discLook(curDisc()?.id ?? S.last?.disc.id, 'me')).color;
   const player = playerFig(lie, Math.atan2(dir.x, dir.y), 'putt', a ? a.hand : S.settings.hand, a ? t - (a.t0 - (a.lead || 0)) : -1, puttColor);
-  const wedge = !a && S.phase === 'putt' && S.meter?.classic && S.meter.putt && S.meter.stage === 'power' && S.meter.ruler // the meters style: the wedge along the line to the basket
-    ? (g) => wedgeMeter(g, (p) => C3.project(c, view, p.x, p.y, C3.groundAt(S.hole, p.x, p.y) + 0.15))
-    : null;
+  const pm = !a && S.phase === 'putt' && S.meter?.classic && S.meter.putt && S.meter.ruler ? S.meter : null;
+  const wedge = !pm ? null : pm.stage === 'power'
+    ? (g) => wedgeMeter(g, (p) => C3.project(c, view, p.x, p.y, C3.groundAt(S.hole, p.x, p.y) + 0.15)) // the push: the wedge along the line to the basket
+    : (g) => { const q = C3.project(c, view, b.x, b.y, gnd(b.x, b.y) + 2.6); if (q) puttAim(g, q.x, q.y); }; // the line and the height: over the basket's chains
   C3.drawScene(ctx, { hole: S.hole, cam: c, view, disc, trail, dz: 1, chain, dusk: S.hole.weather?.dusk || 0, color: puttColor, t, player, hideDisc: !a || t < a.t0, overlay: wedge });
   S.pfov = sc ? PF.drawPuttFx(ctx, { cam: c, view, hole: S.hole, W, H }, sc, ms, a.result).fov : 0;
   if (sc) { if (ms >= sc.total + sc.tail) finishThrow(); } else if (a && t - a.t0 >= a.dur + 250) finishThrow();
@@ -3542,7 +3527,6 @@ function update(t) {
   const mark = $('#gm-mark');
   if (S.phase === 'putt' && !m?.classic) drawPuttMeter(t);
   if (m?.classic && MINI_ROWS[S.phase]) { try { updateDials(t); } catch (err) { console.error('dials', err); } }
-  else if (m?.classic && S.phase === 'putt' && m.stage !== 'power') { try { updatePad(t); } catch (err) { console.error('pad', err); } }
   else if (m?.classic && S.phase === 'putt') {
     const v = (G.needleAt((t - m.start) / 1000, m.pP) + 1) / 2;
     const ft = Math.round(v * m.maxFt);
