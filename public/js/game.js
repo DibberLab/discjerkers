@@ -882,12 +882,15 @@ function startMeter() {
   if (inPutt() && metersOn()) {
     // the meters style putts with the same wedge as a drive: it fills and drains along the line to the basket, and you tap anywhere to putt
     // (a putt is its own little game: aim left and right, then the height, on a picture of the basket, then the wedge for the push. A tap-in is the wedge alone.)
-    const far = clamp(toBasket() / G.PUTT_RANGE, 0, 1);
+    const dd = toBasket();
+    const past = Math.max(0, dd - 15); // inside 15 ft it is friendly; past that everything tightens and speeds up with every foot
     S.meter = {
       kind: 'putt', classic: true, putt: true, before: { ...S.settings }, start: now(), ...buildPuttRuler(), // (ruler, push, maxFt, sweetRaw)
       stage: toBasket() <= G.GIMME ? 'power' : 'h', u: { h: 0, v: 0 },
-      K: clamp(1.6 + toBasket() / 12, 1.6, 5.5), // how many times its green the line travels: the farther out, the thinner the green
-      pH: 1.75 - 0.5 * far, pV: 1.5 - 0.4 * far,
+      K: Math.min(1.6 + Math.min(dd, 15) * 0.08 + past * 0.22, 8), // how many times its green the line travels: 35% of the sweep at 15 ft, 20% at 25, 12% from 45
+      pH: Math.max(0.8, 1.75 - Math.min(dd, 15) * 0.017 - past * 0.02), pV: Math.max(0.72, 1.5 - Math.min(dd, 15) * 0.015 - past * 0.018), // the line sweeps once in this many seconds: 1.5 at 15 ft, 0.8 from 50
+      pP: Math.max(1.0, 1.9 - past * 0.03), // and the wedge fills and drains faster too
+      pk: 1 + past * 0.06, // the push is judged this many times more strictly
     };
     setPhase('putt');
   } else if (inPutt()) {
@@ -946,15 +949,15 @@ function buildRuler() {
   return R;
 }
 // a putt's wedge: straight at the basket and out past it; the lit stretch is the push this putt needs, give or take what the swipe allowed
-const PUTT_PERIOD = 1.9;
 function buildPuttRuler() {
   const lie = lieOf();
   const push = G.puttPush(S.hole, lie);
   const tol = G.swipeTolerance(puttDd());
   const maxFt = Math.max(push * 1.7, 20);
   const { ux, uy } = G.headingVec(G.headingTo(lie, S.hole.basket));
-  const ruler = Array.from({ length: 60 }, (_, i) => { const ft = (maxFt * (i + 1)) / 60; return { mph: 0, x: lie.x + ux * ft, y: lie.y + uy * ft, ft: Math.round(ft), pos: (i + 1) / 60 }; });
-  return { ruler, push, maxFt, sweetRaw: { ok: ruler.map((r) => Math.abs(r.ft / push - 1) <= tol.power) } };
+  const pk = 1 + Math.max(0, toBasket() - 15) * 0.06; // (the same strictness as the tap uses)
+  const ruler = Array.from({ length: 90 }, (_, i) => { const ft = (maxFt * (i + 1)) / 90; return { mph: 0, x: lie.x + ux * ft, y: lie.y + uy * ft, ft: Math.round(ft), pos: (i + 1) / 90 }; });
+  return { ruler, push, maxFt, sweetRaw: { ok: ruler.map((r) => Math.abs(r.ft / push - 1) * pk <= tol.power) } };
 }
 function rebuildWedge() { // the aim moved: the wedge goes with it (its sweet spot is worked out again when the finger lifts)
   const m = S.meter;
@@ -1012,7 +1015,7 @@ function wedgeMeter(g, proj) {
   const m = S.meter;
   const W_ = wedgeGeom();
   const sec = (now() - m.start) / 1000;
-  const v = m.putt ? (G.needleAt(sec, PUTT_PERIOD) + 1) / 2 : G.powerAt(sec);
+  const v = m.putt ? (G.needleAt(sec, m.pP) + 1) / 2 : G.powerAt(sec);
   const mph = m.putt ? 0 : G.mphAt(v);
   const f = fillIndex(v);
   const ok = (i) => !!m.sweetRaw?.ok?.[i - 1];
@@ -1408,14 +1411,14 @@ function tapMeters(m, t, next) {
       next('putt');
       toast(Math.abs(m.u.v) * m.K <= 1 ? 'Height locked' : m.u.v < 0 ? 'Height: low' : 'Height: high', Math.abs(m.u.v) * m.K <= 1 ? 'good' : '', 800);
     } else {
-      const feet = ((G.needleAt(t, PUTT_PERIOD) + 1) / 2) * m.maxFt;
+      const feet = ((G.needleAt(t, m.pP) + 1) / 2) * m.maxFt;
       const d = curDisc();
       const radius = G.puttRadius(puttDd(), d) * G.puttGrip(S.hole);
       const tol = G.swipeTolerance(puttDd());
       // the line is the swipe's aim, the height is the radar's short or long (high is long), the wedge is the push: all three have to be inside the green
       const shot = { x: 0, y: clamp(m.u.v * m.K * radius, -1, 1) };
       if (toBasket() <= G.GIMME) puttDisc({ x: 0, y: 0 }, null);
-      else puttDisc(shot, { aim: m.u.h * m.K * tol.aim, power: feet / m.push });
+      else puttDisc(shot, { aim: m.u.h * m.K * tol.aim, power: 1 + (feet / m.push - 1) * m.pk }); // (a far putt judges the push more strictly)
     }
   }
 }
@@ -3446,9 +3449,9 @@ function update(t) {
   if (m?.classic && MINI_ROWS[S.phase]) updateDials(t);
   else if (m?.classic && S.phase === 'putt' && m.stage !== 'power') updatePad(t);
   else if (m?.classic && S.phase === 'putt') {
-    const v = (G.needleAt((t - m.start) / 1000, PUTT_PERIOD) + 1) / 2;
+    const v = (G.needleAt((t - m.start) / 1000, m.pP) + 1) / 2;
     const ft = Math.round(v * m.maxFt);
-    const near = Math.abs(ft / m.push - 1) <= G.swipeTolerance(puttDd()).power;
+    const near = Math.abs(ft / m.push - 1) * m.pk <= G.swipeTolerance(puttDd()).power;
     const read = $('#gm-read');
     const text = `<b>${ft} ft</b><small>${near ? 'in the lit stretch' : ft < m.push ? 'short' : 'long'}</small>`;
     if (read && read.dataset.t !== text) { read.dataset.t = text; read.innerHTML = text; }
