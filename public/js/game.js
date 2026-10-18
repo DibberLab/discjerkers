@@ -3119,7 +3119,7 @@ function drawPutt3D(t) {
   const pm = !a && S.phase === 'putt' && S.meter?.classic && S.meter.putt && S.meter.ruler ? S.meter : null;
   const wedge = !pm ? null : pm.stage === 'power'
     ? (g) => wedgeMeter(g, (p) => C3.project(c, view, p.x, p.y, C3.groundAt(S.hole, p.x, p.y) + 0.15)) // the push: the wedge along the line to the basket
-    : (g) => { const q = C3.project(c, view, b.x, b.y, gnd(b.x, b.y) + 2.6); if (q) puttAim(g, q.x, q.y); }; // the line and the height: over the basket's chains
+    : (g) => { const q = C3.project(c, view, b.x, b.y, gnd(b.x, b.y) + C3.RING_H - 0.55); if (q) puttAim(g, q.x, q.y); }; // the line and the height: centred on the chains, up near their top band (not the tray down below)
   C3.drawScene(ctx, { hole: S.hole, cam: c, view, disc, trail, dz: 1, chain, dusk: S.hole.weather?.dusk || 0, color: puttColor, t, player, hideDisc: !a || t < a.t0, overlay: wedge });
   S.pfov = sc ? PF.drawPuttFx(ctx, { cam: c, view, hole: S.hole, W, H }, sc, ms, a.result).fov : 0;
   if (sc) { if (ms >= sc.total + sc.tail) finishThrow(); } else if (a && t - a.t0 >= a.dur + 250) finishThrow();
