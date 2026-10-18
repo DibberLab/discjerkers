@@ -1202,7 +1202,7 @@ function panelMetersStyle() {
   return `<div class="gm-meter">
       ${steps}
       <div class="gm-meter__top"><p class="gm-meter__t">${title}</p><button class="chip gm-backout" type="button" data-back-out aria-label="Back out of this throw">Back out</button></div>
-      <div class="gm-meter__h"><p>${brief(hints[kind])}</p></div>
+      ${isPhone() && (kind === 'nose' || kind === 'angle' || kind === 'release') ? '' : `<div class="gm-meter__h"><p>${brief(hints[kind])}</p></div>`}
       ${kind === 'power' || (kind === 'putt' && S.meter?.stage === 'power') ? `<output class="gm-read" id="gm-read" aria-live="off"><b>&nbsp;</b></output><button class="gm-tap" type="button" data-tap>${kind === 'putt' ? 'Putt' : 'Throw'}</button>` : kind === 'putt' ? '<button class="gm-tap" type="button" data-tap>Tap</button>' : ''}
     </div>`;
 }
@@ -1224,9 +1224,13 @@ function syncMini() {
   if (!el) return;
   const m = S.meter;
   const on = !!(m?.classic && MINI_ROWS[S.phase]);
+  const fresh = el.hidden && on; // it pops in once, when it first appears; changing stage does not make it flash again
   el.hidden = !on;
   if (!on) { el.innerHTML = ''; return; }
-  const hints = { nose: 'Pitch the nose: tap when the disc is in the lime arc', angle: 'Tilt the disc: tap when it is in the lime arc', release: 'Let go: tap as the ring closes on the green ring' };
+  el.classList.toggle('is-fresh', fresh || (el.classList.contains('is-fresh') && el.dataset.phase === S.phase));
+  el.dataset.phase = S.phase;
+  const risk = S.phase === 'release' && curDisc() ? Math.round(G.slipChance(curDisc(), S.settings) * 100) : 0;
+  const hints = { nose: 'Pitch the nose: tap when the disc is in the lime arc', angle: 'Tilt the disc: tap when it is in the lime arc', release: `Let go: tap as the ring closes on the green ring${risk ? ` · ${risk}% slip chance` : ''}` };
   el.innerHTML = `<div class="gm-mini__box" role="group" aria-label="Timing window">
       <p class="gm-mini__t">${hints[S.phase]}</p>
       <div class="gm-dials">${Object.keys(MINI_ROWS).map(miniCell).join('')}</div>
@@ -3630,6 +3634,13 @@ function onPanelClick(e) {
     saveSettings();
     renderPanel(`[data-${key}="${S.settings[key]}"]`);
   } else if (t.closest('[data-back-out]')) {
+    const btn = t.closest('[data-back-out]');
+    if (S.meter?.classic && !btn.dataset.armed) { // two taps, like Quit: a thumb that misses the Tap button must not throw the whole throw away
+      btn.dataset.armed = '1';
+      btn.textContent = 'Sure?';
+      setTimeout(() => { if (btn.isConnected) { delete btn.dataset.armed; btn.textContent = 'Back out'; } }, 2500);
+      return;
+    }
     backOut();
   } else if (t.closest('[data-disc]')) {
     const id = Number(t.closest('[data-disc]').dataset.disc);
