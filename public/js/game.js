@@ -897,7 +897,7 @@ function startMeter() {
     // the meters style: the power is a meter on the map, laid along the aim; the nose, hyzer and release are a timing window
     S.settings.spin = null;
     // (the timing window first: nose, hyzer and the release, each stopped on its dial; then the aim and power wedge, and its tap is the throw)
-    S.meter = { kind: 'nose', classic: true, before: { ...S.settings }, start: now(), mph: S.settings.mph, rel: G.releaseSetup(S.settings.mph), sweet: {}, pos: {} };
+    S.meter = { kind: 'nose', classic: true, before: { ...S.settings }, start: now(), mph: S.settings.mph, rel: G.releaseSetup(S.settings.mph), sweet: {}, pos: {}, ref: refPath() };
     sweetFor('nose');
     setPhase('nose');
   } else {
@@ -910,19 +910,38 @@ function startMeter() {
 
 /* ----- the meters style: a power meter laid along the aim on the map, then a timing window for the nose, the hyzer and the release ----- */
 
-// where a release lands for each arm speed, from here: the wedge follows these, so it has the shape of the throw (its hook or fade), not a straight line
+// The aim line as it was when you pressed Throw (before the timing window changed anything), in the frame of the throw: feet to the right and feet forward.
+// The wedge keeps this curve for the whole of the arm stage; only how far along it you get depends on the arm speed.
+function refPath() {
+  const lie = lieOf();
+  const { ux, uy, rx, ry } = G.headingVec(heading());
+  return previewNow(lie).pv.line.map((p) => ({ f: (p.x - lie.x) * ux + (p.y - lie.y) * uy, r: (p.x - lie.x) * rx + (p.y - lie.y) * ry }));
+}
+// where `d` feet along that curve is (past its end it carries on straight along its last bearing)
+function refAt(ref, d) {
+  let run = 0;
+  for (let i = 1; i < ref.length; i++) {
+    const seg = Math.hypot(ref[i].f - ref[i - 1].f, ref[i].r - ref[i - 1].r);
+    if (run + seg >= d && seg > 0) { const t = (d - run) / seg; return { f: ref[i - 1].f + (ref[i].f - ref[i - 1].f) * t, r: ref[i - 1].r + (ref[i].r - ref[i - 1].r) * t }; }
+    run += seg;
+  }
+  const a = ref[Math.max(0, ref.length - 4)];
+  const b = ref.at(-1);
+  const l = Math.hypot(b.f - a.f, b.r - a.r) || 1;
+  return { f: b.f + ((b.f - a.f) / l) * (d - run), r: b.r + ((b.r - a.r) / l) * (d - run) };
+}
+// how far each arm speed carries, from here (with the nose and hyzer chosen), laid along the curve the throw had before the timing window
 function buildRuler() {
   const d = curDisc();
   const lie = lieOf();
+  const ref = S.meter?.ref;
+  const { ux, uy, rx, ry } = G.headingVec(heading());
   const R = [];
   for (let mph = G.ARM.min; mph <= G.ARM.max; mph += G.ARM.step) {
     const end = G.previewThrow(S.hole, d, S.settings, heading(), lie, 8, { mph, nose: S.settings.nose || 0, angle: S.settings.angle || 0 }).end; // with the nose and hyzer chosen in the timing window
-    R.push({ mph, x: end.x, y: end.y, ft: Math.round(G.distance(lie, end)), pos: G.powerPos(mph) });
-  }
-  for (let pass = 0; pass < 2; pass++) { // a light smoothing, so the slow end (where a step of speed is a few feet) is not jittery
-    const xs = R.map((r) => r.x);
-    const ys = R.map((r) => r.y);
-    for (let i = 1; i < R.length - 1; i++) { R[i].x = (xs[i - 1] + 2 * xs[i] + xs[i + 1]) / 4; R[i].y = (ys[i - 1] + 2 * ys[i] + ys[i + 1]) / 4; }
+    const ft = G.distance(lie, end);
+    const q = ref ? refAt(ref, ft) : { f: ft, r: 0 };
+    R.push({ mph, x: lie.x + ux * q.f + rx * q.r, y: lie.y + uy * q.f + ry * q.r, ft: Math.round(ft), pos: G.powerPos(mph) });
   }
   return R;
 }
@@ -1081,7 +1100,7 @@ function panelMetersStyle() {
         : 'The wedge fills and drains along the line to the basket. Tap anywhere (or the button) to putt when the fill reaches the lit stretch: that is the push this putt needs (more uphill, less downhill). All three have to be right to drop it.',
     power: 'Drag the hole to aim. The wedge fills and drains with your arm speed: tap anywhere on the hole (or the button) to throw at the speed it is at. The lit stretch is the sweet spot for the nose and hyzer you chose, and the dashed line is the flight at that speed.',
     nose: 'The disc pitches up and down. Tap when it is in the lime arc. Nose up lifts the disc and spends distance; nose down keeps it low and short.',
-    angle: 'The disc tilts one way and the other. Tap when it is in the lime arc: tipped right is hyzer, left is anhyzer, level is flat.',
+    angle: 'The disc tilts one way and the other. Tap when it is in the lime arc: hyzer tips the outside edge down, anhyzer the other way, and level is flat.',
     release: `Tap as the ring closes on the green ring. Early (white) goes toward the turn side, late (orange) toward the fade side.${risk ? ` <b>${risk}% chance the disc slips</b>: a slow arm can grip lock or let go early.` : ''}`,
   };
   const brief = (h) => (isPhone() && tipSeen() ? `${String(h).split('. ')[0].replace(/\.$/, '')}.` : h);
@@ -1179,9 +1198,14 @@ function drawDial(cvs, stage, v, state) {
   const cy = w * 0.62;
   const ar = w * 0.4;
   const sweep = DIAL_SWEEP[stage];
+  const sgn = stage === 'angle' && S.settings.hand !== 'left' ? -1 : 1; // hyzer drops the left edge for a right-hander (and the right for a left-hander); anhyzer the other
   const arc = (a0, a1, style, lw) => { g.beginPath(); g.arc(cx, cy, ar, rad(-90 + a0), rad(-90 + a1)); g.strokeStyle = style; g.lineWidth = lw; g.lineCap = 'butt'; g.stroke(); };
   arc(-sweep, sweep, 'rgba(238,241,232,0.2)', w * 0.07);
-  for (const b of m.sweet?.[stage] || []) arc((b.from * 2 - 1) * sweep, Math.max((b.to * 2 - 1) * sweep, (b.from * 2 - 1) * sweep + 1.5), 'rgba(163,230,53,0.95)', w * 0.07);
+  for (const b of m.sweet?.[stage] || []) {
+    const lo = (b.from * 2 - 1) * sweep;
+    const hi = Math.max((b.to * 2 - 1) * sweep, lo + 1.5);
+    if (sgn > 0) arc(lo, hi, 'rgba(163,230,53,0.95)', w * 0.07); else arc(-hi, -lo, 'rgba(163,230,53,0.95)', w * 0.07);
+  }
   g.beginPath(); // the middle tick: flat, or level
   g.moveTo(cx, cy - ar - w * 0.06);
   g.lineTo(cx, cy - ar + w * 0.06);
@@ -1196,7 +1220,7 @@ function drawDial(cvs, stage, v, state) {
   g.lineWidth = 1;
   g.stroke();
   g.setLineDash([]);
-  const deg = v == null ? 0 : (v * 2 - 1) * sweep;
+  const deg = v == null ? 0 : (v * 2 - 1) * sweep * sgn;
   if (v != null) { // a dot on the arc where it points
     const a = rad(-90 + deg);
     g.beginPath();
@@ -1206,7 +1230,7 @@ function drawDial(cvs, stage, v, state) {
   }
   g.save();
   g.translate(cx, cy);
-  g.rotate(rad(stage === 'angle' ? deg : -deg)); // hyzer tips the right side down; nose up lifts the front (the right)
+  g.rotate(rad(stage === 'angle' ? deg : -deg)); // (the hyzer dial's sign is already flipped for the hand); nose up lifts the front (the right)
   const len = ar * 0.78;
   const th = stage === 'angle' ? w * 0.06 : w * 0.045;
   g.beginPath();
