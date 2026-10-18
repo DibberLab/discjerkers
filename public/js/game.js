@@ -918,7 +918,12 @@ function startMeter() {
 function refPath() {
   const lie = lieOf();
   const { ux, uy, rx, ry } = G.headingVec(heading());
-  return previewNow(lie).pv.line.map((p) => ({ f: (p.x - lie.x) * ux + (p.y - lie.y) * uy, r: (p.x - lie.x) * rx + (p.y - lie.y) * ry }));
+  const ref = previewNow(lie).pv.line.map((p) => ({ f: (p.x - lie.x) * ux + (p.y - lie.y) * uy, r: (p.x - lie.x) * rx + (p.y - lie.y) * ry }));
+  for (let pass = 0; pass < 2; pass++) { // a light smoothing, so the curve has no corners (the ends stay put)
+    const c = ref.map((q) => ({ ...q }));
+    for (let i = 1; i < ref.length - 1; i++) { ref[i].f = (c[i - 1].f + 2 * c[i].f + c[i + 1].f) / 4; ref[i].r = (c[i - 1].r + 2 * c[i].r + c[i + 1].r) / 4; }
+  }
+  return ref;
 }
 // where `d` feet along that curve is (past its end it carries on straight along its last bearing)
 function refAt(ref, d) {
@@ -1090,32 +1095,29 @@ function wedgeMeter(g, proj) {
 function screenWedge(g) {
   const m = S.meter;
   const W_ = wedgeGeom();
-  const lie = lieOf();
-  const { ux, uy, rx, ry } = G.headingVec(heading());
   const top = 86;
   const bottom = H - (S.dockV ?? S.dock) - 26;
-  const maxFt = W_.pts.at(-1).ft;
+  const last = W_.pts.length - 1;
+  const maxFt = W_.pts[last].ft;
   const cx = W / 2;
   const yOf = (ft) => bottom - (ft / maxFt) * (bottom - top);
   const kx = ((bottom - top) / maxFt) * 1.0; // the curve, to the same scale as the length
   const half = (ft) => 9 + 44 * (ft / maxFt);
-  const rOf = (p) => (p.x - lie.x) * rx + (p.y - lie.y) * ry;
-  const rs = W_.pts.map(rOf);
-  const at = (f, side) => { const k = Math.min(W_.pts.length - 2, Math.max(0, Math.floor(f))); const t = f - k; const ft = W_.pts[k].ft + (W_.pts[k + 1].ft - W_.pts[k].ft) * t; const r = rs[k] + (rs[k + 1] - rs[k]) * t; return { x: cx + r * kx + side * half(ft), y: yOf(ft), ft }; };
+  const ftAt = (f) => { const k = Math.min(last - 1, Math.max(0, Math.floor(f))); return W_.pts[k].ft + (W_.pts[k + 1].ft - W_.pts[k].ft) * (f - k); }; // feet at a place between the ruler's ticks
+  const edge = (ft, side) => ({ x: cx + (m.ref ? refAt(m.ref, ft).r : 0) * kx + side * half(ft), y: yOf(ft) });
+  // the outline is sampled every few feet along the curve itself (not joined up from the ruler's coarse ticks), so it is smooth
   const shape = (a, b) => {
-    const idx = [a];
-    for (let k = Math.floor(a) + 1; k < b; k++) idx.push(k);
-    idx.push(b);
+    const n = Math.max(2, Math.ceil((b - a) / 3));
     g.beginPath();
-    idx.forEach((f, n) => { const q = at(f, -1); if (n) g.lineTo(q.x, q.y); else g.moveTo(q.x, q.y); });
-    [...idx].reverse().forEach((f) => { const q = at(f, 1); g.lineTo(q.x, q.y); });
+    for (let i = 0; i <= n; i++) { const q = edge(a + ((b - a) * i) / n, -1); if (i) g.lineTo(q.x, q.y); else g.moveTo(q.x, q.y); }
+    for (let i = n; i >= 0; i--) { const q = edge(a + ((b - a) * i) / n, 1); g.lineTo(q.x, q.y); }
     g.closePath();
   };
   const v = G.powerAt((now() - m.start) / 1000);
   const mph = G.mphAt(v);
   const f = fillIndex(v);
+  const headFt = ftAt(f);
   const ok = (i) => !!m.sweetRaw?.ok?.[i - 1];
-  const last = W_.pts.length - 1;
   const word = (text, x, y, color, size, align = 'center', font = '"Anton", Impact, sans-serif') => {
     g.font = `400 ${size}px ${font}`;
     g.textAlign = align;
@@ -1128,7 +1130,7 @@ function screenWedge(g) {
   };
   g.save();
   g.lineJoin = 'round';
-  shape(0, last); // the empty wedge
+  shape(0, maxFt); // the empty wedge
   g.fillStyle = 'rgba(6,11,7,0.38)';
   g.fill();
   g.strokeStyle = 'rgba(238,241,232,0.55)';
@@ -1139,23 +1141,25 @@ function screenWedge(g) {
     if (!ok(k)) continue;
     let e = k;
     while (e + 1 <= last && ok(e + 1)) e++;
-    shape(Math.max(0, k - 0.5), Math.min(last, e + 0.5));
+    const a = ftAt(Math.max(0, k - 0.5));
+    const b = ftAt(Math.min(last, e + 0.5));
+    shape(a, b);
     g.fillStyle = 'rgba(163,230,53,0.34)';
     g.fill();
     g.strokeStyle = 'rgba(163,230,53,1)';
     g.lineWidth = 2.6;
     g.stroke();
-    if (!best || e - k > best.to - best.from) best = { from: k, to: e };
+    if (!best || b - a > best.b - best.a) best = { a, b };
     k = e;
   }
   const inSweet = ok(Math.round(f)) || ok(Math.ceil(f)) || ok(Math.floor(f));
-  if (f > 0.05) { // the fill
-    shape(0, f);
+  if (headFt > 2) { // the fill
+    shape(0, headFt);
     g.fillStyle = inSweet ? 'rgba(163,230,53,0.66)' : 'rgba(238,241,232,0.5)';
     g.fill();
   }
   for (let ft = 100; ft < maxFt; ft += 100) { // a scale
-    const q = at(Math.max(0, W_.pts.findIndex((p) => p.ft >= ft) - 0.0), -1);
+    const q = edge(ft, -1);
     g.beginPath();
     g.moveTo(q.x - 6, q.y);
     g.lineTo(q.x + 8, q.y);
@@ -1164,14 +1168,10 @@ function screenWedge(g) {
     g.stroke();
     word(`${ft}`, q.x - 12, q.y, 'rgba(238,241,232,0.9)', 11, 'right', '"Space Mono", monospace');
   }
-  const bdist = G.distance(lie, S.hole.basket); // where the basket is along it
-  if (bdist < maxFt) {
-    const k = Math.max(1, W_.pts.findIndex((p) => p.ft >= bdist));
-    const q = at(k, 1);
-    word('◂ BASKET', q.x + 8, q.y, '#d35400', 11, 'left', '"Space Mono", monospace');
-  }
-  const hl = at(f, -1);
-  const hr = at(f, 1);
+  const bdist = G.distance(lieOf(), S.hole.basket); // where the basket is along it
+  if (bdist < maxFt) word('◂ BASKET', edge(bdist, 1).x + 8, yOf(bdist), '#d35400', 11, 'left', '"Space Mono", monospace');
+  const hl = edge(headFt, -1);
+  const hr = edge(headFt, 1);
   g.beginPath();
   g.moveTo(hl.x, hl.y);
   g.lineTo(hr.x, hr.y);
@@ -1179,12 +1179,10 @@ function screenWedge(g) {
   g.lineWidth = 5;
   g.lineCap = 'round';
   g.stroke();
-  word(`${mph} mph · ${Math.round(hl.ft)} ft`, hr.x + 12, hr.y - 14, inSweet ? '#a3e635' : '#eef1e8', 20, 'left');
+  word(`${mph} mph · ${Math.round(headFt)} ft`, hr.x + 12, hr.y - 14, inSweet ? '#a3e635' : '#eef1e8', 20, 'left');
   if (best) {
-    const k = Math.round((best.from + best.to) / 2);
-    const a = at(k, -1);
-    const b = at(k, 1);
-    word('SWEET SPOT', (a.x + b.x) / 2, a.y, '#a3e635', 11, 'center', '"Space Mono", monospace'); // (inside the lit stretch)
+    const mid = (best.a + best.b) / 2;
+    word('SWEET SPOT', (edge(mid, -1).x + edge(mid, 1).x) / 2, yOf(mid), '#a3e635', 11, 'center', '"Space Mono", monospace'); // (inside the lit stretch)
   }
   g.restore();
 }
@@ -3247,8 +3245,16 @@ function powerOverlay(g, ground, air, lie) {
   const m = S.meter;
   if (m.putt) { wedgeMeter(g, ground); return; } // (a putt is a line on the ground)
   screenWedge(g); // a drive: the perspective squashes the far end of a wedge laid on the ground, so it is drawn flat on the screen, bottom to top
-  const mph = G.mphAt(G.powerAt((now() - m.start) / 1000));
-  const line = (m.lines ||= {})[mph] ||= G.previewThrow(S.hole, curDisc(), S.settings, heading(), lie, 28, { mph, nose: S.settings.nose || 0, angle: S.settings.angle || 0 }).line;
+  const W_ = wedgeGeom();
+  const f = fillIndex(G.powerAt((now() - m.start) / 1000));
+  const k = Math.min(W_.pts.length - 2, Math.max(0, Math.floor(f)));
+  const raw = W_.pts[k].mph + (W_.pts[k + 1].mph - W_.pts[k].mph) * (f - k); // the arm speed between the ruler's steps, so the flight glides instead of stepping
+  const lineAt = (mph) => ((m.lines ||= {})[mph] ||= G.previewThrow(S.hole, curDisc(), S.settings, heading(), lie, 28, { mph, nose: S.settings.nose || 0, angle: S.settings.angle || 0 }).line);
+  const lo = clamp(Math.floor((raw - G.ARM.min) / G.ARM.step) * G.ARM.step + G.ARM.min, G.ARM.min, G.ARM.max - G.ARM.step);
+  const t = clamp((raw - lo) / G.ARM.step, 0, 1);
+  const A = lineAt(lo);
+  const B = lineAt(lo + G.ARM.step);
+  const line = A.length !== B.length ? A : A.map((p, i) => ({ x: p.x + (B[i].x - p.x) * t, y: p.y + (B[i].y - p.y) * t, h: (p.h || 0) + ((B[i].h || 0) - (p.h || 0)) * t }));
   g.setLineDash([8, 6]);
   g.beginPath();
   let on = false;
