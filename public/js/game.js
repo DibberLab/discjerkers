@@ -5,7 +5,7 @@
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, COURSES, courseById, holeById, holesFor } from './course.js?v=14';
-import * as G from './gamecore.js?v=35';
+import * as G from './gamecore.js?v=36';
 import * as T from './trash.js?v=11';
 import * as C3 from './cam3d.js?v=23';
 import * as FO from './foliage.js?v=2';
@@ -1002,13 +1002,27 @@ function fillIndex(v) {
   }
   return pts.length - 1;
 }
+// The arm-speed fill: it rises up the wedge at a steady pace by distance (not eased: the old bar crawled at the bottom and whipped through the top, where the sweet spot is)
+// and drains at the same pace. `f` is where it has got to along the wedge, `mph` the arm speed that distance stands for (what you throw if you tap now).
+const ARM_PERIOD = 3.2; // seconds for the fill to rise and drain once
+function armAt(m, sec) {
+  const pts = wedgeGeom().pts;
+  const last = pts.length - 1;
+  const ft = ((G.needleAt(sec, ARM_PERIOD) + 1) / 2) * pts[last].ft;
+  let k = 0;
+  while (k < last - 1 && pts[k + 1].ft < ft) k++;
+  const span = pts[k + 1].ft - pts[k].ft || 1;
+  const t = clamp((ft - pts[k].ft) / span, 0, 1);
+  const raw = pts[k].mph + (pts[k + 1].mph - pts[k].mph) * t;
+  return { f: k + t, mph: clamp(Math.round(raw / G.ARM.step) * G.ARM.step, G.ARM.min, G.ARM.max) };
+}
 function wedgeMeter(g, proj) {
   const m = S.meter;
   const W_ = wedgeGeom();
   const sec = (now() - m.start) / 1000;
-  const v = m.putt ? (G.needleAt(sec, m.pP) + 1) / 2 : G.powerAt(sec);
-  const mph = m.putt ? 0 : G.mphAt(v);
-  const f = fillIndex(v);
+  const arm = m.putt ? null : armAt(m, sec);
+  const mph = arm ? arm.mph : 0;
+  const f = arm ? arm.f : fillIndex((G.needleAt(sec, m.pP) + 1) / 2);
   const ok = (i) => !!m.sweetRaw?.ok?.[i - 1];
   const last = W_.pts.length - 1;
   g.save();
@@ -1099,9 +1113,9 @@ function screenWedge(g) {
     for (let i = n; i >= 0; i--) { const q = edge(a + ((b - a) * i) / n, 1); g.lineTo(q.x, q.y); }
     g.closePath();
   };
-  const v = G.powerAt((now() - m.start) / 1000);
-  const mph = G.mphAt(v);
-  const f = fillIndex(v);
+  const arm = armAt(m, (now() - m.start) / 1000);
+  const mph = arm.mph;
+  const f = arm.f;
   const headFt = ftAt(f);
   const ok = (i) => !!m.sweetRaw?.ok?.[i - 1];
   const word = (text, x, y, color, size, align = 'center', font = '"Anton", Impact, sans-serif') => {
@@ -1470,7 +1484,7 @@ function tapMeters(m, t, next) {
     next('power');
     toast(`Release: ${m.ex.grade}`, m.ex.pure ? 'good' : m.ex.grade === 'Shank' ? 'bad' : '', 1100);
   } else if (S.phase === 'power') {
-    m.mph = G.mphAt(G.powerAt(t));
+    m.mph = armAt(m, t).mph;
     S.settings.mph = m.mph;
     S.settings.spin = null;
     throwDisc(S.mode === 'match' ? m.ex : G.applySlip(m.ex, G.rollSlip(curDisc(), S.settings, Math.random()))); // no swipe: the timing and the wedge are the whole throw
@@ -3221,7 +3235,7 @@ function powerOverlay(g, ground, air, lie) {
   if (m.putt) { wedgeMeter(g, ground); return; } // (a putt is a line on the ground)
   screenWedge(g); // a drive: the perspective squashes the far end of a wedge laid on the ground, so it is drawn flat on the screen, bottom to top
   const W_ = wedgeGeom();
-  const f = fillIndex(G.powerAt((now() - m.start) / 1000));
+  const f = armAt(m, (now() - m.start) / 1000).f;
   const k = Math.min(W_.pts.length - 2, Math.max(0, Math.floor(f)));
   const raw = W_.pts[k].mph + (W_.pts[k + 1].mph - W_.pts[k].mph) * (f - k); // the arm speed between the ruler's steps, so the flight glides instead of stepping
   const lineAt = (mph) => ((m.lines ||= {})[mph] ||= G.previewThrow(S.hole, curDisc(), S.settings, heading(), lie, 28, { mph, nose: S.settings.nose || 0, angle: S.settings.angle || 0 }).line);
@@ -3540,7 +3554,7 @@ function update(t) {
     if (read && read.dataset.t !== text) { read.dataset.t = text; read.innerHTML = text; }
   }
   else if (m?.classic && S.phase === 'power' && m.ruler) {
-    const mph = G.mphAt(G.powerAt((t - m.start) / 1000));
+    const mph = armAt(m, (t - m.start) / 1000).mph;
     const read = $('#gm-read');
     const text = powerReadout(mph);
     if (read && read.dataset.t !== text) { read.dataset.t = text; read.innerHTML = text; }

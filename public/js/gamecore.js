@@ -181,6 +181,7 @@ const PERFECT = { o: 0, pure: false, sloppy: 0, grade: 'Preview' };
 // is "as close as this disc can get" and near the basket it is "a putt you can make". Trees and water count: it plays
 // each candidate through resolveThrow with a clean release.
 export const SWEET_SLACK = 20;
+export const ARM_SLACK = 34; // the arm-speed stage of the meters style is a fill you have to stop: its sweet spot is wider (feet of landing)
 const SWEET_RELEASE = { o: 0, pure: false, sloppy: 0, grade: 'Sweet' };
 export const ANGLES = Array.from({ length: ANGLE_MAX * 2 + 1 }, (_, i) => i - ANGLE_MAX);
 // The sweet spots are worked out by playing candidates through resolveThrow, which is a lot of throws (hundreds), so it is a job that can be done
@@ -215,7 +216,8 @@ export function sweetJob(hole, disc, base, aimDeg, from, stage) {
     },
     result() {
       const best = Math.min(...dist);
-      return { stage, values, dist: [...dist], best, ok: dist.map((d) => d <= best + SWEET_SLACK) };
+      const slack = stage === 'arm' ? ARM_SLACK : SWEET_SLACK;
+      return { stage, values, dist: [...dist], best, ok: dist.map((d) => d <= best + slack) };
     },
   };
 }
