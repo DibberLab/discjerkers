@@ -21,6 +21,7 @@ import * as K from './conditions.js?v=10';
 import * as DLY from './daily.js?v=1';
 import * as GP from './gamepanels.js?v=3';
 import * as PR from './progress.js?v=2';
+import { initOnline } from './online.js?v=2';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -5196,6 +5197,7 @@ async function boot() {
   // a link to a match (?match=CODE): read it before the page tidies its own address
   const code = (new URLSearchParams(location.search).get('match') || '').toUpperCase();
   if (!QUICK) await loadAccount();
+  initOnline($('#gm-online'));
   GR.warm(courseHoles()[0]);
   FO.start(() => { still.trees = null; }); // the drawn trees are made in the background; the map's cached picture of them is redone once they are
   showMenu();

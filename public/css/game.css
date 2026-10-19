@@ -621,3 +621,10 @@
 .gm-quickbag .disc { --disc: 34px; flex: none; }
 .gm-quickbag span { display: grid; gap: 1px; min-width: 0; }
 .gm-quickbag small { font: 0.56rem/1.2 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--bone-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* the "playing now" footnote, bottom right */
+.gm-online { position: fixed; right: 10px; bottom: 5px; z-index: 39; pointer-events: none; font: 700 0.5rem/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--bone-faint, rgba(238, 241, 232, 0.4)); text-shadow: 0 1px 2px #000; white-space: nowrap; }
+.gm-online[hidden] { display: none; }
+@media (max-width: 900px) {
+  .gm-online { right: 8px; bottom: calc(36px + var(--gm-sb, 0px)); font-size: 0.46rem; }
+}
