@@ -337,6 +337,7 @@ function setPhase(phase, focusSel) {
   syncTop();
   renderPanel(focusSel);
   syncMini();
+  syncCam();
   updateHud();
   showKeys();
 }
@@ -1223,12 +1224,86 @@ function screenWedge(g) {
   }
   g.restore();
 }
+// The push of a putt as a plain vertical meter down the left of the screen, with the sweet stretch lit: the wedge on the ground (kept as it was) is foreshortened in
+// the 3D view, and this one reads at a glance. Same fill, same lit stretch, a straight scale in feet.
+function verticalMeter(g) {
+  const m = S.meter;
+  if (!m?.putt || !m.ruler || !m.sweetRaw) return;
+  const top = 118;
+  const bottom = Math.max(top + 120, H - (S.dockV ?? S.dock) - 96);
+  const x = Math.max(14, 14);
+  const w = 30;
+  const maxFt = m.maxFt;
+  const yOf = (ft) => bottom - (ft / maxFt) * (bottom - top);
+  const v = (G.needleAt((now() - m.start) / 1000, m.pP) + 1) / 2;
+  const ft = v * maxFt;
+  const step = maxFt / m.ruler.length;
+  const ok = m.sweetRaw.ok;
+  const inSweet = !!ok[clamp(Math.round(ft / step) - 1, 0, ok.length - 1)];
+  g.save();
+  g.fillStyle = 'rgba(6,11,7,0.72)'; // the bar
+  g.fillRect(x - 3, top - 22, w + 56, bottom - top + 30);
+  g.strokeStyle = 'rgba(238,241,232,0.5)';
+  g.lineWidth = 1.5;
+  g.strokeRect(x, top, w, bottom - top);
+  for (let i = 0; i < ok.length; i++) { // the sweet stretch
+    if (!ok[i]) continue;
+    let e = i;
+    while (e + 1 < ok.length && ok[e + 1]) e++;
+    const y0 = yOf((e + 1) * step);
+    const y1 = yOf(i * step);
+    g.fillStyle = 'rgba(163,230,53,0.34)';
+    g.fillRect(x, y0, w, Math.max(3, y1 - y0));
+    g.strokeStyle = '#a3e635';
+    g.lineWidth = 2;
+    g.strokeRect(x, y0, w, Math.max(3, y1 - y0));
+    i = e;
+  }
+  g.fillStyle = inSweet ? 'rgba(163,230,53,0.7)' : 'rgba(238,241,232,0.5)'; // the fill
+  g.fillRect(x + 2, yOf(ft), w - 4, bottom - yOf(ft));
+  g.font = '400 11px "Space Mono", monospace';
+  g.textAlign = 'left';
+  g.textBaseline = 'middle';
+  g.fillStyle = 'rgba(238,241,232,0.9)';
+  const every = maxFt > 60 ? 20 : 10; // a scale in feet
+  for (let f = every; f < maxFt; f += every) {
+    g.beginPath();
+    g.moveTo(x + w, yOf(f));
+    g.lineTo(x + w + 5, yOf(f));
+    g.strokeStyle = 'rgba(238,241,232,0.7)';
+    g.lineWidth = 1.2;
+    g.stroke();
+    g.fillText(String(f), x + w + 8, yOf(f));
+  }
+  const b = toBasket(); // where the basket is
+  if (b < maxFt) { g.fillStyle = '#d35400'; g.fillText('◂', x + w + 8, yOf(b)); g.fillText('hoop', x + w + 18, yOf(b)); }
+  g.strokeStyle = inSweet ? '#a3e635' : '#eef1e8'; // the head
+  g.lineWidth = 4;
+  g.lineCap = 'round';
+  g.beginPath();
+  g.moveTo(x - 6, yOf(ft));
+  g.lineTo(x + w + 6, yOf(ft));
+  g.stroke();
+  g.font = '400 20px "Anton", Impact, sans-serif';
+  g.textBaseline = 'bottom';
+  g.lineWidth = 4;
+  g.strokeStyle = 'rgba(6,11,7,0.85)';
+  g.strokeText(`${Math.round(ft)} ft`, x + w + 14, yOf(ft) - 4);
+  g.fillStyle = inSweet ? '#a3e635' : '#eef1e8';
+  g.fillText(`${Math.round(ft)} ft`, x + w + 14, yOf(ft) - 4);
+  g.font = '700 10px "Space Mono", monospace';
+  g.textBaseline = 'alphabetic';
+  g.fillStyle = '#a3e635';
+  g.fillText('PUSH', x, top - 8);
+  g.restore();
+}
 // on the map (3D off) the same wedge is drawn over the hole
 function drawPowerMeter() {
   const m = S.meter;
   if (m?.classic && m.putt && S.phase === 'putt' && m.stage !== 'power') { const [x, y] = P(S.hole.basket.x, S.hole.basket.y); puttAim(ctx, x, y); return; } // the line and the height, over the basket
   if (!m?.classic || !(S.phase === 'power' || (S.phase === 'putt' && m.stage === 'power')) || !m.ruler) return;
   wedgeMeter(ctx, (p) => { const [x, y] = P(p.x, p.y); return { x, y }; });
+  verticalMeter(ctx);
 }
 
 // the panel of the meters style: the power stage, or a short note beside the timing window
@@ -2234,7 +2309,7 @@ const WHY_WORDS = { weak: 'TOO SOFT', strong: 'TOO HARD', left: 'PULLED LEFT', r
 function puttReaction(result, who, name = '') {
   const [word0, tone] = PUTT_WORDS[result.finish] || (result.made ? ['Chains!', 'good'] : ['Missed', 'bad']);
   const word = result.finish === 'miss' && WHY_WORDS[result.why] ? WHY_WORDS[result.why] : word0;
-  if (!(CAM.on && watching3D(who))) toast(`${name}${word}`, tone, 1500);
+  if (!watchingPutt3D(who)) toast(`${name}${word}`, tone, 1500);
   else if (name) toast(`${name}${word}`, tone, 1200);
   if (who === 'me' && navigator.vibrate) navigator.vibrate(result.made ? [30, 40, 30, 60, 90] : result.nasty ? [90, 50, 90] : [140, 90, 300]);
 }
@@ -2362,17 +2437,22 @@ const cam = { x: 0, y: 200, s: 0.6, tx: 0, ty: 200, ts: 0.6 };
 const ZOOM = { min: 1, max: 3.4, step: 1.45 };
 
 // The 3D camera is on for everyone, with a 3D switch over the hole to turn it off (remembered). /game?cam=off or ?cam=3d set it too.
-const CAM = { on: true };
+// Putting has its own switch (`putt`): it is in the 3D view by default whatever you chose for the throws, and the 3D chip turns off whichever you are in (the throws', or the putting's).
+const CAM = { on: true, putt: true };
+let syncCam = () => {}; // (the chip over the hole, once the page has made it)
 function loadCam() {
   try {
     const q = new URLSearchParams(location.search).get('cam');
-    if (q === '3d') localStorage.setItem('dj_cam', 'on');
-    else if (q === 'off') localStorage.setItem('dj_cam', 'off');
+    if (q === '3d') { localStorage.setItem('dj_cam', 'on'); localStorage.setItem('dj_cam_putt', 'on'); }
+    else if (q === 'off') { localStorage.setItem('dj_cam', 'off'); localStorage.setItem('dj_cam_putt', 'off'); }
     CAM.on = localStorage.getItem('dj_cam') !== 'off';
+    CAM.putt = localStorage.getItem('dj_cam_putt') !== 'off';
   } catch { /* on */ }
 }
 // whose throws are watched in 3D: yours, and in a match of two everybody's; in a bigger group the others' stay on the map so the game keeps moving
 const watching3D = (who) => CAM.on && (!who || who === 'me' || !S.mp || S.mp.view.players.filter((p) => !p.left).length <= 2);
+// the same, for a putt: its own switch, so a player who turned the 3D view off for the throws still putts in 3D
+const watchingPutt3D = (who) => CAM.putt && (!who || who === 'me' || !S.mp || S.mp.view.players.filter((p) => !p.left).length <= 2);
 const camDur = (ms) => (CAM.on ? Math.round(ms * 1.45) : ms); // a flight you ride is worth a little longer
 
 function resize() {
@@ -3133,8 +3213,8 @@ const riding = () => CAM.on && S.anim?.type === 'flight' && !S.anim.putt && S.an
 // Putting stays in the 3D view from the moment you are in range until you are done: the camera stands behind your disc, looking at
 // the basket, and glides to the next spot after a miss.
 const puttingIn3D = () => {
-  if (!CAM.on || !S.round || S.anim?.fail3d) return false;
-  if (S.phase === 'flight') return !!S.anim?.putt && watching3D(S.last?.who);
+  if (!CAM.putt || !S.round || S.anim?.fail3d) return false;
+  if (S.phase === 'flight') return !!S.anim?.putt && watchingPutt3D(S.last?.who);
   return ['pick', 'putt', 'swipe', 'result'].includes(S.phase) && !S.round.done && inPutt();
 };
 function drawPutt3D(t) {
@@ -3191,7 +3271,7 @@ function drawPutt3D(t) {
   const player = playerFig(lie, Math.atan2(dir.x, dir.y), 'putt', a ? a.hand : S.settings.hand, a ? t - (a.t0 - (a.lead || 0)) : -1, puttColor);
   const pm = !a && S.phase === 'putt' && S.meter?.classic && S.meter.putt && S.meter.ruler ? S.meter : null;
   const wedge = !pm ? null : pm.stage === 'power'
-    ? (g) => wedgeMeter(g, (p) => C3.project(c, view, p.x, p.y, C3.groundAt(S.hole, p.x, p.y) + 0.15)) // the push: the wedge along the line to the basket
+    ? (g) => { wedgeMeter(g, (p) => C3.project(c, view, p.x, p.y, C3.groundAt(S.hole, p.x, p.y) + 0.15)); verticalMeter(g); } // the push: the wedge along the line to the basket (on the ground, as it was), and beside it a plain vertical meter
     : (g) => { const q = C3.project(c, view, b.x, b.y, gnd(b.x, b.y) + C3.RING_H - 0.55); if (q) puttAim(g, q.x, q.y); }; // the line and the height: centred on the chains, up near their top band (not the tray down below)
   C3.drawScene(ctx, { hole: S.hole, cam: c, view, disc, trail, dz: 1, chain, dusk: S.hole.weather?.dusk || 0, color: puttColor, t, player, hideDisc: a ? t < a.t0 : false, overlay: wedge });
   S.pfov = sc ? PF.drawPuttFx(ctx, { cam: c, view, hole: S.hole, W, H }, sc, ms, a.result).fov : 0;
@@ -3559,8 +3639,8 @@ function drawWorld(t) {
   // a drawing mistake must never freeze the game: fall back to the map for this throw
   if (in3d) {
     try { draw3D(t); return; } catch (err) { console.error('3D ride failed, using the map', err); S.anim.fail3d = true; stage.classList.remove('is-3d'); }
-  } else if (CAM.on && puttingIn3D() && S.mode !== 'menu') {
-    try { drawPutt3D(t); return; } catch (err) { console.error('3D putt view failed, using the map', err); CAM.on = false; S.pcam = null; }
+  } else if (puttingIn3D() && S.mode !== 'menu') {
+    try { drawPutt3D(t); return; } catch (err) { console.error('3D putt view failed, using the map', err); CAM.putt = false; S.pcam = null; syncCam(); }
   } else if (aimIn3D()) {
     if (!stage.classList.contains('is-aim')) stage.classList.add('is-aim');
     try { drawAim3D(t); return; } catch (err) { console.error('3D aim view failed, using the map', err); S.aimFail = true; S.acam = null; stage.classList.remove('is-aim'); }
@@ -4980,9 +5060,14 @@ async function boot() {
   });
   loadCam();
   const camBtn = $('#gm-cam');
-  const showCam = () => { camBtn.hidden = false; camBtn.setAttribute('aria-pressed', String(CAM.on)); camBtn.textContent = CAM.on ? '3D on' : '3D off'; };
+  const putting = () => !!S.round && S.mode !== 'menu' && inPutt(); // (the chip is the putting's switch while you are in putting range, the throws' otherwise)
+  const showCam = () => { const on = putting() ? CAM.putt : CAM.on; camBtn.hidden = false; camBtn.setAttribute('aria-pressed', String(on)); camBtn.textContent = on ? '3D on' : '3D off'; };
+  syncCam = showCam;
   showCam();
-  camBtn.addEventListener('click', () => { CAM.on = !CAM.on; try { localStorage.setItem('dj_cam', CAM.on ? 'on' : 'off'); } catch { /* not saved */ } showCam(); });
+  camBtn.addEventListener('click', () => {
+    if (putting()) { CAM.putt = !CAM.putt; S.pcam = null; try { localStorage.setItem('dj_cam_putt', CAM.putt ? 'on' : 'off'); } catch { /* not saved */ } } else { CAM.on = !CAM.on; try { localStorage.setItem('dj_cam', CAM.on ? 'on' : 'off'); } catch { /* not saved */ } }
+    showCam();
+  });
   new ResizeObserver(resize).observe($('#gm-stage'));
   resize();
 
