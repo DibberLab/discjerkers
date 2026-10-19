@@ -17,7 +17,7 @@ test('the vibes are pools of real-looking public playlists, and one is picked at
       assert.ok(n >= 10, `${v.id}: ten or more videos`);
     }
   }
-  for (const want of ['mix', 'jazz', 'steely', 'ween', 'hiphop', 'metal', 'altrock', 'tinydesk', 'lofi', 'khruangbin', 'indie', 'altcountry']) assert.ok(M.VIBES.some((v) => v.id === want), want);
+  for (const want of ['mix', 'jazz', 'steely', 'ween', 'hiphop', 'doom', 'altrock', 'tinydesk', 'lofi', 'khruangbin', 'indie', 'altcountry']) assert.ok(M.VIBES.some((v) => v.id === want), want);
   const real = M.VIBES.filter((v) => v.id !== 'mix');
   assert.strictEqual(new Set(real.flatMap((v) => v.lists.map((l) => l[0]))).size, real.flatMap((v) => v.lists).length, 'no playlist is in two vibes');
   assert.strictEqual(M.VIBES.find((v) => v.id === 'mix').lists.length, real.flatMap((v) => v.lists).length, 'the shuffle draws from all of them');

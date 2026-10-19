@@ -9,7 +9,7 @@ export const VIBES = [
   { id: 'steely', name: 'Steely Dan', sub: 'the very best', lists: [['PLe8Z_l5Ergd0_7h2G8DEIjjMHCMByCK7t', 32], ['PLPRIqTHYO-0UpdzUnMmWt9HzdFrKqk152', 28], ['PL4cFJtUcmjZm34rOVb2d7e6Pe5TVGt6yS', 18], ['PLfGibfZATlGrHkjx50oD3emiYjAm6uz8t', 33], ['PLZANLIuAUVxwY_pyIH89AYanJ8gE6j6RM', 102], ['PL2aXYk9zKd22AKiapUvEqKetHoJeowq0z', 18]] },
   { id: 'ween', name: 'Ween', sub: 'best of', lists: [['PLiLi6hpW2yhzLsc7t41lT8CxXeYmlHwVK', 66], ['PLSkQ1J0aAZWWIQIF_6dOnSbFXrM1Jt7ws', 165], ['PLOEHye7OZuQ5F7ZtgmvALtOJKA29PjScU', 52], ['PL82A658F4293132A4', 19]] },
   { id: 'hiphop', name: 'Hip-hop', sub: 'boom bap to now', lists: [['PLqsBPTegBGMG3acuRYMLpDvgC-5esWrZA', 594], ['PLxA687tYuMWgEVasBziZoZ1Bk7JLnu-Rf', 109], ['PLwNv9Hhd8gZjeee8SBwokNf2JhqBvYqeB', 600], ['PL3Yek6nlMeQK7BoxKYDLMi-pjQXXSpo5Q', 30], ['PLiXZsbFff5pE3hkUVO0QK-qNFIoPGZmOI', 149]] },
-  { id: 'metal', name: 'Metal', sub: 'greatest songs', lists: [['PLmXxqSJJq-yUwqtbp8MHBoTDoDULMoViq', 134], ['PLhQCJTkrHOwSX8LUnIMgaTq3chP1tiTut', 136], ['PLDPzSUcGJPXQ-X2jJpl2aJ9B4pCAyh-9U', 40], ['PLGBuKfnErZlD_VXiQ8dkn6wdEYHbC3u0i', 100], ['PLcNnWb-FmHqtf5CYL50I8WV4SqlBoaZnX', 40]] },
+  { id: 'doom', name: 'Stoner doom', sub: 'fuzz, riffs, slow', lists: [['PLCSNb7TsONG68JX1ygQC7H3RFUkTy5DtW', 144], ['PLNsLUIE-J1TuiUfDxuEgjBGGu88oEqrtv', 79], ['PLuBbiAcdKBNecYJFzpOsmP7deZldMv4PU', 33], ['PLB15oumg1wiOnny8x8FfAxt81qyrEE1Ga', 70], ['PLTTFnSdb4qu16nVJbycS0qzQ7mbLFDHCc', 78], ['PL0F54F1D1FA99AE48', 67], ['PLIHL4G0UP2FQyoi4gUAkkzfybGI4KDvNf', 223]] },
   { id: 'altrock', name: 'Alt rock', sub: '90s and 2000s', lists: [['PLDyMXoYglQpJHbdicyynOj0x95_WUMsjX', 129], ['PLe1yk9GfziGef5c4pNRwVJdkvfB4tnH72', 130], ['PLZt1y58PWniX9ngr_S0sXGamktVkRuIde', 86], ['PLnbMLT2XNYyiILh4i6oQEjDUyT8pYI9Rp', 1933], ['PL6Lt9p1lIRZ311J9ZHuzkR5A3xesae2pk', 575]] },
   { id: 'tinydesk', name: 'Tiny Desk', sub: 'NPR Music', lists: [['PL1B627337ED6F55F0', 1458], ['PLaW73gfnuhn1QPkRQAbqmc3d-qwj5VK4P', 206], ['PL8vCM_9zBJQlJ6eQTBvANiGZwAmo6_lHy', 123]] },
   { id: 'lofi', name: 'Lo-fi', sub: 'beats to play to', lists: [['PLXIclLvfETS3AgCnZg4N6QqHu_T27XKIq', 76], ['PL6fhs6TSspZv0F0YgsG-p7Mn189CU2XKS', 321], ['PLe0XBeaAl1KElgUjwGuNtut0AdjryI4DD', 17]] },
@@ -42,7 +42,6 @@ export function initMusic(root) {
   let player = null;
   let status = 'idle'; // idle (no player yet) | loading | playing | paused | stuck (the browser would not start it: tap play again)
   let drawerOpen = false;
-  let shuffleNext = false;
   let errors = 0;
   let watchdog = 0;
   let broken = false;
@@ -93,14 +92,30 @@ export function initMusic(root) {
   const startIndex = (n) => Math.floor(Math.random() * Math.max(1, n * 0.9));
   let lastVid = null;
   let songs = 0;
+  // a random song from the playlist that is loaded (what 'next' is, here, so it never plays in order)
+  const playRandom = () => {
+    try {
+      const n = (player.getPlaylist() || []).length;
+      if (n > 1) player.playVideoAt(Math.floor(Math.random() * n)); else player.nextVideo();
+    } catch { /* gone */ }
+  };
+  // is the song that is playing from the playlist that was asked for? (after a switch, the old song goes on playing for a moment; nothing may be done to the new list until its own song starts)
+  const inList = () => { try { const ids = player.getPlaylist() || []; return ids.length > 0 && ids.includes(player.getVideoData().video_id); } catch { return false; } };
   // the shuffle vibe moves to another playlist now and then (a different genre, most likely)
-  const hop = () => {
-    const c = chooseList(vibeById('mix'));
+  // Switching lists. A plain loadPlaylist on a player that is playing plays the PREVIOUS list's songs (YouTube's player lags one load behind), so it is stopped first and the
+  // new list is loaded a moment later, which does switch (checked: four vibes in a row each played its own first song).
+  let switchTimer = 0;
+  const switchTo = (c) => {
     lastVid = null;
     songs = 0;
-    shuffleNext = true;
-    try { player.loadPlaylist({ listType: 'playlist', list: c.list, index: startIndex(c.n) }); player.setVolume(st.vol); } catch { /* gone */ }
+    clearTimeout(switchTimer);
+    try { player.stopVideo(); } catch { /* gone */ }
+    switchTimer = setTimeout(() => {
+      try { player.loadPlaylist({ listType: 'playlist', list: c.list, index: startIndex(c.n) }); player.setVolume(st.vol); } catch { /* gone */ }
+      arm();
+    }, 300);
   };
+  const hop = () => switchTo(chooseList(vibeById('mix')));
   const build = () => {
     status = 'loading';
     broken = false;
@@ -111,20 +126,22 @@ export function initMusic(root) {
         height: '200', width: '200',
         playerVars: { listType: 'playlist', list: c.list, index: startIndex(c.n), autoplay: 1, controls: 0, disablekb: 1, playsinline: 1, rel: 0, modestbranding: 1, origin: location.origin },
         events: {
-          onReady: (e) => { e.target.setVolume(st.vol); shuffleNext = true; e.target.playVideo(); arm(); },
+          onReady: (e) => { e.target.setVolume(st.vol); e.target.playVideo(); arm(); },
           onStateChange: (e) => {
             const S = window.YT.PlayerState;
             if (e.data === S.PLAYING) {
               clearTimeout(watchdog);
               status = 'playing';
               errors = 0;
-              if (shuffleNext) { shuffleNext = false; try { player.setShuffle(true); } catch { /* fine */ } }
-              const vid = player.getVideoData?.().video_id;
-              if (vid && vid !== lastVid) { // a new song: in the shuffle vibe, about every second song moves to another playlist
-                lastVid = vid;
-                songs += 1;
-                if (st.vibe === 'mix' && songs > 1 && Math.random() < 0.5) hop();
+              if (inList()) {
+                const vid = player.getVideoData?.().video_id;
+                if (vid && vid !== lastVid) { // a new song: in the shuffle vibe, about every second song moves to another playlist
+                  lastVid = vid;
+                  songs += 1;
+                  if (st.vibe === 'mix' && songs > 1 && Math.random() < 0.5) hop();
+                }
               }
+            } else if (e.data === S.ENDED) { playRandom(); return; // (our own shuffle: YouTube's own setShuffle freezes the queue, so a later vibe keeps playing the old one)
             } else if (e.data === S.PAUSED) status = 'paused';
             else if (e.data === S.BUFFERING || e.data === S.UNSTARTED) { if (status !== 'playing') status = 'loading'; }
             render();
@@ -150,20 +167,23 @@ export function initMusic(root) {
     arm();
     render();
   };
+  // on to another song; if the player does not move (it can be stuck at the end of a list, or between lists), jump to a random song in it
+  const skip = () => {
+    if (!player) { build(); return; }
+    if (st.vibe === 'mix' && Math.random() < 0.5) { hop(); return; }
+    let before = null;
+    try { before = player.getVideoData().video_id; } catch { /* gone */ }
+    playRandom();
+    setTimeout(() => { try { if (player.getVideoData().video_id === before) player.nextVideo(); } catch { /* gone */ } }, 1500); // (if it did not move, the plain next one)
+  };
   const pick = (id) => {
     st.vibe = vibeById(id).id;
     save(st);
     broken = false;
     errors = 0;
     if (player) {
-      const c = chooseList(vibeById(st.vibe));
-      shuffleNext = true;
-      lastVid = null;
-      songs = 0;
       status = 'loading';
-      player.loadPlaylist({ listType: 'playlist', list: c.list, index: startIndex(c.n) });
-      player.setVolume(st.vol);
-      arm();
+      switchTo(chooseList(vibeById(st.vibe)));
     } else build();
     setDrawer(false);
     render();
@@ -180,7 +200,7 @@ export function initMusic(root) {
     if (!b) return;
     if (b.dataset.vibe) pick(b.dataset.vibe);
     else if (b.dataset.m === 'play') toggle();
-    else if (b.dataset.m === 'skip') { if (!player) build(); else if (st.vibe === 'mix' && Math.random() < 0.5) hop(); else { try { player.nextVideo(); } catch { /* gone */ } } }
+    else if (b.dataset.m === 'skip') skip();
     else if (b.dataset.m === 'vibe') setDrawer(!drawerOpen);
     b.blur(); // (so Space and Enter go on being the game's keys)
   });
