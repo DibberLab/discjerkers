@@ -839,7 +839,7 @@ function updateHud() {
     const up = v.players.find((p) => p.uid === v.round.turn);
     const turn = v.status !== 'active' || !up ? '' : up.uid === S.mp.me ? 'Your throw' : `${esc(up.name)}'s throw`;
     const rivals = S.others.length === 1 ? ` · ${esc(S.others[0].name)} <b>${S.others[0].strokes}</b>` : '';
-    $('#gm-hud').innerHTML = `<span>Hole ${v.holeIdx + 1}/${v.holes} · ${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}${tagBit(h)}</small><span>You <b>${r.strokes}</b>${rivals}</span><small>${turn}${turn ? ' · ' : ''}${ft(G.distance(r.lie, h.basket))} to the basket${slopeBit(h, r.lie)}</small>`;
+    $('#gm-hud').innerHTML = `<span>Hole ${v.holeIdx + 1}/${v.holes} · ${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}${tagBit(h)}</small><span>You <b>${r.strokes}</b>${rivals}</span><small>${turn}${turn ? ' · ' : ''}${ft(G.distance(r.lie, h.basket))} ${isPhone() ? 'out' : 'to the basket'}${slopeBit(h, r.lie)}</small>`;
   } else if (!c && S.phase === 'menu' && h.id !== courseHoles()[0].id) { // the menu is previewing the hole picked for practice
     $('#gm-hud').innerHTML = `<span>${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}</small>`;
   } else if (!c) {
@@ -847,7 +847,7 @@ function updateHud() {
   } else {
     const total = c.card.reduce((n, x) => n + x.score, 0);
     const par = c.card.reduce((n, x) => n + x.par, 0);
-    $('#gm-hud').innerHTML = `<span>${c.length > 1 ? `Hole ${c.idx + 1}/${c.holes.length} · ` : ''}${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}${tagBit(h)}</small><span>Strokes <b>${r.strokes}</b>${c.length > 1 && c.card.length ? ` · Round ${vsPar(total - par)}` : ''}</span><small>${ft(G.distance(r.lie, h.basket))} to the basket${slopeBit(h, r.lie)}</small>`;
+    $('#gm-hud').innerHTML = `<span>${c.length > 1 ? `Hole ${c.idx + 1}/${c.holes.length} · ` : ''}${esc(h.name)}</span><small>Par ${h.par} · ${ft(G.distance(h.tee, h.basket))}${tagBit(h)}</small><span>Strokes <b>${r.strokes}</b>${c.length > 1 && c.card.length ? ` · Round ${vsPar(total - par)}` : ''}</span><small>${ft(G.distance(r.lie, h.basket))} ${isPhone() ? 'out' : 'to the basket'}${slopeBit(h, r.lie)}</small>`;
   }
   const from = COMPASS[Math.round(h.wind.from / 45) % 8];
   $('#gm-wind').innerHTML = h.wind.mph

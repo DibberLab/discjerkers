@@ -530,3 +530,85 @@
 
 /* the drop from the woods, in the pick panel's note */
 .gm-woods .chip { margin: 2px 4px 2px 0; border-color: var(--rust); color: var(--rust-lift); }
+
+/* ---------- the phone, tightened (the hole is nearly the whole screen; the controls are small and low) ---------- */
+.gm-chips { display: contents; } /* (on a computer the chips are placed one by one, as ever) */
+@media (max-width: 900px) {
+  /* the four chips: one slim row under the title, not a column down the side */
+  .gm-chips { position: absolute; z-index: 3; left: max(10px, env(safe-area-inset-left)); right: max(10px, env(safe-area-inset-right)); top: 42px; display: flex; gap: 4px; flex-wrap: nowrap; justify-content: flex-start; }
+  .gm-chips .gm-cambtn, .gm-chips .gm-stage .gm-cambtn--view, .gm-stage .gm-chips .gm-cambtn--view { position: static; top: auto; right: auto; bottom: auto; left: auto; min-height: 0; padding: 4px 8px; font-size: 0.5rem; letter-spacing: 0.1em; }
+  .gm-stage .gm-chips .gm-cambtn { visibility: visible; }
+  .gm-stage.is-3d .gm-chips .gm-cambtn { visibility: hidden; }
+  /* the title over the hole: two short lines */
+  .gm-hud { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; row-gap: 1px; max-width: calc(100% - 84px); font-size: 0.54rem; letter-spacing: 0.1em; top: 8px; }
+  .gm-hud small { font-size: 0.5rem; letter-spacing: 0.06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .gm-wind { top: 6px; transform: scale(0.8); transform-origin: top right; }
+  .gm-zoom { bottom: calc(var(--dock, 0px) + 8px); gap: 4px; }
+  .gm-zoom button { width: 30px; height: 30px; font-size: 1.1rem; }
+  /* the dock: a slim strip of controls, a little see-through, with the main button and the music below it */
+  .gm-panel { padding-top: 6px; padding-bottom: calc(44px + env(safe-area-inset-bottom)); gap: 6px; background: rgba(17, 23, 15, 0.88); border-radius: 12px 12px 0 0; }
+  .gm-panel.has-fab { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+  .gm-dock { gap: 6px; }
+  .gm-dock__body { gap: 5px; }
+  .gm-dock .chip, .gm-dock__top .chip, .gm-roundbar .chip, .gm-card .chip { min-height: 26px; padding: 4px 10px; font-size: 0.56rem; }
+  /* the step pills (1 Disc, 2 Grip, 3 Aim) */
+  .gm-tab { min-height: 24px; padding: 4px 9px; font-size: 0.54rem; letter-spacing: 0.06em; }
+  .gm-tab b { margin-right: 3px; }
+  /* the bag: one row of small discs, scrolling sideways */
+  .gm-dock .gm-discs { display: flex; flex-wrap: nowrap; gap: 6px; max-height: none; overflow-x: auto; overflow-y: hidden; padding: 2px 0 4px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .gm-dock .gm-discs::-webkit-scrollbar { display: none; }
+  .gm-dock .gm-discs.is-more { -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); }
+  .gm-dock .gm-disc { width: 40px; flex: none; }
+  .gm-dock .gm-disc .disc { --disc: 32px; margin-bottom: 0; }
+  .gm-dock .gm-disc small, .gm-more { display: none; }
+  /* the disc's name on one line, the wind beside it; the rest of the words stay off the screen */
+  .gm-dock .gm-pick { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 2px 4px; border: 0; background: none; }
+  .gm-dock .gm-pick b { font-size: 0.9rem; }
+  .gm-dock .gm-pick > small { display: none; }
+  .gm-dock .gm-pick output { font-size: 0.8rem; }
+  .gm-dock .gm-pick output small { display: inline; margin-left: 4px; font-size: 0.5rem; }
+  .gm-dock .gm-note:not(.gm-woods), .gm-tip, .gm-caddy, .gm-quip, .gm-dock .gm-go__line { display: none; }
+  .gm-dock .gm-woods { font-size: 0.62rem; margin: 0; }
+  .gm-dock .fg-rng, .gm-dock .fg-throw { padding-top: 0; gap: 4px; }
+  .gm-dock .fg-seg .chip { min-height: 28px; }
+  .gm-bubble { top: 76px; font-size: 0.66rem; line-height: 1.3; padding: 5px 8px; right: 12px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .gm-page.gm-playing .gm-bubble { top: 76px; }
+  /* the throw stages: a thin dock (steps, a small Back out), words off, the meters do the talking */
+  .gm-meter { gap: 4px; }
+  .gm-meter__t { font-size: 0.95rem; }
+  .gm-meter__h { display: none; }
+  .gm-steps i { height: 2px; }
+  .gm-backout { min-height: 26px; padding: 3px 10px; font-size: 0.54rem; }
+  .gm-read { height: auto; min-height: 1.2rem; }
+  .gm-read b { font-size: 1.05rem; }
+  .gm-read small { font-size: 0.5rem; }
+  .gm-card { gap: 6px; }
+  .gm-card h2 { font-size: 1.15rem; }
+  .gm-card p { font-size: 0.74rem; line-height: 1.35; margin: 0; }
+  /* the main button: smaller, just above the music */
+  .gm-fabhost { bottom: calc(38px + env(safe-area-inset-bottom)); }
+  .gm-fabhost .gm-fab { width: min(64vw, 240px); min-height: 40px; padding: 4px 14px; font-size: 1.05rem; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55); }
+  .gm-fabhost .gm-fab small { font-size: 0.55rem; }
+  /* the music: a slim bar on the very bottom edge of the screen, the full width */
+  .gm-music { left: 0; right: 0; transform: none; width: auto; bottom: 0; }
+  .gm-music__bar { height: 34px; padding: 0 10px calc(0px + env(safe-area-inset-bottom)); border-radius: 0; border-width: 1px 0 0; box-sizing: content-box; background: rgba(10, 15, 9, 0.96); box-shadow: none; }
+  .gm-music__drawer { bottom: calc(36px + env(safe-area-inset-bottom)); left: 6px; right: 6px; border-radius: 12px; }
+  /* the timing window: small dials */
+  .gm-mini { bottom: calc(var(--dock, 0px) + 6px); }
+  .gm-mini__box { padding: 6px 8px 8px; gap: 5px; border-radius: 12px; }
+  .gm-mini__t { font-size: 0.54rem; min-height: 2.2em; }
+  .gm-dials { gap: 5px; }
+  .gm-dialcell { padding: 3px 3px 2px; }
+  .gm-dial { max-width: 70px; }
+  .gm-dialcell__l { font-size: 0.5rem; }
+  .gm-dialcell output { font-size: 0.5rem; }
+  /* screens you read: leave room for the music only */
+  .gm-card .btn, .gm-menu .btn { padding-top: 12px; padding-bottom: 12px; }
+}
+/* sideways on a phone: the main button sits in the controls' column, the music still runs along the bottom */
+@media (max-width: 900px) and (max-height: 520px) {
+  .gm-fabhost { left: auto; right: max(150px, 23%); transform: translateX(50%); bottom: calc(40px + env(safe-area-inset-bottom)); }
+  .gm-fabhost .gm-fab { width: min(240px, 40vw); }
+  .gm-panel, .gm-panel.has-fab { padding-bottom: calc(86px + env(safe-area-inset-bottom)); }
+  .gm-chips { top: 40px; }
+}
