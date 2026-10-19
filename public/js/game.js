@@ -1264,7 +1264,7 @@ function verticalMeter(g) {
   const inSweet = !!ok[clamp(Math.round(ft / step) - 1, 0, ok.length - 1)];
   g.save();
   g.fillStyle = 'rgba(6,11,7,0.72)'; // the bar
-  g.fillRect(x - 3, top - 22, w + 56, bottom - top + 30);
+  g.fillRect(x - 3, top - 22, w + 68, bottom - top + 30);
   g.strokeStyle = 'rgba(238,241,232,0.5)';
   g.lineWidth = 1.5;
   g.strokeRect(x, top, w, bottom - top);
@@ -1298,7 +1298,7 @@ function verticalMeter(g) {
     g.fillText(String(f), x + w + 8, yOf(f));
   }
   const b = toBasket(); // where the basket is
-  if (b < maxFt) { g.fillStyle = '#d35400'; g.fillText('◂', x + w + 8, yOf(b)); g.fillText('hoop', x + w + 18, yOf(b)); }
+  if (b < maxFt) { g.fillStyle = '#d35400'; g.fillText('◂', x + w + 8, yOf(b)); g.fillText('basket', x + w + 18, yOf(b)); }
   g.strokeStyle = inSweet ? '#a3e635' : '#eef1e8'; // the head
   g.lineWidth = 4;
   g.lineCap = 'round';
@@ -3409,14 +3409,20 @@ function drawTargetMark(g, ground) {
   g.lineWidth = 3;
   g.strokeStyle = 'rgba(6,11,7,0.85)';
   const label = bad ? "CAN'T MAKE THIS THROW" : `TARGET ${Math.round(G.distance(lieOf(), t))} ft`;
-  const lx = clamp(q.x, 90, (g.canvas?.clientWidth || W) - 90); // (the words stay on the screen when the marker is at the edge)
+  const why = bad || '';
+  const cw = g.canvas?.clientWidth || W;
+  const wideL = g.measureText(label).width;
+  g.font = '700 10px "Space Mono", monospace';
+  const wideW = why ? g.measureText(why).width : 0;
+  const half = Math.min(cw / 2 - 4, Math.max(wideL, wideW) / 2 + 8);
+  const lx = clamp(q.x, half + 4, cw - half - 4); // (all the words stay on the screen when the marker is at the edge)
+  g.font = '700 12px "Space Mono", monospace';
   g.strokeText(label, lx, q.y - ry * 2.2 - 3);
   g.fillStyle = bad ? '#ff8a82' : '#ffb27a';
   g.fillText(label, lx, q.y - ry * 2.2 - 3);
   if (bad) { // and why, smaller, under it
     g.font = '700 10px "Space Mono", monospace';
     g.textBaseline = 'top';
-    const why = bad.length > 44 ? `${bad.slice(0, 42)}…` : bad;
     g.strokeText(why, lx, q.y + ry * 2.2 + 3);
     g.fillText(why, lx, q.y + ry * 2.2 + 3);
   }
@@ -3854,7 +3860,7 @@ function setTarget(pt) {
   S.previewKey = null;
   // can this disc make that throw at all?
   const rr = G.reachRange(S.hole, curDisc(), { hand: S.settings.hand, style: S.settings.style }, heading(), lie);
-  S.targetMsg = far < d ? 'out of range' : d > rr.max ? `too far, or blocked (the most this throw can reach is about ${Math.round(rr.max)} ft)` : d < rr.min * 0.85 ? `too close (the least is about ${Math.round(rr.min)} ft)` : '';
+  S.targetMsg = far < d ? 'out of range' : d > rr.max ? `too far or blocked: max ~${Math.round(rr.max)} ft` : d < rr.min * 0.85 ? `too close: min ~${Math.round(rr.min)} ft` : '';
   syncGo();
 }
 // why the spot the player chose cannot be thrown to ('' if it can, or there is none)

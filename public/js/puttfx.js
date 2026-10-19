@@ -48,7 +48,7 @@ export function puttScript({ from, basket, lie, result }) {
   const mark = (name) => { marks[name] = t; };
   const push = (seg) => { segs.push(seg); };
 
-  // A disc does not go through a hoop. It flies in from the side, meets the chains (a curtain about 1.2 feet out from the middle,
+  // A disc does not go through the basket. It flies in from the side, meets the chains (a curtain about 1.2 feet out from the middle,
   // between the top band and the tray), stops dead, and drops into the tray.
   const E = onRim(a0, CHAIN_R);
   const fall = (a, r0, h0, ms, phase = 'drop') => ({ ms, phase, f: (u) => { const q = onRim(a, lerp(r0, 0.1, easeOut(u))); return { ...q, h: lerp(h0, REST_H, easeIn(u)) + (u > 0.85 ? 0.16 * Math.sin(((u - 0.85) / 0.15) * Math.PI) : 0) }; } });

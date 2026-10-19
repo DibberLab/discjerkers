@@ -369,7 +369,7 @@ that way; don't introduce React/Vite/Tailwind here.
   pdga.com/node/257161): tray rim 79 cm up (here 2.65 ft), 66 cm across inside (r 1.08 ft), 24.5 cm deep; the chains hang from a band 56 cm
   wide (r 0.92 ft, so it is narrower than the tray), 16 outer and 8 inner, over a zone 50 cm tall (1.64 ft); the pole is 4.8 cm across.
   A flag on a staff is the game's own addition so you can find the basket from far off; up close it is only a short staff.
-- **A disc does not go through a hoop.** In `puttScript` a putt that goes in flies to the side of the chain curtain (about 0.8 ft out,
+- **A disc does not go through the basket.** In `puttScript` a putt that goes in flies to the side of the chain curtain (about 0.8 ft out,
   halfway down the chains), is stopped dead by the chains, and falls into the tray; a rattle kicks back out and sideways first. A rim-out clips the
   chains and runs round the lip of the tray. The basket is drawn in three layers (`base`, `back`, `front` in `cam3d.js`) so the
   near chains cross in front of a disc that has gone in.
