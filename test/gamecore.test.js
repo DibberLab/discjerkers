@@ -1025,3 +1025,45 @@ test('water, out of bounds and a missed mando are a drop where it was last in pl
   const wet = G.resolveThrow(big, DRIVER, { ...RIGHT, mph: 80, angle: 0 }, 0, CLEAN, { x: big.basket.x - 40, y: big.basket.y - 90 });
   if (wet.penalty) assert.strictEqual(wet.dropZone, true, 'into the water behind the basket: the drop zone in front of it');
 });
+
+test('a real throw scatters: the same throw lands in a zone, and holing out from far is a rare thing (aces from 250 ft are rare, putts from 20 ft are not sure, from 40 ft nearly never)', async () => {
+  const G = await load();
+  const hole = G.HOLES[0];
+  // a clean throw with no scatter lands in one place; with scatter it moves, more the farther it goes
+  const same = (ex) => G.resolveThrow(hole, DRIVER, RIGHT, 0, ex, hole.tee).end;
+  const flat = same(CLEAN);
+  const moved = same(G.applyScatter(CLEAN, { za: 1.2, zd: -1.2 }));
+  assert.ok(G.distance(flat, moved) > 5, 'scatter moves the landing');
+  assert.strictEqual(G.distance(flat, same(G.applyScatter(CLEAN, { za: 0, zd: 0 }))), 0, 'no scatter, no move');
+  const near = G.scatterSigma(100, CLEAN, RIGHT);
+  const far = G.scatterSigma(350, CLEAN, RIGHT);
+  assert.ok(far.lat > near.lat * 3 && far.long > near.long * 3, 'a longer throw has a wider landing zone');
+  assert.ok(G.scatterSigma(300, { ...CLEAN, pure: true, grade: 'Pure' }, RIGHT).lat < G.scatterSigma(300, CLEAN, RIGHT).lat, 'a pure release is tighter');
+  // the server drops a scatter a page sends
+  assert.strictEqual(G.sanitizeExecution({ o: 0, scatter: { za: 0, zd: 0 } }).scatter, undefined);
+  // aces: aim a throw dead at a basket 250 ft out, with the arm that lands it there, and throw it a few thousand times
+  let seed = 7;
+  const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const dist = 250;
+  const aimed = { x: hole.tee.x, y: hole.tee.y + dist };
+  const field250 = Object.create(hole, { basket: { value: aimed } });
+  let mph = 30;
+  while (mph < 90 && G.distance(hole.tee, G.resolveThrow(field250, DRIVER, { ...RIGHT, mph }, 0, CLEAN, hole.tee).end) < dist) mph += 2;
+  let aces = 0;
+  const N = 2500;
+  for (let i = 0; i < N; i++) if (G.resolveThrow(field250, DRIVER, { ...RIGHT, mph }, 0, G.applyScatter(CLEAN, G.rollScatter(rand)), hole.tee).kind === 'basket') aces++;
+  assert.ok(aces / N < 0.04, `aces from 250 ft with a perfect line and arm: ${(100 * aces / N).toFixed(1)}%`);
+  // putts: three good taps, the putt's own wobble
+  const made = (feet) => {
+    const lie = { x: hole.basket.x, y: hole.basket.y - feet };
+    let n = 0;
+    for (let i = 0; i < 1500; i++) if (G.resolvePutt(hole, lie, PUTTER, G.puttScatter(rand, 0.8), 1, { aim: 0, power: 1 }).made) n++;
+    return n / 1500;
+  };
+  const p8 = made(8);
+  const p20 = made(20);
+  const p40 = made(40);
+  assert.ok(p8 > 0.9, `from 8 ft: ${p8}`);
+  assert.ok(p20 < 0.6 && p20 > 0.15, `from 20 ft: ${p20}`);
+  assert.ok(p40 < 0.03, `from 40 ft: ${p40}`);
+});

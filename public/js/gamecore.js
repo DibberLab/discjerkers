@@ -105,6 +105,20 @@ export function rollSlip(disc, settings, roll) {
 }
 // the throw as it comes out when it slips: a grip lock comes out late, short and hooked; an early release goes
 // toward the turn side, flat and a little short
+/* Scatter: a real throw does not land exactly where a perfect one would. Even a clean release, from a good arm, comes down a few feet either side of the line and a few
+   feet long or short, more the farther it goes (a fixed angle and a fixed share of the distance, so a long drive has a wide landing zone and a short approach a small one),
+   a little more for a looser release and a harder arm. The core never rolls: the page rolls it (`rollScatter`) for a solo throw, the match server for everybody's, and the
+   marker the page shows is where the disc lands with no scatter (the middle of that zone). Without it a player who stops the meter in the sweet spot would hole out from anywhere. */
+export const SCATTER = { aim: 3, dist: 0.055 }; // one standard deviation for a Good release: degrees off line, and the share of the distance
+const gradeSpread = (ex) => (ex.pure ? 0.7 : ex.grade === 'Good' ? 1 : ex.grade === 'Loose' ? 1.35 : ex.grade === 'Shank' ? 1.8 : ex.slip ? 1.5 : 1);
+const scatterScale = (ex, mph) => gradeSpread(ex) * (0.85 + 0.3 * clamp(mph / 90, 0, 1));
+export const rollScatter = (rand) => { const z = () => clamp((rand() + rand() + rand() - 1.5) * 2, -2.4, 2.4); return { za: z(), zd: z() }; }; // two standard-normal-ish numbers
+export const applyScatter = (ex, sc) => ({ ...ex, scatter: sc });
+// how wide the landing zone is for a throw of this many feet (one standard deviation, in feet): across the line and along it
+export const scatterSigma = (feet, ex, settings) => { const k = scatterScale(ex, settings.mph); return { lat: feet * Math.tan(SCATTER.aim * k * DEG), long: feet * SCATTER.dist * k }; };
+// where a putt's own wobble puts it, around where you aimed it (a point in the unit disc, shrunk by `skill`: 1 is a blind tap, less is a well-set-up putt)
+export const puttScatter = (rand, skill = 0.8) => { const a = rand() * Math.PI * 2; const r = Math.sqrt(rand()) * skill; return { x: Math.cos(a) * r, y: Math.sin(a) * r }; };
+
 export function applySlip(ex, kind) {
   if (kind === 'grip') return { ...ex, o: 0.9, sloppy: 1, pure: false, grade: 'Grip lock', slip: 'grip' };
   if (kind === 'early') return { ...ex, o: -0.9, sloppy: 1, pure: false, grade: 'Early release', slip: 'early' };
@@ -288,10 +302,13 @@ export function previewThrow(hole, disc, settings, aimDeg, from, n = 40, plan = 
 
 // Plan a throw: how far, and the bend, before anything is in the way.
 export function planThrow(hole, disc, settings, aimDeg, ex = PERFECT) {
-  const { t2, headingDeg, bonus } = applyExecution(settings, aimDeg, ex);
+  const exec = applyExecution(settings, aimDeg, ex);
+  const { t2, bonus } = exec;
+  const k = ex.scatter ? scatterScale(ex, settings.mph) : 0;
+  const headingDeg = exec.headingDeg + (ex.scatter ? ex.scatter.za * SCATTER.aim * k : 0);
   const wind = windFor(hole, headingDeg);
   const nose = settings.nose || 0;
-  const feet = clamp(carryRaw(disc, wind, t2) * bonus * noseCarry(nose), 12, 560);
+  const feet = clamp(carryRaw(disc, wind, t2) * bonus * noseCarry(nose) * (1 + (ex.scatter ? ex.scatter.zd * SCATTER.dist * k : 0)), 12, 560);
   const curve = flightCurve(disc, wind, t2, feet);
   const scale = Math.min(1, feet / 260); // the guide's bends are sized for a long throw; a short one bends less
   // how high the disc gets: more with glide and speed, less on a short throw

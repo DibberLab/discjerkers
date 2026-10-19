@@ -264,7 +264,7 @@ function throwMove(gp, m, uid, body) {
   if (!settings) throw new MatchError('Those throw settings are not allowed.');
   const aimOff = Math.max(-180, Math.min(180, Math.round(Number(body.aimOff) || 0))); // any way at all: some holes turn away from the basket
   const disc = playDisc(gp, m, uid, discId);
-  const ex = G.applySlip(G.sanitizeExecution(body.ex), G.rollSlip(disc, settings, Math.random())); // the server rolls: a slip cannot be dodged
+  const ex = G.applyScatter(G.applySlip(G.sanitizeExecution(body.ex), G.rollSlip(disc, settings, Math.random())), G.rollScatter(Math.random)); // the server rolls: a slip cannot be dodged, nor the scatter of a landing
   const result = G.resolveThrow(hole, disc, settings, G.headingTo(r.lie, hole.basket) + aimOff, ex, r.lie);
   return record(gp, m, uid, disc, result, { ex: { o: ex.o, pure: ex.pure, grade: ex.grade, slip: ex.slip, swipe: ex.swipe, swipeAim: ex.swipeAim, swipeSpeed: ex.swipeSpeed }, putt: false });
 }

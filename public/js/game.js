@@ -5,7 +5,7 @@
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, COURSES, courseById, holeById, holesFor } from './course.js?v=15';
-import * as G from './gamecore.js?v=41';
+import * as G from './gamecore.js?v=42';
 import * as T from './trash.js?v=13';
 import * as C3 from './cam3d.js?v=24';
 import * as FO from './foliage.js?v=2';
@@ -1216,8 +1216,8 @@ function panelMetersStyle() {
   const hints = {
     putt: S.meter?.stage === 'h' ? 'Aim left and right: the line sweeps across the basket in the picture. Tap anywhere (or the button) when it is inside the green.'
       : S.meter?.stage === 'v' ? 'Now the height: the line sweeps up and down the basket. Tap when it is inside the green. Too high runs long, too low comes up short.'
-        : 'The wedge fills and drains along the line to the basket. Tap anywhere (or the button) to putt when the fill reaches the lit stretch: that is the push this putt needs (more uphill, less downhill). All three have to be right to drop it.',
-    power: 'Drag the hole to aim. The wedge fills and drains with your arm speed: tap anywhere on the hole (or the button) to throw at the speed it is at. The lit stretch is the sweet spot for the nose and hyzer you chose, and the dashed line is the flight at that speed.',
+        : 'The wedge fills and drains along the line to the basket. Tap anywhere (or the button) to putt when the fill reaches the lit stretch: that is the push this putt needs (more uphill, less downhill). All three have to be right to give it a chance: a short one then drops, a long one only now and then.',
+    power: 'Drag the hole to aim. The wedge fills and drains with your arm speed: tap anywhere on the hole (or the button) to throw at the speed it is at. The lit stretch is the sweet spot for the nose and hyzer you chose, the dashed line is the flight at that speed, and the dashed oval is where most throws will actually land.',
     nose: 'The disc pitches up and down. Tap when it is in the lime arc. Nose up lifts the disc and spends distance; nose down keeps it low and short.',
     angle: 'The disc tilts one way and the other. Tap when it is in the lime arc: hyzer tips the outside edge down, anhyzer the other way, and level is flat.',
     release: `Tap as the ring closes on the green ring. Early (white) goes toward the turn side, late (orange) toward the fade side.${risk ? ` <b>${risk}% chance the disc slips</b>: a slow arm can grip lock or let go early.` : ''}`,
@@ -1529,7 +1529,10 @@ function tapMeters(m, t, next) {
       const radius = G.puttRadius(puttDd(), d) * G.puttGrip(S.hole);
       const tol = G.swipeTolerance(puttDd());
       // the line is the swipe's aim, the height is the radar's short or long (high is long), the wedge is the push: all three have to be inside the green
-      const shot = { x: 0, y: clamp(m.u.v * m.K * radius, -1, 1) };
+      const wobble = G.puttScatter(Math.random, 0.8); // a putt has its own wobble: three good taps make a short one, and a long one only now and then
+      const shot = { x: wobble.x, y: wobble.y + m.u.v * m.K * radius };
+      const mag = Math.hypot(shot.x, shot.y);
+      if (mag > 1) { shot.x /= mag; shot.y /= mag; } // (the radar's own edge: a putt cannot be farther off than the whole green)
       if (toBasket() <= G.GIMME) puttDisc({ x: 0, y: 0 }, null);
       else puttDisc(shot, { aim: m.u.h * m.K * tol.aim, power: 1 + (feet / m.push - 1) * m.pk }); // (a far putt judges the push more strictly)
     }
@@ -1575,7 +1578,7 @@ function throwDisc(ex) {
   if (S.mode === 'match') { mpThrow(ex); return; }
   const disc = curDisc();
   const from = { ...lieOf() };
-  const result = G.resolveThrow(S.hole, disc, S.settings, heading(), ex, from);
+  const result = G.resolveThrow(S.hole, disc, S.settings, heading(), G.applyScatter(ex, G.rollScatter(Math.random)), from); // (a landing has some scatter: the marker is the middle of it)
   S.last = { result, ex, disc, from, feel: S.feel };
   S.feel = null;
   const ace = result.kind === 'basket';
@@ -3322,6 +3325,30 @@ function powerOverlay(g, ground, air, lie) {
   g.stroke();
   g.setLineDash([]);
   drawTargetMark(g, ground);
+  { // the zone most throws will land in (1.5 standard deviations): the marker is its middle, and a real throw scatters (gamecore SCATTER)
+    const dx = land.x - lie.x;
+    const dy = land.y - lie.y;
+    const feet = Math.hypot(dx, dy) || 1;
+    const sg = G.scatterSigma(feet, m.ex || { grade: 'Good' }, { mph: raw });
+    const ux = dx / feet;
+    const uy = dy / feet;
+    g.beginPath();
+    let on2 = false;
+    for (let i = 0; i <= 28; i++) {
+      const a = (i / 28) * Math.PI * 2;
+      const lx = Math.cos(a) * sg.long * 1.5;
+      const ly = Math.sin(a) * sg.lat * 1.5;
+      const q = ground({ x: land.x + ux * lx - uy * ly, y: land.y + uy * lx + ux * ly });
+      if (!q) { on2 = false; continue; }
+      if (on2) g.lineTo(q.x, q.y); else g.moveTo(q.x, q.y);
+      on2 = true;
+    }
+    g.setLineDash([5, 5]);
+    g.strokeStyle = 'rgba(238,241,232,0.8)';
+    g.lineWidth = 1.8;
+    g.stroke();
+    g.setLineDash([]);
+  }
   const e = ground(land); // where it will come to rest
   if (e) {
     g.beginPath();
