@@ -534,6 +534,7 @@
 /* ---------- the phone, tightened (the hole is nearly the whole screen; the controls are small and low) ---------- */
 .gm-chips { display: contents; } /* (on a computer the chips are placed one by one, as ever) */
 @media (max-width: 900px) {
+  :root { --gm-sb: calc(env(safe-area-inset-bottom, 0px) * 0.25); } /* (the music bar goes nearly to the edge of the glass: only a sliver is kept for the phone's home bar) */
   /* the four chips: one slim row under the title, not a column down the side */
   .gm-chips { position: absolute; z-index: 3; left: max(10px, env(safe-area-inset-left)); right: max(10px, env(safe-area-inset-right)); top: 42px; display: flex; gap: 4px; flex-wrap: nowrap; justify-content: flex-start; }
   .gm-chips .gm-cambtn, .gm-chips .gm-stage .gm-cambtn--view, .gm-stage .gm-chips .gm-cambtn--view { position: static; top: auto; right: auto; bottom: auto; left: auto; min-height: 0; padding: 4px 8px; font-size: 0.5rem; letter-spacing: 0.1em; }
@@ -546,8 +547,8 @@
   .gm-zoom { bottom: calc(var(--dock, 0px) + 8px); gap: 4px; }
   .gm-zoom button { width: 30px; height: 30px; font-size: 1.1rem; }
   /* the dock: a slim strip of controls, a little see-through, with the main button and the music below it */
-  .gm-panel { padding-top: 6px; padding-bottom: calc(44px + env(safe-area-inset-bottom)); gap: 6px; background: rgba(17, 23, 15, 0.88); border-radius: 12px 12px 0 0; }
-  .gm-panel.has-fab { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+  .gm-panel { padding-top: 6px; padding-bottom: calc(44px + var(--gm-sb)); gap: 6px; background: rgba(17, 23, 15, 0.88); border-radius: 12px 12px 0 0; }
+  .gm-panel.has-fab { padding-bottom: calc(84px + var(--gm-sb)); }
   .gm-dock { gap: 6px; }
   .gm-dock__body { gap: 5px; }
   .gm-dock .chip, .gm-dock__top .chip, .gm-roundbar .chip, .gm-card .chip { min-height: 26px; padding: 4px 10px; font-size: 0.56rem; }
@@ -586,13 +587,13 @@
   .gm-card h2 { font-size: 1.15rem; }
   .gm-card p { font-size: 0.74rem; line-height: 1.35; margin: 0; }
   /* the main button: smaller, just above the music */
-  .gm-fabhost { bottom: calc(38px + env(safe-area-inset-bottom)); }
+  .gm-fabhost { bottom: calc(38px + var(--gm-sb)); }
   .gm-fabhost .gm-fab { width: min(64vw, 240px); min-height: 40px; padding: 4px 14px; font-size: 1.05rem; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55); }
   .gm-fabhost .gm-fab small { font-size: 0.55rem; }
   /* the music: a slim bar on the very bottom edge of the screen, the full width */
   .gm-music { left: 0; right: 0; transform: none; width: auto; bottom: 0; }
-  .gm-music__bar { height: 34px; padding: 0 10px calc(0px + env(safe-area-inset-bottom)); border-radius: 0; border-width: 1px 0 0; box-sizing: content-box; background: rgba(10, 15, 9, 0.96); box-shadow: none; }
-  .gm-music__drawer { bottom: calc(36px + env(safe-area-inset-bottom)); left: 6px; right: 6px; border-radius: 12px; }
+  .gm-music__bar { height: 34px; padding: 0 10px var(--gm-sb); border-radius: 0; border-width: 1px 0 0; box-sizing: content-box; background: rgba(10, 15, 9, 0.96); box-shadow: none; }
+  .gm-music__drawer { bottom: calc(36px + var(--gm-sb)); left: 6px; right: 6px; border-radius: 12px; }
   /* the timing window: small dials */
   .gm-mini { bottom: calc(var(--dock, 0px) + 6px); }
   .gm-mini__box { padding: 6px 8px 8px; gap: 5px; border-radius: 12px; }
@@ -607,8 +608,8 @@
 }
 /* sideways on a phone: the main button sits in the controls' column, the music still runs along the bottom */
 @media (max-width: 900px) and (max-height: 520px) {
-  .gm-fabhost { left: auto; right: max(150px, 23%); transform: translateX(50%); bottom: calc(40px + env(safe-area-inset-bottom)); }
+  .gm-fabhost { left: auto; right: max(150px, 23%); transform: translateX(50%); bottom: calc(40px + var(--gm-sb)); }
   .gm-fabhost .gm-fab { width: min(240px, 40vw); }
-  .gm-panel, .gm-panel.has-fab { padding-bottom: calc(86px + env(safe-area-inset-bottom)); }
+  .gm-panel, .gm-panel.has-fab { padding-bottom: calc(86px + var(--gm-sb)); }
   .gm-chips { top: 40px; }
 }

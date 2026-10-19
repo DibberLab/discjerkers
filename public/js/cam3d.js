@@ -5,7 +5,7 @@
    state: callers hand it a hole, a camera and a disc. */
 
 import { fieldAt } from './terrain.js?v=1';
-import { groundCells, PALETTE } from './ground.js?v=9';
+import { groundCells, PALETTE } from './ground.js?v=12';
 import * as FO from './foliage.js?v=2';
 
 export const ZS = 0.72; // heights are drawn a little squashed: a real arc looks like a rocket when you ride it
@@ -814,6 +814,31 @@ function arrowAt(ctx, x, y, side, fill, rim) {
   ctx.beginPath(); ctx.moveTo(x + side * 8, y); ctx.lineTo(x - side * 4, y - 7); ctx.lineTo(x - side * 4, y + 7); ctx.closePath(); ctx.fill(); ctx.stroke();
 }
 
+/**
+ * How much of a tree to draw (1 whole, 0 not at all) so it never hides what the camera is looking at: `targets` are the
+ * ground points that have to stay in the clear (the basket, a disc running away). A tree whose width, seen from the camera,
+ * overlaps the line to a target (with room round it for the basket and the aiming marks) fades out, and so does one that
+ * is right beside the camera. It fades by degrees, so a camera that is moving does not make a tree pop.
+ */
+export function seeThrough(cam, tr, targets) {
+  const r = (tr.r || 4) + 1.5;
+  const dx = tr.x - cam.x;
+  const dy = tr.y - cam.y;
+  const near = Math.hypot(dx, dy);
+  let seen = near < r + 9 ? Math.max(0, (near - r - 3) / 6) : 1; // beside or over the camera
+  for (const g of targets) {
+    const gx = g.x - cam.x;
+    const gy = g.y - cam.y;
+    const dg = Math.hypot(gx, gy) || 1;
+    const along = (dx * gx + dy * gy) / dg;
+    if (along < 0.5 || along > dg - 1.5) continue; // behind the camera, or at or past the thing: not in the way
+    const lat = Math.abs(dx * gy - dy * gx) / dg;
+    const gap = Math.atan2(lat, along) - Math.atan2(r, Math.max(along, r)) - Math.atan2(3.5, dg); // radians clear between the tree's edge and the line, less the margin round the target
+    seen = Math.min(seen, Math.max(0, Math.min(1, gap / 0.08)));
+  }
+  return seen;
+}
+
 export function drawScene(ctx, scene) {
   const { hole, cam, view, disc, trail, color, t } = scene;
   const b = basis(cam);
@@ -833,7 +858,10 @@ export function drawScene(ctx, scene) {
   const things = [];
   for (const tr of hole.trees) {
     const c = toCam(cam, b, tr.x, tr.y, 0);
-    if (c[2] >= NEAR && c[2] <= FAR) things.push({ d: c[2], draw: () => drawTree(ctx, cam, b, view, tr, scene.treeScale ?? 1) });
+    if (c[2] >= NEAR && c[2] <= FAR) {
+      const seen = scene.clear ? seeThrough(cam, tr, scene.clear) : 1; // (a putt: nothing stands between the camera and what it is looking at)
+      if (seen > 0.02) things.push({ d: c[2], draw: () => { if (seen < 1) { ctx.save(); ctx.globalAlpha *= seen; drawTree(ctx, cam, b, view, tr, scene.treeScale ?? 1); ctx.restore(); } else drawTree(ctx, cam, b, view, tr, scene.treeScale ?? 1); } });
+    }
   }
   if (hole.mando) things.push({ d: toCam(cam, b, hole.mando.x, hole.mando.y, 0)[2], draw: () => drawMando(ctx, cam, b, view, hole) });
   const dB = toCam(cam, b, hole.basket.x, hole.basket.y, 0)[2];

@@ -4,20 +4,20 @@
 
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
-import { HOLES, COURSES, courseById, holeById, holesFor } from './course.js?v=15';
-import * as G from './gamecore.js?v=43';
+import { HOLES, COURSES, courseById, holeById, holesFor } from './course.js?v=18';
+import * as G from './gamecore.js?v=46';
 import * as T from './trash.js?v=13';
-import * as C3 from './cam3d.js?v=24';
+import * as C3 from './cam3d.js?v=28';
 import * as FO from './foliage.js?v=2';
 import * as PL from './player.js?v=1';
 import * as GS from './gesture.js?v=2';
 import { ANGLE_MAX } from './flightmodel.js?v=1';
-import * as PF from './puttfx.js?v=21';
+import * as PF from './puttfx.js?v=24';
 import * as MU from './music.js?v=8';
-import * as GR from './ground.js?v=9';
+import * as GR from './ground.js?v=12';
 import * as SND from './sound.js?v=4';
 import * as MB from './marebear.js?v=2';
-import * as K from './conditions.js?v=7';
+import * as K from './conditions.js?v=10';
 import * as DLY from './daily.js?v=1';
 import * as GP from './gamepanels.js?v=3';
 import * as PR from './progress.js?v=2';
@@ -3273,7 +3273,7 @@ function drawPutt3D(t) {
   const wedge = !pm ? null : pm.stage === 'power'
     ? (g) => { wedgeMeter(g, (p) => C3.project(c, view, p.x, p.y, C3.groundAt(S.hole, p.x, p.y) + 0.15)); verticalMeter(g); } // the push: the wedge along the line to the basket (on the ground, as it was), and beside it a plain vertical meter
     : (g) => { const q = C3.project(c, view, b.x, b.y, gnd(b.x, b.y) + C3.RING_H - 0.55); if (q) puttAim(g, q.x, q.y); }; // the line and the height: centred on the chains, up near their top band (not the tray down below)
-  C3.drawScene(ctx, { hole: S.hole, cam: c, view, disc, trail, dz: 1, chain, dusk: S.hole.weather?.dusk || 0, color: puttColor, t, player, hideDisc: a ? t < a.t0 : false, overlay: wedge });
+  C3.drawScene(ctx, { hole: S.hole, cam: c, view, disc, trail, dz: 1, chain, clear: sc && sc.at(ms).phase === 'roll' ? [b, disc] : [b], dusk: S.hole.weather?.dusk || 0, color: puttColor, t, player, hideDisc: a ? t < a.t0 : false, overlay: wedge });
   S.pfov = sc ? PF.drawPuttFx(ctx, { cam: c, view, hole: S.hole, W, H }, sc, ms, a.result).fov : 0;
   if (sc) { if (ms >= sc.total + sc.tail) finishThrow(); } else if (a && t - a.t0 >= a.dur + 250) finishThrow();
 }

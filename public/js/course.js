@@ -517,7 +517,7 @@ const GROUNDS = {
   8: { rise: [[125, -5], [250, -10], [375, 4], [496, 10]], bowl: 0.08, mounds: [{ s: 496, o: 0, r: 30, h: 4.5 }] }, // down the first bend, up the last to a raised green
   9: { rise: [[120, 4], [215, 10], [300, 2], [400, -4]], bowl: 0.08, mounds: [{ s: 215, o: 0, r: 44, h: 5 }, { s: 430, o: 0, r: 22, h: -5 }] }, // the stand of trees is on a ridge
   10: { rise: [[70, 3], [118, 8], [190, -2], [255, -8]], bowl: 0.09 }, // the oak is on the crest, the green is down by the water
-  11: { rise: [[200, 3], [390, 8], [608, -2]], bowl: 0.08 }, // out and over a low hill, home down the other side
+  11: { rise: [[200, 3], [380, 8], [560, -2]], bowl: 0.08 }, // a low hill in the middle, home down the other side
   12: { rise: [[70, -10], [210, -8], [330, -4], [426, 6]], bowl: 0.08, mounds: [{ s: 426, o: 0, r: 30, h: 4 }] }, // off a knoll, down and up to a raised green
   13: { rise: [[90, 3], [190, -3], [285, 1]], bowl: 0.1 }, // low and wet
   14: { rise: [[80, -12], [200, -9], [421, -3]], bowl: 0.08, mounds: [{ s: 130, o: 6, r: 20, h: 3 }] }, // off a high tee, the land falls away toward the lake
@@ -611,12 +611,11 @@ const HOLE_SPECS = [
   { id: 10, note: "One giant oak guards the front and water waits behind. Land it soft.", name: 'Big Oak', par: 3, path: trail(-35, 26, [[130, 4, 24], [125, -4, 24]]), wind: { mph: 6, from: 30 },
     woods: [{ side: -1, dense: 0.35 }, { side: 1, dense: 0.35 }], trees: [[118, 2, 7, 96]], shrubs: [[200, -14], [206, 12], [214, -6]],
     ponds: [{ s: 300, o: 0, rx: 70, ry: 24 }], backstop: false, drops: [[212, 0]] }, // (water behind the basket: a designated drop zone in front of the green, so a long one does not leave you putting back from the far side)
-  // 11: out, around and back: the basket is close to the tee but a wall of woods stands between
-  { id: 11, note: "The basket looks close, but a wall of trees runs between. Go out, round and back.", name: 'Switchback', par: 5, path: trail(0, 34, [[200, 0, 34], [175, 90, 30], [215, 90, 26]]), wind: { mph: 7, from: 90 },
-    woods: [{ side: -1, dense: 0.6, from: 26, to: 190 }, { side: 1, dense: 0.85, rows: 2, from: 0, to: 195 }, { side: 1, dense: 0.8, rows: 2, from: 380 }],
-    // a row of trees from the edge of the course up the middle: the short way across to the basket is not a way
-    padBottom: 150, rows: [{ s0: -150, s1: 60, o: 90 }, { s0: 60, s1: 190, o: 74 }], groves: [{ s: 200, o: 0, n: 5, spread: 20 }, { s: 520, o: 60, n: 6, spread: 26 }],
-    staggers: [{ s0: 440, s1: 560, every: 60, reach: 0.4, sides: [-1] }], guards: [{ side: -1, back: 60, off: 14, n: 2 }] },
+  // 11: a long par 5 that turns hard left around a stand of pines: three solid throws, or a big hyzer over the corner
+  { id: 11, note: "A long three-shot hole that bends left around a stand of pines. Play it as three clean throws, or cut the corner with a big curve if you dare: the pond waits on the outside.", name: 'The Elbow', par: 5, path: trail(0, 34, [[150, 0, 34], [200, -60, 32], [230, -10, 28]]), wind: { mph: 7, from: 90 },
+    woods: [{ side: -1, dense: 0.6, from: 26 }, { side: 1, dense: 0.6, from: 26 }],
+    ponds: [{ s: 235, o: 76, rx: 32, ry: 40 }], groves: [{ s: 190, o: -36, n: 8, spread: 22, h: [56, 76] }, { s: 480, o: 30, n: 5, spread: 20 }],
+    staggers: [{ s0: 70, s1: 190, every: 60, reach: 0.4, sides: [1, -1] }, { s0: 340, s1: 520, every: 62, reach: 0.4, sides: [-1, 1] }], guards: [{ side: -1, back: 60, off: 14, n: 2 }] },
   // 12: a dogleg right with the pond on the inside of the corner: bite it off or play the safe line out left
   { id: 12, note: "Off a knoll, a dogleg right with the pond on the inside of the corner. Trees reach in from both sides before it, then bite it off or play out left. The green is raised.", name: 'Right Hook', par: 4, path: trail(0, 34, [[210, 0, 32], [210, 64, 26]]), wind: { mph: 8, from: 280 },
     woods: [{ side: -1, dense: 0.85, rows: 2 }, { side: 1, dense: 0.6, from: 26, to: 150 }, { side: 1, dense: 0.8, from: 300 }],
