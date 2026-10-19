@@ -173,7 +173,7 @@ test('a patch of trees you have been in is out of the way once; the next patch d
   assert.strictEqual(G.resolveThrow(hole0, DRIVER, RIGHT, 0, CLEAN, { x: 0, y: 0 }).lie.t, undefined, 'in the open it remembers nothing');
 });
 
-test('water is out of bounds: the throw and a stroke, and you throw again from where you were', async () => {
+test('water is out of bounds: the throw and a stroke, and you drop at the near edge of the water', async () => {
   const G = await load();
   const open = G.resolveThrow(await field(), DRIVER, RIGHT, 0, CLEAN, { x: 0, y: 0 });
   const e = open.end;
@@ -181,8 +181,9 @@ test('water is out of bounds: the throw and a stroke, and you throw again from w
   const wet = G.resolveThrow(pond, DRIVER, RIGHT, 0, CLEAN, { x: 0, y: 0 });
   assert.strictEqual(wet.kind, 'water');
   assert.strictEqual(wet.strokes, 2);
-  assert.deepStrictEqual(wet.lie, { x: 0, y: 0 });
-  assert.ok(wet.penalty);
+  assert.ok(wet.penalty && wet.dropped);
+  assert.ok(wet.lie.y > e.y - 90 && wet.lie.y < e.y - 25, `the drop is at the near edge of the pond (${wet.lie.y} against the pond at ${e.y - 30}), not back at the tee`);
+  assert.notStrictEqual(G.surfaceAt(pond, wet.lie.x, wet.lie.y), 'water');
 
   const far = await field({ bounds: { minX: -50, maxX: 50, minY: -50, maxY: e.y - 20 } });
   assert.strictEqual(G.resolveThrow(far, DRIVER, RIGHT, 0, CLEAN, { x: 0, y: 0 }).kind, 'oob');
@@ -988,4 +989,39 @@ test('a putt hit too hard still drops when it is on line, and chains out (not a 
   const soft = putt(0, 1 - tol.power * 3);
   assert.strictEqual(soft.why, 'weak');
   assert.ok(dist > 20);
+});
+
+test('water, out of bounds and a missed mando are a drop where it was last in play (no closer to the basket), or at a designated drop zone', async () => {
+  const G = await load();
+  // a long throw straight into the pond behind hole 10's basket; and one into the water of any hole
+  const holes = [...G.HOLES, ...G.HOLES2, ...G.HOLES3];
+  let seen = 0;
+  for (const hole of holes) {
+    if (!hole.water.length && !hole.oob.length) continue;
+    for (let aim = -180; aim < 180; aim += 12) {
+      for (const mph of [40, 60, 80]) {
+        const r = G.resolveThrow(hole, DRIVER, { ...RIGHT, mph, angle: 0 }, aim, CLEAN, hole.tee);
+        if (!r.penalty || r.kind === 'mando') continue;
+        seen++;
+        assert.strictEqual(r.dropped, true);
+        assert.ok(['water', 'oob'].every((k) => G.surfaceAt(hole, r.lie.x, r.lie.y) !== k), `hole ${hole.id}: the drop is on dry, in-bounds ground`);
+        if (!r.dropZone) {
+          const last = [...r.pts, ...(r.roll || [])].filter((p) => !['water', 'oob'].includes(G.surfaceAt(hole, p.x, p.y))).at(-1) || hole.tee;
+          assert.ok(G.distance(r.lie, hole.basket) >= G.distance(last, hole.basket) - 1, `hole ${hole.id}: never closer to the basket than where it left play`);
+          assert.ok(G.distance(r.lie, last) < 90, `hole ${hole.id}: and near where it left play`);
+        }
+        assert.strictEqual(r.strokes, 2);
+      }
+    }
+  }
+  assert.ok(seen > 20, `penalties were exercised (${seen})`);
+  // designated drop zones are on the grass, clear of trees and water
+  for (const hole of holes.filter((h) => h.dropZones)) for (const z of hole.dropZones) {
+    assert.ok(!['water', 'oob'].includes(G.surfaceAt(hole, z.x, z.y)), `hole ${hole.id}: the drop zone is on dry ground`);
+    assert.ok(!hole.trees.some((t) => G.distance(z, t) < t.r + 2), `hole ${hole.id}: and clear of trees`);
+  }
+  const big = G.HOLES.find((h) => h.id === 10);
+  assert.ok(big.dropZones?.length, 'hole 10 has a designated drop zone');
+  const wet = G.resolveThrow(big, DRIVER, { ...RIGHT, mph: 80, angle: 0 }, 0, CLEAN, { x: big.basket.x - 40, y: big.basket.y - 90 });
+  if (wet.penalty) assert.strictEqual(wet.dropZone, true, 'into the water behind the basket: the drop zone in front of it');
 });

@@ -4,7 +4,7 @@
    same model the flight guide uses. Feet; x is east, y is north; heading 0 is north, positive is clockwise. */
 
 import { clamp, carryRaw, flightCurve, spinOf, spinsClockwise, angleDeg, armAt, ANGLE_MAX } from './flightmodel.js?v=1';
-import { surfaceAt, treesIn, elevAt, slopeAt, routePosition } from './course.js?v=14';
+import { surfaceAt, treesIn, elevAt, slopeAt, routePosition } from './course.js?v=15';
 
 const DEG = Math.PI / 180;
 export const PUTT_RANGE = 50; // inside this you putt
@@ -465,7 +465,7 @@ export function resolveThrow(hole, disc, settings, aimDeg, ex, from, samples = 7
 
   if (mandoHit && (!hit || mandoHit.at < hit.at) && (!basket || mandoHit.at < basket.at)) {
     const { pts, p } = cut(mandoHit);
-    return penalty(plan, pts, 'mando', p, from, { at: p });
+    return penalty(hole, plan, pts, 'mando', p, from, { at: p }, [], p);
   }
 
   if (basket && (!hit || basket.at < hit.at)) {
@@ -491,19 +491,19 @@ export function resolveThrow(hole, disc, settings, aimDeg, ex, from, samples = 7
     const candidates = sides.map((sd) => ({ x: base.x + sd.x * (core + 3), y: base.y + sd.y * (core + 3) }));
     const drop = candidates.find(open) || (open(base) ? base : candidates[0]);
     const s = surfaceAt(hole, drop.x, drop.y);
-    if (s === 'water' || s === 'oob') return penalty(plan, pts, s, drop, from, { tree: hit.tree, at: p });
+    if (s === 'water' || s === 'oob') return penalty(hole, plan, pts, s, drop, from, { tree: hit.tree, at: p }, [], lastInPlay(hole, pts, [], from));
     return { kind: 'tree', plan, pts, roll: [], end: drop, lie: { x: drop.x, y: drop.y, t: hole.trees.indexOf(hit.tree) }, strokes: 1, surface: s, hit: { tree: hit.tree, at: p } }; // the tree you hit is out of the way of the next throw
   }
 
   const end = all.at(-1);
   const surface = surfaceAt(hole, end.x, end.y);
-  if (surface === 'water' || surface === 'oob') return penalty(plan, all, surface, end, from);
+  if (surface === 'water' || surface === 'oob') return penalty(hole, plan, all, surface, end, from, null, [], lastInPlay(hole, all, [], from));
 
   const prev = all.at(-2);
   const len = Math.hypot(end.x - prev.x, end.y - prev.y) || 1;
   const roll = rollOut(hole, disc, plan, end, { x: (end.x - prev.x) / len, y: (end.y - prev.y) / len }, surface);
   if (roll.kind === 'basket') return { kind: 'basket', plan, pts: all, roll: roll.pts, end: hole.basket, lie: hole.basket, strokes: 1, surface: 'basket', hit: { at: roll.end } };
-  if (roll.kind === 'water' || roll.kind === 'oob') return penalty(plan, all, roll.kind, roll.end, from, null, roll.pts);
+  if (roll.kind === 'water' || roll.kind === 'oob') return penalty(hole, plan, all, roll.kind, roll.end, from, null, roll.pts, lastInPlay(hole, all, roll.pts, from));
   // come to rest among trees: the next throw goes through that patch (the lie remembers the nearest trunk, as it does when you hit one)
   let lie = roll.end;
   let near = null;
@@ -515,9 +515,42 @@ export function resolveThrow(hole, disc, settings, aimDeg, ex, from, samples = 7
   return { kind: 'landed', plan, pts: all, roll: roll.pts, end: roll.end, lie, strokes: 1, surface: surfaceAt(hole, roll.end.x, roll.end.y) };
 }
 
-// out of bounds: the throw counts, plus a stroke, and you play again from where you threw
-function penalty(plan, pts, kind, at, from, extra = null, roll = []) {
-  return { kind, plan, pts, roll, end: at, lie: { ...from }, strokes: 2, surface: kind, penalty: true, ...(extra ? { hit: extra } : {}) };
+/* In the water, out of bounds, or the wrong side of a mando: the throw counts plus a stroke, and you take a DROP, not a re-throw from where you threw:
+   at the nearest spot it was last in play, but never closer to the basket than that spot (distance wise); or, on a hole that has designated drop zones
+   (`hole.dropZones`), at the nearest of those. `entry` is that last spot in play (where it crossed the line or left the land). */
+const inPlay = (hole, p) => { const s = surfaceAt(hole, p.x, p.y); return s !== 'water' && s !== 'oob'; };
+// the last point along a flight (and its roll) that was over dry, in-bounds ground
+function lastInPlay(hole, pts, roll, from) {
+  const all = [...pts, ...(roll || [])];
+  for (let i = all.length - 1; i >= 0; i--) if (inPlay(hole, all[i])) return { x: all[i].x, y: all[i].y };
+  return { x: from.x, y: from.y };
+}
+export function dropSpot(hole, entry) {
+  const basket = hole.basket;
+  const zones = (hole.dropZones || []).filter((z) => inPlay(hole, z));
+  if (zones.length) {
+    const z = zones.reduce((a, b) => (distance(a, entry) <= distance(b, entry) ? a : b));
+    return { x: z.x, y: z.y, zone: true };
+  }
+  const dEntry = distance(entry, basket);
+  const clear = (p) => inPlay(hole, p) && !treesIn(hole, { x: p.x - 6, y: p.y - 6 }, { x: p.x + 6, y: p.y + 6 }).some((tr) => distance(p, tr) < tr.r + 1.5);
+  if (inPlay(hole, entry)) { // (a spot just inside the line counts, trunk or no: it is where the disc was)
+    if (clear(entry)) return { x: entry.x, y: entry.y, zone: false };
+  }
+  let best = null;
+  for (let r = 3; r <= 80 && !best; r += 3) {
+    for (let k = 0; k < 24; k++) {
+      const a = (k / 24) * Math.PI * 2;
+      const p = { x: entry.x + Math.cos(a) * r, y: entry.y + Math.sin(a) * r };
+      if (!clear(p) || distance(p, basket) < dEntry - 0.5) continue; // never closer to the basket than where it left play
+      if (!best || distance(p, basket) > distance(best, basket)) best = p; // (of the spots this near, the one farthest back)
+    }
+  }
+  return best ? { x: best.x, y: best.y, zone: false } : { x: entry.x, y: entry.y, zone: false };
+}
+function penalty(hole, plan, pts, kind, at, from, extra = null, roll = [], entry = from) {
+  const drop = dropSpot(hole, entry);
+  return { kind, plan, pts, roll, end: at, lie: { x: drop.x, y: drop.y }, strokes: 2, surface: kind, penalty: true, dropped: true, dropZone: drop.zone, ...(extra ? { hit: extra } : {}) };
 }
 
 /* ---------- putting ---------- */

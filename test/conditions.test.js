@@ -98,7 +98,7 @@ test('wind and pin come with the variant: the throw uses the day\'s wind, and th
   assert.ok(G.resolvePutt(pinB, near, bot.PUT, 0, 1).made, 'a centered putt goes in the pin, wherever it is today');
 });
 
-test('a mando: pass on the wrong side of the post on your first throw and it is a stroke and a re-throw', async () => {
+test('a mando: pass on the wrong side of the post on your first throw and it is a stroke and a drop where it crossed', async () => {
   const G = await load();
   const base = await field();
   // a post at 200 ft along, on the fairway's middle, with its ray going left: do not pass on its left
@@ -107,7 +107,7 @@ test('a mando: pass on the wrong side of the post on your first throw and it is 
   const left = go(on, -8);
   assert.strictEqual(left.kind, 'mando', `flying off to the left of the post: ${left.kind}`);
   assert.strictEqual(left.strokes, 2, 'a penalty stroke');
-  assert.deepStrictEqual(left.lie, { x: 0, y: 0 }, 'and you throw again from where you were');
+  assert.ok(left.dropped && left.lie.y > 150 && left.lie.y <= 205, `and you drop where it crossed the line (${left.lie.y}), not back where you were`);
   assert.ok(left.pts.length >= 2 && left.pts.every((p) => p.h >= 0) && left.pts.at(-1).y <= 205, 'it is stopped at the post, not after');
   const right = go(on, 12);
   assert.notStrictEqual(right.kind, 'mando', 'the right side is fine');

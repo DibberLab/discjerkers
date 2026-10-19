@@ -291,7 +291,7 @@ export function routeAhead(hole, x, y, feet) {
  *   creeks: { s, w, gap }  water straight across, with an optional dry ford [o0, o1]           oob: { s0, s1, o0, o1 }
  */
 function build(spec) {
-  const { id, name, note, par, path, wind, woods = [], trees: explicit = [], shrubs = [], groves = [], walls = [], rows = [], ponds = [], creeks = [], staggers = [], guards = [], boulders = [], rocks: rockList = [], pine = 0.4, mandoAlways = false, oob = [], backstop = true, teeWall = true, forest = true, front = 0, padBottom = 60, seed = id * 131, ground = GROUNDS[id] || {}, mando = null } = spec;
+  const { id, name, note, par, path, wind, drops = [], woods = [], trees: explicit = [], shrubs = [], groves = [], walls = [], rows = [], ponds = [], creeks = [], staggers = [], guards = [], boulders = [], rocks: rockList = [], pine = 0.4, mandoAlways = false, oob = [], backstop = true, teeWall = true, forest = true, front = 0, padBottom = 60, seed = id * 131, ground = GROUNDS[id] || {}, mando = null } = spec;
   const rnd = seeded(seed);
   const line = smooth(path);
   const route = { pts: line, s: [0] };
@@ -500,7 +500,7 @@ function build(spec) {
     const f = frame(mando.s, mando.o);
     mandoSpec = { x: r1(f.x), y: r1(f.y), dx: Math.round(f.ty * mando.side * 1000) / 1000, dy: Math.round(-f.tx * mando.side * 1000) / 1000, len: mando.len || 140, s: mando.s, side: mando.side };
   }
-  return makeHole({ id, name, note, par, fairway: line, basket, wind, water, oob: zones, trees: dry, bounds, terrain, mandoSpec, ...(mandoAlways && mandoSpec ? { mando: mandoSpec, mandoAlways: true } : {}) });
+  return makeHole({ id, name, note, par, fairway: line, basket, wind, water, oob: zones, trees: dry, bounds, terrain, mandoSpec, ...(drops.length ? { dropZones: drops.map(([s, o]) => { const f = frame(s, o); return { x: r1(f.x), y: r1(f.y) }; }) } : {}), ...(mandoAlways && mandoSpec ? { mando: mandoSpec, mandoAlways: true } : {}) });
 }
 
 /* ---------- the ground of each hole ---------- */
@@ -610,7 +610,7 @@ const HOLE_SPECS = [
   // 10: one giant oak guards the front, and water waits behind the basket
   { id: 10, note: "One giant oak guards the front and water waits behind. Land it soft.", name: 'Big Oak', par: 3, path: trail(-35, 26, [[130, 4, 24], [125, -4, 24]]), wind: { mph: 6, from: 30 },
     woods: [{ side: -1, dense: 0.35 }, { side: 1, dense: 0.35 }], trees: [[118, 2, 7, 96]], shrubs: [[200, -14], [206, 12], [214, -6]],
-    ponds: [{ s: 300, o: 0, rx: 70, ry: 24 }], backstop: false },
+    ponds: [{ s: 300, o: 0, rx: 70, ry: 24 }], backstop: false, drops: [[212, 0]] }, // (water behind the basket: a designated drop zone in front of the green, so a long one does not leave you putting back from the far side)
   // 11: out, around and back: the basket is close to the tee but a wall of woods stands between
   { id: 11, note: "The basket looks close, but a wall of trees runs between. Go out, round and back.", name: 'Switchback', par: 5, path: trail(0, 34, [[200, 0, 34], [175, 90, 30], [215, 90, 26]]), wind: { mph: 7, from: 90 },
     woods: [{ side: -1, dense: 0.6, from: 26, to: 190 }, { side: 1, dense: 0.85, rows: 2, from: 0, to: 195 }, { side: 1, dense: 0.8, rows: 2, from: 380 }],

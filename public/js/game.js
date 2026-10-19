@@ -4,19 +4,19 @@
 
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
-import { HOLES, COURSES, courseById, holeById, holesFor } from './course.js?v=14';
-import * as G from './gamecore.js?v=40';
+import { HOLES, COURSES, courseById, holeById, holesFor } from './course.js?v=15';
+import * as G from './gamecore.js?v=41';
 import * as T from './trash.js?v=13';
-import * as C3 from './cam3d.js?v=23';
+import * as C3 from './cam3d.js?v=24';
 import * as FO from './foliage.js?v=2';
 import * as PL from './player.js?v=1';
 import * as GS from './gesture.js?v=2';
 import { ANGLE_MAX } from './flightmodel.js?v=1';
-import * as PF from './puttfx.js?v=20';
-import * as GR from './ground.js?v=8';
+import * as PF from './puttfx.js?v=21';
+import * as GR from './ground.js?v=9';
 import * as SND from './sound.js?v=4';
 import * as MB from './marebear.js?v=2';
-import * as K from './conditions.js?v=6';
+import * as K from './conditions.js?v=7';
 import * as DLY from './daily.js?v=1';
 import * as GP from './gamepanels.js?v=3';
 import * as PR from './progress.js?v=2';
@@ -714,9 +714,9 @@ function surfaceName(s) {
 function resultCopy(r) {
   const dist = toBasket();
   if (r.kind === 'water' || r.kind === 'oob') {
-    return { h: r.kind === 'water' ? 'Splash!' : 'Out of bounds', tone: 'bad', p: 'That is a penalty stroke. You throw again from the same spot.' };
+    return { h: r.kind === 'water' ? 'Splash!' : 'Out of bounds', tone: 'bad', p: r.dropZone ? `That is a penalty stroke. Take the drop zone: ${ft(dist)} to the basket.` : `That is a penalty stroke. You drop where it was last in play, no closer to the basket: ${ft(dist)} out.` };
   }
-  if (r.kind === 'mando') return { h: 'Missed the mando', tone: 'bad', p: 'You went the wrong side of the red post. That is a penalty stroke, and you throw again from the same spot.' };
+  if (r.kind === 'mando') return { h: 'Missed the mando', tone: 'bad', p: `You went the wrong side of the red post. That is a penalty stroke, and you drop where it crossed the line, no closer to the basket: ${ft(dist)} out.` };
   if (r.kind === 'tree') return { h: 'Thunk!', tone: 'bad', p: `It hit a ${r.hit?.tree?.k === 'r' ? 'rock' : 'tree'} and kicked out beside it. ${ft(dist)} to the basket.` };
   if (r.made === false) return { h: 'Missed', tone: 'bad', p: `It rattled out and sits ${ft(dist)} from the basket.` };
   return { h: surfaceName(r.surface), tone: r.surface === 'rough' ? 'bad' : 'good', p: `${ft(dist)} to the basket.` };
