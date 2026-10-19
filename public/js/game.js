@@ -5,7 +5,7 @@
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, COURSES, courseById, holeById, holesFor } from './course.js?v=15';
-import * as G from './gamecore.js?v=42';
+import * as G from './gamecore.js?v=43';
 import * as T from './trash.js?v=13';
 import * as C3 from './cam3d.js?v=24';
 import * as FO from './foliage.js?v=2';
@@ -13,6 +13,7 @@ import * as PL from './player.js?v=1';
 import * as GS from './gesture.js?v=2';
 import { ANGLE_MAX } from './flightmodel.js?v=1';
 import * as PF from './puttfx.js?v=21';
+import * as MU from './music.js?v=3';
 import * as GR from './ground.js?v=9';
 import * as SND from './sound.js?v=4';
 import * as MB from './marebear.js?v=2';
@@ -185,7 +186,9 @@ const puttDd = () => G.puttDist(S.hole, lieOf()); // how hard the putt is: the h
 const slopeBit = (hole, lie) => { const t = slopeText(hole, lie); return t ? ` · ${t}` : ''; };
 // a line for the pick panel about the hill, with what it does to this throw or putt
 // you are in a patch of trees (you hit one, or came to rest among them): this throw goes through that patch
-const patchNote = () => (lieOf().t !== undefined && !inPutt() ? '<p class="gm-note">You are in a patch of trees: this throw goes through them. The next patch is still there.</p>' : '');
+const patchNote = () => (lieOf().t !== undefined && !inPutt() ? '<p class="gm-note">You are in a patch of trees: this throw goes through them. The next patch is still there.</p>' : '') + woodsNote();
+// off in the woods too far to play from: a drop back on the fairway, for a stroke (never closer to the basket)
+const woodsNote = () => (!inPutt() && S.mode !== 'menu' && G.woodsDrop(S.hole, lieOf()) ? '<p class="gm-note gm-woods">You are deep in the woods. <button class="chip" type="button" data-take-drop>Take a drop · +1 stroke</button> sets you back on the fairway, no closer to the basket.</p>' : '');
 function slopeNote() {
   const t = slopeText(S.hole, lieOf());
   if (!t) return patchNote();
@@ -873,6 +876,26 @@ function backOut() {
   retarget(false);
   toast('Back to the disc', '', 900);
   return true;
+}
+
+// a drop from the woods: one stroke, and the disc goes back on the fairway (the rule is gamecore's `woodsDrop`; in a match the server places it)
+function takeDrop() {
+  if (S.phase !== 'pick' || inPutt()) return;
+  if (S.mode === 'match') { mpDrop(); return; }
+  const result = G.dropResult(S.hole, lieOf());
+  if (!result) { toast('You are not deep enough in the woods to take a drop', 'bad', 1800); return; }
+  const from = { ...lieOf() };
+  G.applyResult(S.round, curDisc(), result, { bear: false }); // (Marebear waits for the next throw)
+  if (S.course) S.course.penalties = (S.course.penalties || 0) + 1;
+  S.trail.push({ pts: [from, result.lie].map((p) => ({ x: p.x, y: p.y })), kind: 'drop', n: S.trail.length + 1 });
+  S.aimOff = 0;
+  S.target = null;
+  S.stepKey = null;
+  SND.play('tap');
+  toast('Drop: +1 stroke, back on the fairway', 'bad', 1800);
+  setPhase('pick');
+  updateHud();
+  retarget(false);
 }
 
 function startMeter() {
@@ -3881,6 +3904,8 @@ function onPanelClick(e) {
     const order = phoneSteps();
     S.step = order[Math.min(order.length - 1, order.indexOf(S.step) + 1)]; // the next one (it used to know only three)
     renderPanel();
+  } else if (t.closest('[data-take-drop]')) {
+    takeDrop();
   } else if (t.closest('[data-go]')) {
     startMeter();
   } else if (t.closest('[data-next]')) {
@@ -4572,6 +4597,17 @@ function startMoveAnim(view, last, who) {
   mp.view = view;
   const hole = matchHole(last.holeId, view);
   S.hole = hole;
+  if (last.drop) { // a drop from the woods: no flight, the disc is just set down on the fairway
+    const name = who === 'me' ? '' : `${playerOf(who, view).name} `;
+    toast(`${name}took a drop: +1 stroke`, 'bad', 1700);
+    if (who === 'me') mp.penalties = (mp.penalties || 0) + 1;
+    S.anim = null;
+    S.aimOff = 0;
+    S.target = null;
+    (who === 'me' ? S.trail : (S.others.find((o) => o.uid === who)?.trail || [])).push({ pts: [last.from, last.lie].map((p) => ({ x: p.x, y: p.y })), kind: 'drop', n: 0 });
+    afterMove();
+    return;
+  }
   const { result, pts } = buildMoveAnim(last, hole, who);
   const name = who === 'me' ? '' : `${playerOf(who, view).name}: `;
   if (last.putt) puttReaction(result, who, name);
@@ -4695,6 +4731,13 @@ function mpThrow(ex) {
   S.feel = null;
   setPhase('flight');
   mpMove('throw', { discId: disc.id, settings: { ...S.settings }, aimOff: S.aimOff, ex: { o: ex.o, pure: ex.pure, swipe: ex.swipe } });
+}
+
+function mpDrop() {
+  const disc = curDisc();
+  S.last = { result: null, ex: null, disc, from: { ...lieOf() }, who: 'me' };
+  setPhase('flight');
+  mpMove('drop', { discId: disc.id });
 }
 
 function mpPutt(shot, swipe = null) {
@@ -4965,6 +5008,7 @@ async function boot() {
   $('#gm-mini').addEventListener('pointerdown', (e) => { if (isMeter() && S.meter?.classic) { e.preventDefault(); tap(); } }); // anywhere in the timing window is the tap
   p.addEventListener('keydown', (e) => { if (e.target.matches('[data-tap]') && (e.key === ' ' || e.key === 'Enter')) e.preventDefault(); });
   // the pinned button layer does what the panel does for its buttons
+  MU.initMusic($('#gm-music')); // the music bar (a YouTube playlist per vibe)
   const fh = fabHost();
   fh.addEventListener('click', onPanelClick);
   fh.addEventListener('pointerdown', (e) => { if (e.target.closest('[data-tap]') && isMeter()) { e.preventDefault(); tap(); } });

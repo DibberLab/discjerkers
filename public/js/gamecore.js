@@ -565,6 +565,37 @@ export function dropSpot(hole, entry) {
   }
   return best ? { x: best.x, y: best.y, zone: false } : { x: entry.x, y: entry.y, zone: false };
 }
+/* Off in the woods too far to play from: past the fairway's edge by WOODS_OFF feet and boxed in by trees, you may take a drop: one stroke, and the disc goes to the nearest
+   clear spot back on the fairway that is no closer to the basket than where it lies (distance wise). `woodsDrop` is where it would go (null when you may not: not deep enough). */
+export const WOODS_OFF = 28;
+export function woodsDrop(hole, lie) {
+  const rp = routePosition(hole, lie.x, lie.y);
+  if (Math.max(0, rp.d - rp.hw) < WOODS_OFF) return null;
+  const around = treesIn(hole, { x: lie.x - 24, y: lie.y - 24 }, { x: lie.x + 24, y: lie.y + 24 });
+  if (around.filter((t) => t.h >= 20 && distance(lie, t) <= 22 + t.r).length < 3) return null; // (open ground is no reason to drop)
+  const basket = hole.basket;
+  const dLie = distance(lie, basket);
+  for (let r = 4; r <= 200; r += 4) {
+    let best = null;
+    for (let k = 0; k < 48; k++) {
+      const a = (k / 48) * Math.PI * 2;
+      const p = { x: lie.x + Math.cos(a) * r, y: lie.y + Math.sin(a) * r };
+      if (!inPlay(hole, p)) continue;
+      const q = routePosition(hole, p.x, p.y);
+      if (q.d > q.hw - 2) continue; // on the fairway, not at its edge
+      if (treesIn(hole, { x: p.x - 6, y: p.y - 6 }, { x: p.x + 6, y: p.y + 6 }).some((tr) => distance(p, tr) < tr.r + 1.5)) continue;
+      if (distance(p, basket) < dLie - 0.5) continue; // never closer to the basket than the lie
+      if (!best || distance(p, basket) < distance(best, basket)) best = p; // (of the spots this near, the one that gains the most it is allowed to)
+    }
+    if (best) return { x: best.x, y: best.y };
+  }
+  return null;
+}
+// the result of taking that drop, in the shape a throw's result has (so applyResult and the match record take it the same way)
+export function dropResult(hole, lie) {
+  const spot = woodsDrop(hole, lie);
+  return spot ? { kind: 'drop', plan: { feet: 0 }, pts: [], roll: [], end: spot, lie: { x: spot.x, y: spot.y }, strokes: 1, surface: 'fairway', penalty: true, dropped: true } : null;
+}
 function penalty(hole, plan, pts, kind, at, from, extra = null, roll = [], entry = from) {
   const drop = dropSpot(hole, entry);
   return { kind, plan, pts, roll, end: at, lie: { x: drop.x, y: drop.y }, strokes: 2, surface: kind, penalty: true, dropped: true, dropZone: drop.zone, ...(extra ? { hit: extra } : {}) };

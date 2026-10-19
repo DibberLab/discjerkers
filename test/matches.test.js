@@ -666,3 +666,32 @@ test('a match has a seed, and the server plays every hole on that seed\'s day: t
   const old = { ...m, seed: undefined };
   assert.strictEqual(gp.holeFor(old, old.round.holeId), gp.hole(old.round.holeId));
 });
+
+test('off in the woods too far, a player may take a drop (the server places it), and not otherwise', async () => {
+  const { gp, store, id } = await seated();
+  begin(store, gp, id);
+  const m = store.get(id);
+  const { G } = gp;
+  const hole = gp.hole(1);
+  const who = m.round.turn;
+  const user = who === ANA.id ? ANA : BEN;
+  const disc = m.players.find((p) => p.uid === who).discs[0].id;
+  assert.throws(() => store.move(user, id, 'drop', { discId: disc }, gp), /not deep enough/, 'on the tee you may not');
+  let lie = null;
+  const b = hole.bounds;
+  for (let x = b.minX; x <= b.maxX && !lie; x += 9) for (let y = b.minY; y <= b.maxY && !lie; y += 9) if (G.woodsDrop(hole, { x, y })) lie = { x, y };
+  assert.ok(lie, 'there is deep woods on this hole');
+  m.round.rounds[who].lie = { ...lie };
+  m.round.rounds[who === ANA.id ? BEN.id : ANA.id].lie = { x: hole.tee.x, y: hole.tee.y }; // (the other player is on the tee: farther, so ask for their turn away)
+  m.round.turn = who;
+  const before = m.round.rounds[who].strokes;
+  const out = store.move(user, id, 'drop', { discId: disc }, gp);
+  assert.strictEqual(out.last.drop, true);
+  assert.strictEqual(out.last.strokes, 1);
+  assert.deepStrictEqual(out.last.pts, []);
+  const r = store.get(id).round.rounds[who];
+  assert.strictEqual(r.strokes, before + 1, 'a stroke');
+  const q = G.routePosition(hole, r.lie.x, r.lie.y);
+  assert.ok(q.d <= q.hw, 'and back on the fairway');
+  assert.ok(G.distance(r.lie, hole.basket) >= G.distance(lie, hole.basket) - 0.6, 'no closer to the basket');
+});

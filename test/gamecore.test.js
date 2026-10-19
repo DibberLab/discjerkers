@@ -1067,3 +1067,41 @@ test('a real throw scatters: the same throw lands in a zone, and holing out from
   assert.ok(p20 < 0.6 && p20 > 0.15, `from 20 ft: ${p20}`);
   assert.ok(p40 < 0.03, `from 40 ft: ${p40}`);
 });
+
+test('off in the woods too far you may take a drop: back on the fairway, a stroke, no closer to the basket', async () => {
+  const G = await load();
+  const hole = G.HOLES[0];
+  const b = hole.bounds;
+  let found = 0;
+  let none = 0;
+  for (let x = b.minX; x <= b.maxX; x += 9) {
+    for (let y = b.minY; y <= b.maxY; y += 9) {
+      const lie = { x, y };
+      const spot = G.woodsDrop(hole, lie);
+      if (!spot) { none++; continue; }
+      found++;
+      const q = G.routePosition(hole, spot.x, spot.y);
+      assert.ok(q.d <= q.hw - 2 + 0.01, `(${x},${y}): the drop is on the fairway`);
+      assert.ok(!['water', 'oob'].includes(G.surfaceAt(hole, spot.x, spot.y)), 'dry and in bounds');
+      assert.ok(!hole.trees.some((t) => G.distance(spot, t) < t.r + 1), 'clear of trees');
+      assert.ok(G.distance(spot, hole.basket) >= G.distance(lie, hole.basket) - 0.6, 'no closer to the basket than the lie');
+      const off = Math.max(0, G.routePosition(hole, x, y).d - G.routePosition(hole, x, y).hw);
+      assert.ok(off >= G.WOODS_OFF, 'only deep in the woods');
+    }
+  }
+  assert.ok(found > 20, `deep woods exist on the first hole (${found} spots)`);
+  assert.ok(none > found, 'and most of the hole is not deep woods');
+  assert.strictEqual(G.woodsDrop(hole, hole.tee), null, 'on the tee you may not');
+  assert.strictEqual(G.woodsDrop(hole, { x: hole.basket.x, y: hole.basket.y - 20 }), null, 'nor on the fairway');
+  // taking it costs a stroke and moves the lie
+  let lie = null;
+  for (let x = b.minX; x <= b.maxX && !lie; x += 9) for (let y = b.minY; y <= b.maxY && !lie; y += 9) if (G.woodsDrop(hole, { x, y })) lie = { x, y };
+  const round = G.newRound(hole);
+  round.lie = { ...lie };
+  const res = G.dropResult(hole, lie);
+  assert.strictEqual(res.kind, 'drop');
+  G.applyResult(round, DRIVER, res, { bear: false });
+  assert.strictEqual(round.strokes, 1);
+  assert.deepStrictEqual(round.lie, res.lie);
+  assert.strictEqual(G.dropResult(hole, hole.tee), null);
+});

@@ -489,3 +489,41 @@
 
 /* a throw that cannot be made (the marker is red) cannot be started */
 .gm-fabhost .gm-fab:disabled { background: #8a1f1f; color: #ffd9d6; opacity: 0.85; cursor: not-allowed; }
+
+/* ---------- music: play, skip, volume and a drop-up of vibes, under the main button ---------- */
+.gm-music { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 41; width: min(88vw, 340px); }
+.gm-music__bar { display: flex; align-items: center; gap: 4px; height: 38px; padding: 0 6px 0 4px; background: rgba(17, 23, 15, 0.94); border: 1px solid var(--hair); border-radius: 999px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); }
+.gm-mbtn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 30px; min-width: 30px; padding: 0 7px; border: 0; border-radius: 999px; background: transparent; color: var(--bone); cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; font: 700 0.6rem var(--mono); letter-spacing: 0.1em; text-transform: uppercase; }
+.gm-mbtn svg { width: 16px; height: 16px; fill: currentColor; flex: none; }
+.gm-mbtn:hover, .gm-mbtn:focus-visible { background: rgba(238, 241, 232, 0.12); outline: none; }
+.gm-mbtn--vibe { flex: 1; min-width: 0; justify-content: flex-start; color: var(--lime); }
+.gm-mbtn--vibe span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gm-mbtn--vibe svg { fill: none; }
+.gm-mbtn--vibe i { font-style: normal; color: var(--bone-dim); }
+.gm-music.is-open .gm-mbtn--vibe i { transform: rotate(180deg); }
+.gm-music.is-on .gm-mbtn[data-m="play"] { color: var(--lime); }
+.gm-mbtn.is-stuck { color: var(--rust-lift); animation: gm-pulse 1s ease-in-out infinite; }
+@keyframes gm-pulse { 50% { opacity: 0.45; } }
+.gm-mvol { width: 64px; flex: none; accent-color: var(--lime); height: 30px; margin: 0 2px; cursor: pointer; touch-action: manipulation; }
+.gm-music__drawer { position: absolute; left: 0; right: 0; bottom: 46px; max-height: min(60vh, 420px); overflow-y: auto; padding: 10px; background: rgba(17, 23, 15, 0.97); border: 1px solid var(--hair); border-radius: 14px; box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.6); }
+.gm-music__h { margin: 0 0 8px; font: 700 0.64rem var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--lime); }
+.gm-music__h small { margin-left: 6px; font-weight: 400; color: var(--bone-faint); letter-spacing: 0.08em; }
+.gm-music__grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.gm-vibe { display: grid; gap: 1px; text-align: left; padding: 8px 10px; border: 1px solid var(--hair); border-radius: 10px; background: var(--void); color: var(--bone); cursor: pointer; touch-action: manipulation; }
+.gm-vibe b { font: 400 1.05rem/1.1 var(--display); letter-spacing: 0.04em; text-transform: uppercase; }
+.gm-vibe small { font: 0.58rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--bone-faint); }
+.gm-vibe[aria-pressed="true"] { border-color: var(--lime); box-shadow: 0 0 0 1px var(--lime); }
+.gm-vibe[aria-pressed="true"] b { color: var(--lime); }
+.gm-music__now { min-height: 1em; margin: 8px 0 0; font: 0.62rem/1.4 var(--mono); letter-spacing: 0.04em; color: var(--bone-dim); }
+.gm-music__yt { position: fixed; left: 0; bottom: 0; width: 200px; height: 200px; opacity: 0.001; pointer-events: none; z-index: -1; overflow: hidden; } /* (the YouTube player: it has to be on the page to play, and is not shown) */
+/* the main button sits above the music bar, and the panel leaves room for both */
+.gm-fabhost { bottom: calc(54px + env(safe-area-inset-bottom)); }
+.gm-panel { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+.gm-panel.has-fab { padding-bottom: calc(134px + env(safe-area-inset-bottom)); }
+@media (min-width: 901px) {
+  .gm-stage .gm-cambtn:not(.gm-cambtn--view) { bottom: 124px; }
+  .gm-mini { bottom: 172px; }
+}
+
+/* the drop from the woods, in the pick panel's note */
+.gm-woods .chip { margin: 2px 4px 2px 0; border-color: var(--rust); color: var(--rust-lift); }

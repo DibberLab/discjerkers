@@ -152,13 +152,13 @@ const trailOf = (result) => {
 };
 
 // Put a resolved throw or putt into the match: strokes, lie, trail, the record the other player watches, and what comes next.
-function record(gp, m, uid, disc, result, extra) {
+function record(gp, m, uid, disc, result, extra, opts = {}) {
   const { G } = gp;
   const hole = gp.holeFor(m, m.round.holeId);
   const r = m.round.rounds[uid];
   const work = { ...r, hole };
   const from = { ...r.lie };
-  const out = G.applyResult(work, disc, result);
+  const out = G.applyResult(work, disc, result, opts);
   Object.assign(r, { lie: work.lie, strokes: work.strokes, throws: work.throws, eaten: work.eaten, bearCame: work.bearCame, done: work.done, holed: work.holed });
   const trail = m.round.trails[uid];
   trail.push({ pts: trailOf(result), kind: result.kind, n: r.throws.length });
@@ -174,9 +174,10 @@ function record(gp, m, uid, disc, result, extra) {
     from,
     kind: result.kind,
     putt: !!extra.putt,
+    drop: extra.drop || undefined,
     ex: extra.ex ?? null,
-    feet: extra.putt ? null : Math.round(result.plan.feet),
-    pts: extra.putt ? [] : result.pts.map((p) => [r1(p.x), r1(p.y), r1(p.h)]),
+    feet: extra.putt || extra.drop ? null : Math.round(result.plan.feet),
+    pts: extra.putt || extra.drop ? [] : result.pts.map((p) => [r1(p.x), r1(p.y), r1(p.h)]),
     roll: (result.roll ?? []).map((p) => [r1(p.x), r1(p.y)]),
     end: { x: r1((result.end ?? result.lie).x), y: r1((result.end ?? result.lie).y) },
     lie: { x: r1(result.lie.x), y: r1(result.lie.y) },
@@ -267,6 +268,18 @@ function throwMove(gp, m, uid, body) {
   const ex = G.applyScatter(G.applySlip(G.sanitizeExecution(body.ex), G.rollSlip(disc, settings, Math.random())), G.rollScatter(Math.random)); // the server rolls: a slip cannot be dodged, nor the scatter of a landing
   const result = G.resolveThrow(hole, disc, settings, G.headingTo(r.lie, hole.basket) + aimOff, ex, r.lie);
   return record(gp, m, uid, disc, result, { ex: { o: ex.o, pure: ex.pure, grade: ex.grade, slip: ex.slip, swipe: ex.swipe, swipeAim: ex.swipeAim, swipeSpeed: ex.swipeSpeed }, putt: false });
+}
+
+// Off in the woods too far: a drop back on the fairway for a stroke (the same rule the page uses, worked out here: a page cannot place its own drop)
+function dropMove(gp, m, uid, body) {
+  const { G } = gp;
+  needTurn(m, uid);
+  const hole = gp.holeFor(m, m.round.holeId);
+  const r = m.round.rounds[uid];
+  const result = G.dropResult(hole, r.lie);
+  if (!result) throw new MatchError('You are not deep enough in the woods to take a drop.');
+  const disc = playDisc(gp, m, uid, discFor(m, uid, body.discId));
+  return record(gp, m, uid, disc, result, { putt: false, drop: true }, { bear: false }); // (Marebear waits for the next throw)
 }
 
 function puttMove(gp, m, uid, body) {
@@ -493,7 +506,7 @@ function createMatchStore(file, { now = () => Date.now(), seed = () => crypto.ra
       const m = find(id);
       if (!m || !isMember(m, user.id)) throw new MatchError('No such match.', 404);
       let last;
-      const next = change(id, (d) => { last = (kind === 'putt' ? puttMove : throwMove)(gp, d, user.id, body || {}); });
+      const next = change(id, (d) => { last = ({ putt: puttMove, drop: dropMove }[kind] || throwMove)(gp, d, user.id, body || {}); });
       return { match: view(next, user.id), last };
     },
 

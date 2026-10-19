@@ -20,6 +20,7 @@ const KEEPALIVE_MS = 15_000;
  *   GET  /matches/:id/stream    server-sent events: the match, pushed as it changes
  *   POST /matches/:id/throw     { discId, settings, aimOff, ex }   (only on your turn)
  *   POST /matches/:id/putt      { discId, x, y }   where the dot was when you tapped, on the unit circle
+ *   POST /matches/:id/drop      { discId }         off in the woods too far: a drop back on the fairway for a stroke (the server places it)
  *   POST /matches/:id/leave     forfeit, or leave one that has not started
  * Every response is no-store: it is about two people.
  */
@@ -144,7 +145,7 @@ function createGameRouter({
     req.on('close', () => drop(w));
   }));
 
-  for (const kind of ['throw', 'putt']) {
+  for (const kind of ['throw', 'putt', 'drop']) {
     router.post(`/matches/:id/${kind}`, wrap(async (req, res, user, gp) => {
       gate(moveLimit, user.id, 'Easy. That is a lot of throws.');
       res.json(matches.move(user, req.params.id, kind, req.body, gp));
