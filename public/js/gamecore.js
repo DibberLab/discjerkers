@@ -187,8 +187,13 @@ export const ANGLES = Array.from({ length: ANGLE_MAX * 2 + 1 }, (_, i) => i - AN
 // The sweet spots are worked out by playing candidates through resolveThrow, which is a lot of throws (hundreds), so it is a job that can be done
 // a few at a time (`next(n)`), and the page does it between frames instead of in one go. A guide does not need a fine path: 36 samples.
 const SWEET_SAMPLES = 36;
-export function sweetJob(hole, disc, base, aimDeg, from, stage) {
-  const away = (t) => distance(resolveThrow(hole, disc, t, aimDeg, SWEET_RELEASE, from, SWEET_SAMPLES).lie, hole.basket);
+// `ex` is the release the candidates are played with (a clean one by default). The arm stage of the meters style passes the release the player actually made and plays
+// each speed as the throw itself would be played (72 samples), keeping where each one really finishes (`lies`) and its flight (`paths`), so the page's marker is honest.
+export function sweetJob(hole, disc, base, aimDeg, from, stage, ex = SWEET_RELEASE) {
+  const exact = stage === 'arm';
+  const run = (t) => resolveThrow(hole, disc, t, aimDeg, ex, from, exact ? 72 : SWEET_SAMPLES);
+  const kept = [];
+  const away = (t, vi) => { const r = run(t); if (exact) kept[vi] = r; return distance(r.lie, hole.basket); };
   const angles = ANGLES.filter((a) => a % 2 === 0); // every other angle: it is a guide
   let values;
   let tasks; // [value index, settings to try]
@@ -211,18 +216,18 @@ export function sweetJob(hole, disc, base, aimDeg, from, stage) {
     next(count = 1) {
       for (let k = 0; k < count && at < tasks.length; k++, at++) {
         const [vi, t] = tasks[at];
-        dist[vi] = Math.min(dist[vi], away(t));
+        dist[vi] = Math.min(dist[vi], away(t, vi));
       }
     },
     result() {
       const best = Math.min(...dist);
       const slack = stage === 'arm' ? ARM_SLACK : SWEET_SLACK;
-      return { stage, values, dist: [...dist], best, ok: dist.map((d) => d <= best + slack) };
+      return { stage, values, dist: [...dist], best, ok: dist.map((d) => d <= best + slack), lies: kept.map((r) => r.lie), paths: kept.map((r) => r.pts), kinds: kept.map((r) => r.kind) };
     },
   };
 }
-export function sweetSpots(hole, disc, base, aimDeg, from, stage) {
-  const job = sweetJob(hole, disc, base, aimDeg, from, stage);
+export function sweetSpots(hole, disc, base, aimDeg, from, stage, ex) {
+  const job = sweetJob(hole, disc, base, aimDeg, from, stage, ex);
   job.next(Infinity);
   return job.result();
 }

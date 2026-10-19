@@ -5,7 +5,7 @@
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, COURSES, courseById, holeById, holesFor } from './course.js?v=14';
-import * as G from './gamecore.js?v=36';
+import * as G from './gamecore.js?v=37';
 import * as T from './trash.js?v=11';
 import * as C3 from './cam3d.js?v=23';
 import * as FO from './foliage.js?v=2';
@@ -445,7 +445,7 @@ function settingsBlock() {
       <p class="gm-h">Your throw <span>· hand and aim</span></p>
       ${gripChips()}
       ${aimRow()}
-      <p class="gm-note">${metersOn() ? 'Meters style: aim (drag or tap the hole), press Throw, stop the power meter on the map, then hit the sweet spots in the timing window. The dashed line is a typical throw with this disc.' : 'Plan the flight below (hyzer or anhyzer, nose, arm speed) and watch the dashed line over the ground: it is the throw you have planned from a clean release, and the shaded band is where a mistimed release can land. A faster arm is harder to release on time.'}</p>
+      <p class="gm-note">${metersOn() ? 'Aim by dragging or tapping the hole and press Throw. Stop the nose, hyzer and release dials, then fill the wedge and tap to throw. The dashed line is a typical throw with this disc.' : 'Plan the flight below (hyzer or anhyzer, nose, arm speed) and watch the dashed line over the ground: it is the throw you have planned from a clean release, and the shaded band is where a mistimed release can land. A faster arm is harder to release on time.'}</p>
     </div>`;
 }
 
@@ -561,7 +561,7 @@ function panelPick() {
       : settingsBlock()}
     <div class="gm-go${putting || metersOn() ? '' : ' gm-go--plan'}">
       ${putting || metersOn() ? '' : planRows()}
-      <button class="btn" type="button" data-go>${putting ? 'Putt' : 'Throw'}</button>
+      <button class="btn gm-fab" type="button" data-go>${putting ? 'Putt' : 'Throw'}</button>
       <p class="gm-go__line">Stroke <b>${strokes + 1}</b> · Par <b>${S.hole.par}</b> · ${putting ? `${ft(dist)} out` : `${ft(dist)} to the basket`}${slopeBit(S.hole, lieOf())}</p>
     </div>`;
 }
@@ -766,8 +766,8 @@ function panelDone() {
       <ol class="gm-log">${log}</ol>
       ${r.eaten.length ? `<p>Marebear has pocketed ${r.eaten.map((id) => esc(splitName(DISCS.get(id).name))).join(', ')}. She does not give them back.</p>` : ''}
       ${lastHole
-        ? `<button class="btn" type="button" data-summary>${c.length > 1 ? 'See the scorecard' : 'Finish'}</button>`
-        : `<button class="btn" type="button" data-next-hole>Next: hole ${next.id}, ${esc(next.name)} <small>par ${next.par}</small></button>`}
+        ? `<button class="btn gm-fab" type="button" data-summary>${c.length > 1 ? 'See the scorecard' : 'Finish'}</button>`
+        : `<button class="btn gm-fab" type="button" data-next-hole>Next: hole ${next.id}, ${esc(next.name)} <small>par ${next.par}</small></button>`}
     </div>`;
 }
 
@@ -925,20 +925,20 @@ function refAt(ref, d) {
   const l = Math.hypot(b.f - a.f, b.r - a.r) || 1;
   return { f: b.f + ((b.f - a.f) / l) * (d - run), r: b.r + ((b.r - a.r) / l) * (d - run) };
 }
-// how far each arm speed carries, from here (with the nose and hyzer chosen), laid along the curve the throw had before the timing window
-function buildRuler() {
-  const d = curDisc();
+// The wedge's ruler for the drive: where each arm speed REALLY finishes, from the arm-stage sweet job (every speed played through resolveThrow with the release you made,
+// trees, roll and all), laid along the curve the throw had before the timing window. So the marker shows where the disc will come to rest if you tap there.
+function rulerFromTruth(m, res) {
   const lie = lieOf();
-  const ref = S.meter?.ref;
+  const ref = m.ref;
   const { ux, uy, rx, ry } = G.headingVec(heading());
-  const R = [];
-  for (let mph = G.ARM.min; mph <= G.ARM.max; mph += G.ARM.step) {
-    const end = G.previewThrow(S.hole, d, S.settings, heading(), lie, 8, { mph, nose: S.settings.nose || 0, angle: S.settings.angle || 0 }).end; // with the nose and hyzer chosen in the timing window
-    const ft = G.distance(lie, end);
+  let run = 0;
+  m.ruler = res.values.map((mph, i) => {
+    const ft = Math.max(run, Math.round(G.distance(lie, res.lies[i]))); // (never shorter than the speed before: a tree can cut a faster throw short, but the fill only goes one way)
+    run = ft;
     const q = ref ? refAt(ref, ft) : { f: ft, r: 0 };
-    R.push({ mph, x: lie.x + ux * q.f + rx * q.r, y: lie.y + uy * q.f + ry * q.r, ft: Math.round(ft), pos: G.powerPos(mph) });
-  }
-  return R;
+    return { mph, x: lie.x + ux * q.f + rx * q.r, y: lie.y + uy * q.f + ry * q.r, ft, pos: G.powerPos(mph), lie: res.lies[i], pts: res.paths[i], kind: res.kinds[i] };
+  });
+  m.wedge = null;
 }
 // a putt's wedge: straight at the basket and out past it; the lit stretch is the push this putt needs, give or take what the swipe allowed
 function buildPuttRuler() {
@@ -953,10 +953,7 @@ function buildPuttRuler() {
 }
 function rebuildWedge() { // the aim moved: the wedge goes with it (its sweet spot is worked out again when the finger lifts)
   const m = S.meter;
-  m.ruler = buildRuler();
-  m.wedge = null;
-  m.lines = {};
-  m.sweetRaw = null;
+  m.sweetRaw = null; // (the wedge's curve is in the frame of the throw, so it turns with the aim; its numbers and sweet spot are stale until the finger lifts)
 }
 const rulerAt = (mph) => { const R = S.meter.ruler; return R[clamp(Math.round((mph - G.ARM.min) / G.ARM.step), 0, R.length - 1)]; };
 function powerReadout(mph) {
@@ -1453,7 +1450,7 @@ function sweetFor(stage) {
   if (!d || !meter) return;
   const chosen = stage === 'arm'; // the last stage of the meters style knows the nose and the hyzer
   const base = { hand: S.settings.hand, style: S.settings.style, mph: S.settings.mph, spin: null, nose: stage === 'angle' || chosen ? S.settings.nose : 0, angle: chosen ? S.settings.angle : 0 };
-  const job = G.sweetJob(S.hole, d, base, heading(), lieOf(), stage);
+  const job = G.sweetJob(S.hole, d, base, heading(), lieOf(), stage, chosen ? meter.ex : undefined); // (the arm stage is played with the release you made)
   meter.sweet[stage] = [];
   const tok = (meter.tok = (meter.tok || 0) + 1);
   const pump = () => {
@@ -1464,6 +1461,7 @@ function sweetFor(stage) {
     const res = job.result();
     meter.sweet[stage] = G.sweetBands(res);
     if (stage === 'power' || stage === 'arm') meter.sweetRaw = res; // (the wedge draws its own)
+    if (stage === 'arm') { rulerFromTruth(meter, res); meter.start = now(); } // the wedge appears, and its fill starts, once it is worked out
     if (meter.classic) return; // (the dials draw their sweet arcs themselves)
     const bar = $('#gm-bar');
     if (bar && S.phase === stage) { bar.querySelectorAll('.gm-zone--sweet').forEach((e) => e.remove()); bar.insertAdjacentHTML('afterbegin', sweetMarkup(stage)); }
@@ -1488,11 +1486,13 @@ function tapMeters(m, t, next) {
   } else if (S.phase === 'release') {
     m.pos.release = (G.releaseAt(t, m.rel) + 1) / 2;
     m.ex = G.combine(G.readRelease(G.releaseAt(t, m.rel), m.rel.w)); // how clean the let-go was; the arm speed is the last thing chosen
-    m.ruler = buildRuler();
+    m.ruler = null; // worked out in a moment (sweetFor('arm')): every arm speed played through the real throw
+    m.wedge = null;
     sweetFor('arm');
     next('power');
     toast(`Release: ${m.ex.grade}`, m.ex.pure ? 'good' : m.ex.grade === 'Shank' ? 'bad' : '', 1100);
   } else if (S.phase === 'power') {
+    if (!m.ruler) return; // (the wedge is still being worked out: a few hundredths of a second)
     m.mph = armAt(m, t).mph;
     S.settings.mph = m.mph;
     S.settings.spin = null;
@@ -1567,7 +1567,7 @@ function throwDisc(ex) {
   const flightMs = camDur(clamp(900 + result.plan.feet * 4.2, 1200, 3300)) * (ace ? 1.5 : 1);
   const kind = PL.kindFor(false, S.settings.style);
   const lead = leadFor(kind); // the thrower winds up and lets go; the disc leaves at t0
-  const anim = { type: 'flight', t0: now() + lead, lead, kind, hand: S.settings.hand, relH: PL.releasePoint(kind, S.settings.hand)[2], dur: flightMs, pts: result.pts, roll: result.roll, result, cine: ace };
+  const anim = { type: 'flight', t0: now() + lead, lead, kind, hand: S.settings.hand, relH: 0, dur: flightMs, pts: result.pts, roll: result.roll, result, cine: ace };
   S.anim = anim;
   const letGo = () => {
     if (S.anim !== anim) return;
@@ -1629,10 +1629,10 @@ function puttAnim(from, result, lie, who) {
   const film = watching3D(who);
   const long = result.made && !result.gimme && result.dist > 30; // a long one going in is worth slowing down for
   const sc = film && long ? slowScript(script, 1.4) : script;
-  const lead = film ? PL.LEAD.putt : 0; // the thrower sets and pushes it before the disc leaves
+  const lead = 0;
   puttSounds(film ? sc : null, result, lead);
   if (S.last) S.last.sfx = true;
-  return { type: 'flight', t0: now() + lead, lead, kind: 'putt', hand: handOf(who), relH: 3.2, dur: film ? sc.total : 750, pts, roll: [], result, putt: true, script: sc, tail: film ? sc.tail : 350, cine: long };
+  return { type: 'flight', t0: now() + lead, lead, kind: 'putt', hand: handOf(who), relH: 0, dur: film ? sc.total : 750, pts, roll: [], result, putt: true, script: sc, tail: film ? sc.tail : 350, cine: long };
 }
 
 /* ----- the swipe: after the radar, DRAW BACK and then SWIPE FORWARD toward the basket, in one smooth motion. True in aim and in power, or it misses. ----- */
@@ -3147,7 +3147,7 @@ function drawPutt3D(t) {
   const wedge = !pm ? null : pm.stage === 'power'
     ? (g) => wedgeMeter(g, (p) => C3.project(c, view, p.x, p.y, C3.groundAt(S.hole, p.x, p.y) + 0.15)) // the push: the wedge along the line to the basket
     : (g) => { const q = C3.project(c, view, b.x, b.y, gnd(b.x, b.y) + C3.RING_H - 0.55); if (q) puttAim(g, q.x, q.y); }; // the line and the height: centred on the chains, up near their top band (not the tray down below)
-  C3.drawScene(ctx, { hole: S.hole, cam: c, view, disc, trail, dz: 1, chain, dusk: S.hole.weather?.dusk || 0, color: puttColor, t, player, hideDisc: !a || t < a.t0, overlay: wedge });
+  C3.drawScene(ctx, { hole: S.hole, cam: c, view, disc, trail, dz: 1, chain, dusk: S.hole.weather?.dusk || 0, color: puttColor, t, player, hideDisc: a ? t < a.t0 : false, overlay: wedge });
   S.pfov = sc ? PF.drawPuttFx(ctx, { cam: c, view, hole: S.hole, W, H }, sc, ms, a.result).fov : 0;
   if (sc) { if (ms >= sc.total + sc.tail) finishThrow(); } else if (a && t - a.t0 >= a.dur + 250) finishThrow();
 }
@@ -3156,15 +3156,10 @@ function drawPutt3D(t) {
 // which way the thrower faces on a flight: the way the disc starts out
 const flightYaw = (a) => { const k = Math.min(6, a.pts.length - 1); return Math.atan2(a.pts[k].x - a.pts[0].x, a.pts[k].y - a.pts[0].y); };
 // The figure, `ms` after the throw began (negative: standing ready). It stands where its hand lets go of the disc at the lie itself.
-function playerFig(lie, yaw, kind, hand, ms, color, hideDisc = false) {
-  const pose = PL.poseAt(kind, ms, hand);
-  const rp = PL.releasePoint(kind, hand);
-  const fx = Math.sin(yaw);
-  const fy = Math.cos(yaw);
-  return { x: lie.x - (Math.cos(yaw) * rp[0] + fx * rp[1]), y: lie.y - (-Math.sin(yaw) * rp[0] + fy * rp[1]), yaw, pose, discColor: color, hideDisc };
-}
+// (there is no ghost thrower any more: the figure added little. player.js and the drawing in cam3d.js are still there, but nothing asks for a figure.)
+const playerFig = () => null;
 // how long the thrower takes to let go (only when the 3D view is watching), and the hand and style of whoever is throwing
-const leadFor = (kind) => (CAM.on ? PL.LEAD[kind] : 0);
+const leadFor = () => 0; // (no wind-up now: the disc leaves as you tap)
 const handOf = (who) => (!who || who === 'me' ? S.settings.hand : 'right');
 const styleOf = (who) => (!who || who === 'me' ? S.settings.style : 'backhand');
 
@@ -3247,12 +3242,13 @@ function powerOverlay(g, ground, air, lie) {
   const f = armAt(m, (now() - m.start) / 1000).f;
   const k = Math.min(W_.pts.length - 2, Math.max(0, Math.floor(f)));
   const raw = W_.pts[k].mph + (W_.pts[k + 1].mph - W_.pts[k].mph) * (f - k); // the arm speed between the ruler's steps, so the flight glides instead of stepping
-  const lineAt = (mph) => ((m.lines ||= {})[mph] ||= G.previewThrow(S.hole, curDisc(), S.settings, heading(), lie, 28, { mph, nose: S.settings.nose || 0, angle: S.settings.angle || 0 }).line);
-  const lo = clamp(Math.floor((raw - G.ARM.min) / G.ARM.step) * G.ARM.step + G.ARM.min, G.ARM.min, G.ARM.max - G.ARM.step);
-  const t = clamp((raw - lo) / G.ARM.step, 0, 1);
-  const A = lineAt(lo);
-  const B = lineAt(lo + G.ARM.step);
-  const line = A.length !== B.length ? A : A.map((p, i) => ({ x: p.x + (B[i].x - p.x) * t, y: p.y + (B[i].y - p.y) * t, h: (p.h || 0) + ((B[i].h || 0) - (p.h || 0)) * t }));
+  const R = m.ruler;
+  const lo = clamp(Math.floor((raw - G.ARM.min) / G.ARM.step), 0, R.length - 2);
+  const t = clamp((raw - R[lo].mph) / G.ARM.step, 0, 1);
+  const A = R[lo].pts; // the real flights of the two speeds either side, blended
+  const B = R[lo + 1].pts;
+  const line = A.length !== B.length ? (t < 0.5 ? A : B) : A.map((p, i) => ({ x: p.x + (B[i].x - p.x) * t, y: p.y + (B[i].y - p.y) * t, h: (p.h || 0) + ((B[i].h || 0) - (p.h || 0)) * t }));
+  const land = { x: R[lo].lie.x + (R[lo + 1].lie.x - R[lo].lie.x) * t, y: R[lo].lie.y + (R[lo + 1].lie.y - R[lo].lie.y) * t };
   g.setLineDash([8, 6]);
   g.beginPath();
   let on = false;
@@ -3262,6 +3258,14 @@ function powerOverlay(g, ground, air, lie) {
   g.lineCap = 'round';
   g.stroke();
   g.setLineDash([]);
+  const e = ground(land); // where it will come to rest
+  if (e) {
+    g.beginPath();
+    g.ellipse(e.x, e.y, Math.max(7, 10 * e.s), Math.max(3.5, 5 * e.s), 0, 0, Math.PI * 2);
+    g.strokeStyle = 'rgba(163,230,53,0.95)';
+    g.lineWidth = 2.2;
+    g.stroke();
+  }
 }
 function aimOverlay(c, view, lie) {
   return (g) => {
@@ -3339,14 +3343,13 @@ function drawAim3D(t) {
     g2.setTransform(dpr, 0, 0, dpr, 0, 0);
     g2.clearRect(0, 0, W, H);
     const lift = clamp((c.z - C3.groundAt(S.hole, c.x, c.y) - 9) / 40, 0, 1); // the higher the camera, the shorter the trees are drawn, so they do not hide the hole
-    C3.drawScene(g2, { hole: S.hole, cam: c, view, disc: { x: lie.x, y: lie.y, h: 0.3 }, hideDisc: true, trail: [], dz: 1, dusk: S.hole.weather?.dusk || 0, color, t, pin: false, treeScale: 1 - 0.68 * lift });
+    C3.drawScene(g2, { hole: S.hole, cam: c, view, disc: { x: lie.x, y: lie.y, h: 0.3 }, hideDisc: false, trail: [], dz: 1, dusk: S.hole.weather?.dusk || 0, color, t, pin: false, treeScale: 1 - 0.68 * lift });
     S.aimPic = { key, canvas: off };
   }
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.drawImage(S.aimPic.canvas, 0, 0);
   ctx.restore();
-  C3.drawPlayer(ctx, c, view, S.hole, playerFig(lie, heading() * RAD, PL.kindFor(false, S.settings.style), S.settings.hand, -1, color), 1); // the ghost, ready to throw
   aimOverlay(c, view, lie)(ctx);
   C3.drawPin(ctx, c, C3.basis(c), view, S.hole);
   if (S.view3 === 'pin' && S.phase === 'pick' && S.pinHintT && performance.now() - S.pinHintT < 6500) { // how to look around, for a few seconds after going up
@@ -4352,8 +4355,8 @@ function buildMoveAnim(last, hole, who) {
     S.anim = puttAnim(last.from, result, last.lie, who);
   } else {
     const kind = PL.kindFor(false, styleOf(who));
-    const lead = watching3D(who) ? PL.LEAD[kind] : 0;
-    const anim = { type: 'flight', t0: now() + lead, lead, kind, hand: handOf(who), relH: PL.releasePoint(kind, handOf(who))[2], dur: camDur(clamp(900 + last.feet * 4.2, 1200, 3300)) * (last.kind === 'basket' ? 1.5 : 1), pts, roll, result, putt: false, cine: last.kind === 'basket' };
+    const lead = 0;
+    const anim = { type: 'flight', t0: now() + lead, lead, kind, hand: handOf(who), relH: 0, dur: camDur(clamp(900 + last.feet * 4.2, 1200, 3300)) * (last.kind === 'basket' ? 1.5 : 1), pts, roll, result, putt: false, cine: last.kind === 'basket' };
     S.anim = anim;
     setTimeout(() => { if (S.anim === anim) SND.play('throw', 0.6); }, lead);
   }
@@ -4607,8 +4610,8 @@ function panelMhole() {
       ${quipHtml()}
       <ol class="gm-vs-list">${rows}</ol>
       ${he.matchDone
-        ? '<button class="btn" type="button" data-mp-continue>See the result</button>'
-        : `<button class="btn" type="button" data-mp-continue>Next: hole ${v.holeIdx + 1}, ${esc(next.name)} <small>par ${next.par}</small></button>`}
+        ? '<button class="btn gm-fab" type="button" data-mp-continue>See the result</button>'
+        : `<button class="btn gm-fab" type="button" data-mp-continue>Next: hole ${v.holeIdx + 1}, ${esc(next.name)} <small>par ${next.par}</small></button>`}
     </div>`;
 }
 

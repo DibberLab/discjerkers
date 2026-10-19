@@ -467,13 +467,14 @@
 .gm-meter__top .gm-read b { font-size: 1.15rem; }
 .gm-meter__top .gm-read small { font-size: 0.56rem; }
 
-/* The main button of every screen that has one (Throw, the next step, Tap, Putt, Next throw) is pinned to the very bottom right of the screen on a phone, so a thumb
-   always finds it in the same place whatever is written above it. The panel leaves room for it (.has-fab). */
-@media (max-width: 900px) {
-  .gm-panel .gm-fab, .gm-mini .gm-fab {
-    position: fixed; right: max(12px, env(safe-area-inset-right)); bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 7;
-    width: min(58vw, 250px); min-height: 60px; padding: 0 16px; font-size: 1.45rem; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.6);
-  }
-  .gm-panel .gm-fab small { font-size: 0.7rem; }
-  .gm-panel.has-fab { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
+/* The main button of every screen that has one (Throw, the next step, Tap, Putt, Next throw, Next hole...) is pinned to the very bottom right of the screen, on a phone
+   and on a computer, so a thumb or a mouse always finds it in the same place whatever is written above it. The panel leaves room for it (.has-fab). */
+.gm-panel .gm-fab, .gm-mini .gm-fab {
+  position: fixed; right: max(12px, env(safe-area-inset-right)); bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 40;
+  width: min(58vw, 250px); min-height: 60px; height: auto; padding: 8px 16px; font-size: 1.45rem; line-height: 1.1; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.6);
 }
+.gm-panel .gm-fab small { font-size: 0.7rem; }
+.gm-panel.has-fab { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
+
+/* the Throw button is pinned to the corner now, so the line under it is plain text in the flow, not a sticky bar over the controls */
+.gm-go { position: static; margin: 0; padding: 0; background: none; }

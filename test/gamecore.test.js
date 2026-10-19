@@ -947,4 +947,9 @@ test('the meters style: the arm stage works out the sweet spot with the nose and
   assert.ok(sweet.ok.some(Boolean), 'there is a sweet arm speed');
   const bands = G.sweetBands(sweet);
   assert.ok(bands.length >= 1 && bands.every((b) => b.from >= 0 && b.to <= 1 && b.to >= b.from), 'bands are stretches of the arm bar');
+  // the arm stage keeps where each speed really finishes: it is the very throw the rules make
+  assert.strictEqual(sweet.lies.length, sweet.values.length);
+  const mph = sweet.values[10];
+  const real = G.resolveThrow(hole, DRIVER, { ...RIGHT, spin: null, nose: 0, angle: 2, mph }, aim, { o: 0, pure: false, sloppy: 0, grade: 'Sweet' }, from, 72);
+  assert.deepStrictEqual(sweet.lies[10], real.lie, 'the marker is where the throw lands');
 });
