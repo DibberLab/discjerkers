@@ -20,7 +20,7 @@ const easeIn = (t) => t * t;
 /**
  * The film of one putt.
  *   from: where it was thrown     basket: where it is going      lie: where a miss ends up
- *   result: { made, finish ('swish' | 'rattle' | 'tapin' | 'rim' | 'miss' | 'nasty'), rim, nasty, dist, miss }
+ *   result: { made, finish ('swish' | 'rattle' | 'tapin' | 'rim' | 'chainout' | 'miss' | 'nasty'), rim, chainout, nasty, dist, miss }
  * Returns { total (ms the disc moves), tail (ms of reaction after), at(ms) -> { x, y, h, phase }, marks: { dropAt?, rimAt?, spitAt?, rollAt?, landAt } }.
  */
 export function puttScript({ from, basket, lie, result }) {
@@ -78,6 +78,17 @@ export function puttScript({ from, basket, lie, result }) {
     t += 140;
     push(fall(a1, 0.3, HIT_H - 0.35, 460));
     t += 460;
+  } else if (result.chainout) { // far too hard and off to one side: it slams into the chains, which throw it back out, and it drops to the grass beside the basket
+    const aS = a0 + rimSide * 0.3;
+    flightTo(onRim(aS, CHAIN_R + 0.1), HIT_H);
+    t += flightMs; mark('chainAt');
+    push({ ms: 120, phase: 'chains', f: (u) => ({ ...onRim(aS, lerp(CHAIN_R + 0.1, CHAIN_R - 0.45, easeOut(u))), h: lerp(HIT_H, HIT_H + 0.1, u) }) });
+    t += 120;
+    const inner = onRim(aS, CHAIN_R - 0.45);
+    push({ ms: 600, phase: 'kick', f: (u) => ({ x: lerp(inner.x, touchdown.x, easeOut(u)), y: lerp(inner.y, touchdown.y, easeOut(u)), h: lerp(HIT_H + 0.1, 0, easeIn(u)) + 1.5 * 4 * u * (1 - u) }) });
+    t += 600; mark('landAt');
+    push({ ms: 320, phase: 'hop', f: (u) => ({ x: touchdown.x, y: touchdown.y, h: 0.7 * Math.abs(Math.sin(u * Math.PI * 2)) * (1 - u) }) });
+    t += 320;
   } else if (result.rim) { // it clips the chains and runs round the lip of the tray, and out
     flightTo(onRim(a0, LIP_R + 0.15), LIP_H + 0.55);
     t += flightMs; mark('rimAt');
@@ -102,7 +113,7 @@ export function puttScript({ from, basket, lie, result }) {
     t += ms;
   }
   const total = t;
-  const tail = made ? (finish === 'rattle' ? 1500 : finish === 'tapin' ? 500 : 1300) : result.rim ? 1900 : nasty ? 1500 : 800;
+  const tail = made ? (finish === 'rattle' ? 1500 : finish === 'tapin' ? 500 : 1300) : result.chainout ? 1500 : result.rim ? 1900 : nasty ? 1500 : 800;
   const end = made ? { x: basket.x, y: basket.y, h: REST_H } : { x: lie.x, y: lie.y, h: 0 };
 
   return {
@@ -230,7 +241,10 @@ export function drawPuttFx(ctx, scene, script, ms, result) {
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, W, H);
       }
-      if (result.nasty) {
+      if (result.chainout) {
+        const alpha = clamp(e / 150, 0, 1) * clamp(1 - (e - 1000) / 450, 0, 1);
+        bigText(ctx, W, H, 'CHAINED OUT', 'too hot, off line', { color: '#ffb27a', glow: 'rgba(211,84,0,0.8)', alpha, shake: e < 350 ? 8 * (1 - e / 350) : 0 });
+      } else if (result.nasty) {
         const alpha = clamp(1 - (e - 1200) / 400, 0, 1) * clamp(e / 120, 0, 1);
         bigText(ctx, W, H, 'NASTY ROLL', 'it just kept going', { color: '#ff7a2b', glow: 'rgba(211,84,0,0.9)', alpha, shake: e < 500 ? 10 * (1 - e / 500) : 0 });
       } else if (result.rim) {

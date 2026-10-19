@@ -5,14 +5,14 @@
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, COURSES, courseById, holeById, holesFor } from './course.js?v=14';
-import * as G from './gamecore.js?v=38';
-import * as T from './trash.js?v=11';
+import * as G from './gamecore.js?v=40';
+import * as T from './trash.js?v=13';
 import * as C3 from './cam3d.js?v=23';
 import * as FO from './foliage.js?v=2';
 import * as PL from './player.js?v=1';
 import * as GS from './gesture.js?v=2';
 import { ANGLE_MAX } from './flightmodel.js?v=1';
-import * as PF from './puttfx.js?v=19';
+import * as PF from './puttfx.js?v=20';
 import * as GR from './ground.js?v=8';
 import * as SND from './sound.js?v=4';
 import * as MB from './marebear.js?v=2';
@@ -810,6 +810,7 @@ function renderPanel(focusSel) {
   // The main button of the screen does not live in the panel: it is lifted out into a layer of its own pinned to the bottom right of the screen (a fixed button inside a
   // scrolling panel is unreliable on some phones, and a panel that scrolls or changes height must never move it).
   const lifted = liftFab(p);
+  syncGo();
   if (!lifted && $('#gm-mini')?.hidden !== false) fabHost()?.replaceChildren();
   p.classList.toggle('has-fab', lifted || $('#gm-mini')?.hidden === false); // (and the panel leaves room for it)
   p.scrollTop = keepScroll;
@@ -877,6 +878,7 @@ function backOut() {
 function startMeter() {
   const d = curDisc();
   if (!d) return;
+  if (targetBad()) { toast(`That spot is ${targetBad()}`, 'bad', 2200); return; }
   if (inPutt() && metersOn()) {
     // the meters style putts with the same wedge as a drive: it fills and drains along the line to the basket, and you tap anywhere to putt
     // (a putt is its own little game: aim left and right, then the height, on a picture of the basket, then the wedge for the push. A tap-in is the wedge alone.)
@@ -1505,6 +1507,7 @@ function tapMeters(m, t, next) {
     toast(`Release: ${m.ex.grade}`, m.ex.pure ? 'good' : m.ex.grade === 'Shank' ? 'bad' : '', 1100);
   } else if (S.phase === 'power') {
     if (!m.ruler) return; // (the wedge is still being worked out: a few hundredths of a second)
+    if (targetBad()) { toast(`That spot is ${targetBad()}: move the marker`, 'bad', 2200); return; }
     m.mph = armAt(m, t).mph;
     S.settings.mph = m.mph;
     S.settings.spin = null;
@@ -1620,6 +1623,10 @@ function puttSounds(sc, result, lead = 0) {
     at(m.dropAt ?? 500, 'chains', result.finish === 'swish' ? 1 : 0.8);
     at((m.dropAt ?? 500) + 200, 'clunk');
     if (result.finish === 'swish' && result.dist > 30) at((m.dropAt ?? 500) + 450, 'ding');
+  } else if (result.chainout) {
+    at(m.chainAt ?? 600, 'chains', 1);
+    at((m.chainAt ?? 600) + 160, 'clank');
+    at((m.landAt ?? 1100) + 100, 'land');
   } else if (result.rim) {
     at(m.rimAt ?? m.dropAt ?? 600, 'clank');
     at((m.spitAt ?? ((m.rimAt ?? 600) + 700)) + 250, 'womp');
@@ -2196,7 +2203,7 @@ function drawCine(t) {
 }
 
 // what the player feels when a putt lands: a toast on the map (the 3D view has its own big words), and a buzz
-const PUTT_WORDS = { swish: ['CHAINS!', 'good'], rattle: ['RATTLED IN!', 'good'], tapin: ['Tap-in', 'good'], rim: ['RIMMED OUT', 'bad'], nasty: ['NASTY ROLL', 'bad'], miss: ['Missed', 'bad'] };
+const PUTT_WORDS = { swish: ['CHAINS!', 'good'], rattle: ['RATTLED IN!', 'good'], tapin: ['Tap-in', 'good'], rim: ['RIMMED OUT', 'bad'], chainout: ['CHAINED OUT', 'bad'], nasty: ['NASTY ROLL', 'bad'], miss: ['Missed', 'bad'] };
 const WHY_WORDS = { weak: 'TOO SOFT', strong: 'TOO HARD', left: 'PULLED LEFT', right: 'PUSHED RIGHT' };
 function puttReaction(result, who, name = '') {
   const [word0, tone] = PUTT_WORDS[result.finish] || (result.made ? ['Chains!', 'good'] : ['Missed', 'bad']);
@@ -2211,7 +2218,7 @@ function finishThrow() {
   if (S.mode === 'match') { finishMove(); return; }
   const { result, disc, from } = S.last;
   const out = G.applyResult(S.round, disc, result, { bear: BEAR.on || S.mode === 'match' }); // (in a match the rule is the server's, and the same for everybody)
-  const ev = T.eventFor({ kind: result.kind, putt: !result.plan, made: result.made, gimme: result.gimme, ex: S.last.ex, strokes: S.round.strokes, dist: result.dist, surface: result.surface, rim: result.rim, nasty: result.nasty, why: result.why });
+  const ev = T.eventFor({ kind: result.kind, putt: !result.plan, made: result.made, gimme: result.gimme, ex: S.last.ex, strokes: S.round.strokes, dist: result.dist, surface: result.surface, rim: result.rim, chainout: result.chainout, nasty: result.nasty, why: result.why });
   landSounds(result, ev);
   trackThrow({ discId: disc.id, putt: !result.plan, made: result.made, gimme: result.gimme, dist: result.dist, kind: result.kind, feet: result.plan?.feet });
   if (S.course && result.strokes > 1) S.course.penalties = (S.course.penalties || 0) + 1;
@@ -3139,6 +3146,7 @@ function drawPutt3D(t) {
     const m = sc.marks;
     if (a.result.made && m.dropAt !== undefined) chain = Math.max(0, 1 - (ms - m.dropAt) / 1000) * (ms >= m.dropAt ? (a.result.finish === 'rattle' ? 1 : 0.7) : 0);
     else if (a.result.rim && m.rimAt !== undefined && ms >= m.rimAt && ms < (m.spitAt ?? m.landAt)) chain = 0.45;
+    else if (a.result.chainout && m.chainAt !== undefined && ms >= m.chainAt) chain = Math.max(0, 1 - (ms - m.chainAt) / 1100) * 0.95; // the chains jangle as it hits them
     if (at.phase === 'roll') { // follow a disc that is running away
       want.yaw = Math.atan2(at.x - c.x, at.y - c.y);
       want.pitch = Math.atan2(gnd(at.x, at.y) + 0.6 - c.z, Math.hypot(at.x - c.x, at.y - c.y));
@@ -3251,9 +3259,10 @@ function drawTargetMark(g, ground) {
   if (!q) return;
   const rx = clamp(13 * q.s, 9, 36);
   const ry = clamp(6.5 * q.s, 4.5, 18);
+  const bad = targetBad();
   g.save();
-  g.strokeStyle = '#d35400';
-  g.lineWidth = 3;
+  g.strokeStyle = bad ? '#ff3b30' : '#d35400';
+  g.lineWidth = bad ? 4 : 3;
   g.beginPath();
   g.ellipse(q.x, q.y, rx, ry, 0, 0, Math.PI * 2);
   g.stroke();
@@ -3271,10 +3280,18 @@ function drawTargetMark(g, ground) {
   g.textBaseline = 'bottom';
   g.lineWidth = 3;
   g.strokeStyle = 'rgba(6,11,7,0.85)';
-  const label = `TARGET ${Math.round(G.distance(lieOf(), t))} ft`;
-  g.strokeText(label, q.x, q.y - ry * 2.2 - 3);
-  g.fillStyle = '#ffb27a';
-  g.fillText(label, q.x, q.y - ry * 2.2 - 3);
+  const label = bad ? "CAN'T MAKE THIS THROW" : `TARGET ${Math.round(G.distance(lieOf(), t))} ft`;
+  const lx = clamp(q.x, 90, (g.canvas?.clientWidth || W) - 90); // (the words stay on the screen when the marker is at the edge)
+  g.strokeText(label, lx, q.y - ry * 2.2 - 3);
+  g.fillStyle = bad ? '#ff8a82' : '#ffb27a';
+  g.fillText(label, lx, q.y - ry * 2.2 - 3);
+  if (bad) { // and why, smaller, under it
+    g.font = '700 10px "Space Mono", monospace';
+    g.textBaseline = 'top';
+    const why = bad.length > 44 ? `${bad.slice(0, 42)}…` : bad;
+    g.strokeText(why, lx, q.y + ry * 2.2 + 3);
+    g.fillText(why, lx, q.y + ry * 2.2 + 3);
+  }
   g.restore();
 }
 // The power meter in the meters style is the aim wedge itself: the wedge (the ground a throw along the aim can reach, from nothing out to a full-power
@@ -3659,16 +3676,42 @@ function setTarget(pt) {
   const lie = lieOf();
   const d = G.distance(lie, pt);
   if (d < 14) return;
-  const h = G.headingTo(lie, pt);
-  const hv = G.headingVec(h);
+  const h0 = G.headingTo(lie, pt);
   const far = Math.min(d, 560);
+  const hv = G.headingVec(h0);
+  const spot = { x: lie.x + hv.ux * far, y: lie.y + hv.uy * far };
+  // bend the throw to it: the arm speed that brings it about that far, and a heading that allows for the curve, so the aim line (and the wedge) end on the spot
+  const mph = armFor(spot, h0);
+  S.settings.mph = mph;
+  S.settings.spin = null;
+  const plan = { mph, nose: S.settings.nose || 0, angle: S.settings.angle || 0 };
+  let h = h0;
+  for (let k = 0; k < 6; k++) {
+    const end = G.previewThrow(S.hole, curDisc(), S.settings, h, lie, 8, plan).end;
+    let err = G.headingTo(lie, end) - h0;
+    err = ((err + 540) % 360) - 180;
+    h -= err;
+    if (Math.abs(err) < 0.25) break;
+  }
   let off = h - baseHeading();
   off = ((off + 540) % 360) - 180;
   setAim(Math.round(off));
-  S.target = { x: lie.x + hv.ux * far, y: lie.y + hv.uy * far };
+  S.target = spot;
   S.targetKey = lieKey();
   S.targetAim = S.aimOff;
   S.previewKey = null;
+  // can this disc make that throw at all?
+  const rr = G.reachRange(S.hole, curDisc(), { hand: S.settings.hand, style: S.settings.style }, heading(), lie);
+  S.targetMsg = far < d ? 'out of range' : d > rr.max ? `too far, or blocked (the most this throw can reach is about ${Math.round(rr.max)} ft)` : d < rr.min * 0.85 ? `too close (the least is about ${Math.round(rr.min)} ft)` : '';
+  syncGo();
+}
+// why the spot the player chose cannot be thrown to ('' if it can, or there is none)
+const targetBad = () => (targetPt() ? S.targetMsg || '' : '');
+// the Throw button is not allowed (and goes red) while the chosen spot cannot be made
+function syncGo() {
+  const bad = !!targetBad();
+  fabHost()?.querySelectorAll('[data-go]').forEach((b) => { b.disabled = bad; });
+  if (S.phase === 'power') fabHost()?.querySelectorAll('[data-tap]').forEach((b) => { b.disabled = bad; });
 }
 // where the marker is on the screen, if it is on the ground in front of you: the spot you chose, or where the typical throw comes down
 function markerScreen() {
@@ -3711,20 +3754,22 @@ function dragMarker(e, begin) {
 function resweet() {
   const m = S.meter;
   if (!m?.classic) return;
-  m.baseMph = targetPt() ? armFor(targetPt()) : S.settings.mph;
+  m.baseMph = S.settings.mph; // (setTarget set it to the arm speed that reaches the spot)
+  m.ref = refPath(); // the wedge keeps the curve of the (now bent) aim line
+  m.wedge = null;
   if (S.phase === 'nose') sweetFor('nose');
   else if (S.phase === 'angle') sweetFor('angle');
   else if (S.phase === 'power') sweetFor('arm');
 }
 // the arm speed that brings a flat throw about as far as a spot: the sweet spots for the nose and the hyzer are looked for around it
-function armFor(pt) {
+function armFor(pt, h = heading()) {
   const d = curDisc();
   const lie = lieOf();
   const want = G.distance(lie, pt);
   let best = S.settings.mph;
   let near = Infinity;
   for (let mph = G.ARM.min; mph <= G.ARM.max; mph += G.ARM.step) {
-    const end = G.previewThrow(S.hole, d, S.settings, heading(), lie, 8, { mph, nose: 0, angle: 0 }).end;
+    const end = G.previewThrow(S.hole, d, S.settings, h, lie, 8, { mph, nose: S.settings.nose || 0, angle: S.settings.angle || 0 }).end;
     const off = Math.abs(G.distance(lie, end) - want);
     if (off < near) { near = off; best = mph; }
   }
@@ -4480,7 +4525,7 @@ function buildMoveAnim(last, hole, who) {
     ? Array.from({ length: 21 }, (_, i) => { const t = i / 20; return { x: last.from.x + (to.x - last.from.x) * t, y: last.from.y + (to.y - last.from.y) * t, h: 3 + 5 * 4 * t * (1 - t), s: t }; })
     : last.pts.map(([x, y, h]) => ({ x, y, h }));
   const roll = last.roll.map(([x, y]) => ({ x, y }));
-  const result = { kind: last.kind, pts, roll, end: last.end, lie: last.lie, strokes: last.strokes, made: last.made, gimme: last.gimme, finish: last.finish, rim: last.rim, nasty: last.nasty, why: last.why, dist: last.dist, plan: last.putt ? undefined : { feet: last.feet } };
+  const result = { kind: last.kind, pts, roll, end: last.end, lie: last.lie, strokes: last.strokes, made: last.made, gimme: last.gimme, finish: last.finish, rim: last.rim, chainout: last.chainout, nasty: last.nasty, why: last.why, dist: last.dist, plan: last.putt ? undefined : { feet: last.feet } };
   S.last = { result, ex: last.ex, disc, from: last.from, who, feel: who === 'me' ? S.mpFeel : null };
   if (last.putt) {
     S.anim = puttAnim(last.from, result, last.lie, who);
@@ -4519,7 +4564,7 @@ function moveOf(result, disc, from, ex) {
     seq: 0, discId: disc.id, holeId: S.hole.id, from: { x: from.x, y: from.y }, kind: result.kind, putt,
     ex: ex ? { grade: ex.grade, pure: ex.pure, slip: ex.slip, swipe: ex.swipe, swipeAim: ex.swipeAim, swipeSpeed: ex.swipeSpeed } : null,
     feet: putt ? null : Math.round(result.plan.feet), pts: putt ? [] : result.pts.map((p) => [r1n(p.x), r1n(p.y), r1n(p.h)]), roll: (result.roll || []).map((p) => [r1n(p.x), r1n(p.y)]),
-    end: { x: r1n(at.x), y: r1n(at.y) }, lie: { x: r1n(result.lie.x), y: r1n(result.lie.y) }, strokes: result.strokes, made: result.made, gimme: result.gimme, zone: result.zone, finish: result.finish, rim: result.rim, nasty: result.nasty, why: result.why, dist: result.dist,
+    end: { x: r1n(at.x), y: r1n(at.y) }, lie: { x: r1n(result.lie.x), y: r1n(result.lie.y) }, strokes: result.strokes, made: result.made, gimme: result.gimme, zone: result.zone, finish: result.finish, rim: result.rim, chainout: result.chainout, nasty: result.nasty, why: result.why, dist: result.dist,
   };
 }
 function highlightHtml(h) {
@@ -4571,7 +4616,7 @@ function finishMove() {
   trail.push({ pts: [...result.pts, ...result.roll].map((p) => ({ x: p.x, y: p.y })), kind: result.kind, n: trail.length + 1 });
   const mover = playerOf(L.who === 'me' ? mp.me : L.who, mp.view);
   const total = mp.view.round?.rounds[mover.uid]?.strokes ?? 0;
-  const ev = T.eventFor({ kind: last.kind, putt: last.putt, made: last.made, gimme: last.gimme, ex: last.ex, strokes: total, dist: G.distance(last.from, S.hole.basket), surface: S.last.result.surface, rim: last.rim, nasty: last.nasty, why: last.why });
+  const ev = T.eventFor({ kind: last.kind, putt: last.putt, made: last.made, gimme: last.gimme, ex: last.ex, strokes: total, dist: G.distance(last.from, S.hole.basket), surface: S.last.result.surface, rim: last.rim, chainout: last.chainout, nasty: last.nasty, why: last.why });
   landSounds(result, ev);
   if (L.who === 'me') {
     trackThrow({ discId: last.discId, putt: last.putt, made: last.made, gimme: last.gimme, dist: last.dist, kind: last.kind, feet: last.feet });

@@ -186,6 +186,7 @@ function record(gp, m, uid, disc, result, extra) {
     zone: result.zone,
     finish: result.finish,
     rim: result.rim,
+    chainout: result.chainout || undefined,
     nasty: result.nasty,
     why: result.why || undefined,
     rolled: result.nasty ? Math.round(result.miss) : undefined,

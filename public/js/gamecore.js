@@ -226,6 +226,15 @@ export function sweetJob(hole, disc, base, aimDeg, from, stage, ex = SWEET_RELEA
     },
   };
 }
+// How near and how far this disc can put a throw from here along this heading (feet to where it comes to rest, trees and roll counted): the slowest arm, and the fastest arm with
+// the settings that carry farthest. The meters style uses it to tell when the spot the player chose cannot be reached (the marker goes red and the throw is not allowed).
+export function reachRange(hole, disc, base, aimDeg, from) {
+  const clean = { o: 0, pure: false, sloppy: 0, grade: 'Reach', };
+  const away = (t) => distance(from, resolveThrow(hole, disc, { ...base, spin: null, ...t }, aimDeg, clean, from, 36).lie);
+  let max = 0;
+  for (const [angle, nose] of [[0, 0], [2, 0], [-2, 0], [1, 1], [4, 0]]) max = Math.max(max, away({ mph: ARM.max, angle, nose }));
+  return { min: away({ mph: ARM.min, angle: 0, nose: 0 }), max };
+}
 export function sweetSpots(hole, disc, base, aimDeg, from, stage, ex, target) {
   const job = sweetJob(hole, disc, base, aimDeg, from, stage, ex, target);
   job.next(Infinity);
@@ -578,7 +587,10 @@ export function swipeQuality(dist, swipe) {
   const aimErr = swipe.aim;
   const powErr = swipe.power - 1;
   const aimN = Math.abs(aimErr) / tol.aim;
-  const powN = Math.abs(powErr) / tol.power;
+  let powN = Math.abs(powErr) / tol.power;
+  // A putt hit too hard but dead on line usually still drops: the chains stop it. The more it is off line, the less that forgiveness is worth, and off line
+  // as well as really too hard it does not (resolvePutt sends that one out through the chains).
+  if (powErr > 0) powN /= 1 + 1.8 * clamp(1 - aimN / 0.75, 0, 1);
   return { tol, aimErr, powErr, aimN, powN, q: Math.max(aimN, powN) }; // q of 1 or less is a true swipe
 }
 // what a server accepts for a swipe: two real numbers in a believable range, or nothing (an older page: counted as a true swipe)
@@ -617,8 +629,9 @@ export function resolvePutt(hole, lie, disc, shot, roll = 1, swipe = null) {
   const radius = puttRadius(dd, disc) * puttGrip(hole);
   const zone = puttZone(dd, disc);
   let why = null;
+  let sq = null;
   if (swipe && dist > GIMME) {
-    const sq = swipeQuality(dd, swipe);
+    sq = swipeQuality(dd, swipe);
     if (sq.q > 1) { // the swipe was off: it cannot go in, and the radar's miss is joined by the swipe's own
       v = { x: v.x + (sq.aimErr / sq.tol.aim) * radius, y: v.y + (sq.powErr / sq.tol.power) * radius };
       const m = Math.hypot(v.x, v.y);
@@ -626,6 +639,8 @@ export function resolvePutt(hole, lie, disc, shot, roll = 1, swipe = null) {
       why = sq.powN >= sq.aimN ? (sq.powErr < 0 ? 'weak' : 'strong') : (sq.aimErr > 0 ? 'right' : 'left');
     }
   }
+  // really much too hard AND off to one side: it hits the chains and bounces out (it does not lap the rim)
+  const chain = !!sq && why !== null && sq.powErr > 0 && sq.powN >= 1.6 && sq.aimN >= 0.55;
   const off = Math.hypot(v.x, v.y);
   if (dist <= GIMME || off <= radius) {
     // dead center is a clean swish; nearer the edge it rattles the chains before it drops
@@ -633,8 +648,8 @@ export function resolvePutt(hole, lie, disc, shot, roll = 1, swipe = null) {
     return { kind: 'basket', made: true, gimme, finish: gimme ? 'tapin' : off <= radius * 0.55 ? 'swish' : 'rattle', strokes: 1, lie: hole.basket, dist, zone, radius, rise };
   }
   // a miss: a few feet from the basket, on the side the dot was: across is left or right, up is long, down is short
-  const rim = off <= radius * 1.45; // just outside the target: it hits the cage and spits out
-  const nasty = roll < nastyChance(dd, disc, rim) + (why === 'strong' ? 0.22 : 0) + clamp(-rise * 0.012, 0, 0.1) + (hole.weather?.rain ? 0.05 : 0); // downhill, or in the rain, a miss runs away more // a putt hit too hard runs away more
+  const rim = !chain && off <= radius * 1.45; // just outside the target: it hits the cage and spits out
+  const nasty = !chain && roll < nastyChance(dd, disc, rim) + (why === 'strong' ? 0.22 : 0) + clamp(-rise * 0.012, 0, 0.1) + (hole.weather?.rain ? 0.05 : 0); // downhill, or in the rain, a miss runs away more // a putt hit too hard runs away more
   let miss = Math.min(clamp(2.5 + off * 10, 3, 14), 3 + dist * 0.6); // a short putt that misses stays near the basket
   if (nasty) miss = clamp((miss * 2.4 + 6) * (rise < -1 ? 1 + Math.min(0.5, -rise * 0.05) : 1), 14, 56); // and then it runs, farther downhill
   const hv = headingVec(headingTo(lie, hole.basket));
@@ -649,7 +664,7 @@ export function resolvePutt(hole, lie, disc, shot, roll = 1, swipe = null) {
   const wet = s === 'water' || s === 'oob';
   const lieAfter = wet ? { x: hole.basket.x - hv.ux * 3, y: hole.basket.y - hv.uy * 3 } : spot;
   // a nasty roll into the water costs a stroke on top of the putt
-  return { kind: 'landed', made: false, finish: nasty ? 'nasty' : rim ? 'rim' : 'miss', rim, nasty, why, strokes: nasty && wet ? 2 : 1, lie: lieAfter, dist, zone, radius, miss, rise };
+  return { kind: 'landed', made: false, finish: chain ? 'chainout' : nasty ? 'nasty' : rim ? 'rim' : 'miss', rim, nasty, chainout: chain, why, strokes: nasty && wet ? 2 : 1, lie: lieAfter, dist, zone, radius, miss, rise };
 }
 
 /* ---------- highlights ---------- */

@@ -968,3 +968,24 @@ test('the meters style: the sweet spots aim at the spot the player chose, not on
   assert.ok(best(toNear) < best(toBasket), 'a short target wants a slower arm than the basket does');
   assert.ok(G.distance(toNear.lies[toNear.values.indexOf(best(toNear))], near) < 40, 'and the best speed really lands near it');
 });
+
+test('a putt hit too hard still drops when it is on line, and chains out (not a rim-out) when it is really too hard and off to the side', async () => {
+  const G = await load();
+  const hole = G.HOLES[0];
+  const lie = { x: hole.basket.x - 3, y: hole.basket.y - 29 };
+  const dist = G.distance(lie, hole.basket);
+  const tol = G.swipeTolerance(G.puttDist(hole, lie));
+  const putt = (aim, power) => G.resolvePutt(hole, lie, PUTTER, { x: 0, y: 0 }, 1, { aim, power });
+  assert.strictEqual(putt(0, 1 + tol.power * 2).made, true, 'twice the room too hard, dead on: it still goes in');
+  assert.strictEqual(putt(0, 1).made, true);
+  const hot = putt(tol.aim * 0.8, 1 + tol.power * 4);
+  assert.strictEqual(hot.made, false);
+  assert.strictEqual(hot.finish, 'chainout', 'way too hard and off line: out through the chains');
+  assert.strictEqual(hot.rim, false);
+  assert.strictEqual(hot.chainout, true);
+  const offOnly = putt(tol.aim * 1.6, 1);
+  assert.notStrictEqual(offOnly.finish, 'chainout', 'off line alone is not a chain-out');
+  const soft = putt(0, 1 - tol.power * 3);
+  assert.strictEqual(soft.why, 'weak');
+  assert.ok(dist > 20);
+});
