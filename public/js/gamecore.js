@@ -189,11 +189,11 @@ export const ANGLES = Array.from({ length: ANGLE_MAX * 2 + 1 }, (_, i) => i - AN
 const SWEET_SAMPLES = 36;
 // `ex` is the release the candidates are played with (a clean one by default). The arm stage of the meters style passes the release the player actually made and plays
 // each speed as the throw itself would be played (72 samples), keeping where each one really finishes (`lies`) and its flight (`paths`), so the page's marker is honest.
-export function sweetJob(hole, disc, base, aimDeg, from, stage, ex = SWEET_RELEASE) {
+export function sweetJob(hole, disc, base, aimDeg, from, stage, ex = SWEET_RELEASE, target = hole.basket) { // (`target`: where the player wants to land: the basket unless they dragged the marker)
   const exact = stage === 'arm';
   const run = (t) => resolveThrow(hole, disc, t, aimDeg, ex, from, exact ? 72 : SWEET_SAMPLES);
   const kept = [];
-  const away = (t, vi) => { const r = run(t); if (exact) kept[vi] = r; return distance(r.lie, hole.basket); };
+  const away = (t, vi) => { const r = run(t); if (exact) kept[vi] = r; return distance(r.lie, target); };
   const angles = ANGLES.filter((a) => a % 2 === 0); // every other angle: it is a guide
   let values;
   let tasks; // [value index, settings to try]
@@ -226,8 +226,8 @@ export function sweetJob(hole, disc, base, aimDeg, from, stage, ex = SWEET_RELEA
     },
   };
 }
-export function sweetSpots(hole, disc, base, aimDeg, from, stage, ex) {
-  const job = sweetJob(hole, disc, base, aimDeg, from, stage, ex);
+export function sweetSpots(hole, disc, base, aimDeg, from, stage, ex, target) {
+  const job = sweetJob(hole, disc, base, aimDeg, from, stage, ex, target);
   job.next(Infinity);
   return job.result();
 }

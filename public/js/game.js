@@ -5,7 +5,7 @@
 import { account, activeBag, loadAccount, onAccountChange, openSignIn, photoUrl, setActive } from './fgaccount.js?v=3';
 import { clamp, tierName, angleName } from './flightmodel.js?v=1';
 import { HOLES, COURSES, courseById, holeById, holesFor } from './course.js?v=14';
-import * as G from './gamecore.js?v=37';
+import * as G from './gamecore.js?v=38';
 import * as T from './trash.js?v=11';
 import * as C3 from './cam3d.js?v=23';
 import * as FO from './foliage.js?v=2';
@@ -445,7 +445,7 @@ function settingsBlock() {
       <p class="gm-h">Your throw <span>· hand and aim</span></p>
       ${gripChips()}
       ${aimRow()}
-      <p class="gm-note">${metersOn() ? 'Aim by dragging or tapping the hole and press Throw. Stop the nose, hyzer and release dials, then fill the wedge and tap to throw. The dashed line is a typical throw with this disc.' : 'Plan the flight below (hyzer or anhyzer, nose, arm speed) and watch the dashed line over the ground: it is the throw you have planned from a clean release, and the shaded band is where a mistimed release can land. A faster arm is harder to release on time.'}</p>
+      <p class="gm-note">${metersOn() ? 'Aim by dragging or tapping the hole, or drag the ring to pick where you want to land: the sweet spots follow it. Press Throw, stop the nose, hyzer and release dials, then fill the wedge and tap to throw.' : 'Plan the flight below (hyzer or anhyzer, nose, arm speed) and watch the dashed line over the ground: it is the throw you have planned from a clean release, and the shaded band is where a mistimed release can land. A faster arm is harder to release on time.'}</p>
     </div>`;
 }
 
@@ -793,6 +793,13 @@ function panelSummary() {
     </div>`;
 }
 
+const fabHost = () => $('#gm-fab');
+function liftFab(from) { // move the screen's main button(s) out of `from` into the pinned layer
+  const btns = [...from.querySelectorAll('.gm-fab')];
+  if (!btns.length) return false;
+  fabHost().replaceChildren(...btns);
+  return true;
+}
 function renderPanel(focusSel) {
   const p = panel();
   if (!p) return;
@@ -800,14 +807,18 @@ function renderPanel(focusSel) {
   const views = { menu: panelMenu, pick: panelPick, power: panelMeter, nose: panelMeter, angle: panelMeter, release: panelMeter, putt: panelMeter, swipe: panelSwipe, flight: panelFlight, result: panelResult, bear: panelBear, done: panelDone, summary: panelSummary, lobby: panelLobby, mwait: panelMwait, mturn: panelMturn, mhole: panelMhole, mdone: panelMdone, daily: panelDaily, standings: panelStandings, trophies: panelTrophies };
   p.innerHTML = (views[S.phase] || (() => ''))();
   p.dataset.phase = S.phase;
-  p.classList.toggle('has-fab', !!p.querySelector('.gm-fab')); // the main button is pinned to the bottom right of the screen (on a phone), and the panel leaves room for it
+  // The main button of the screen does not live in the panel: it is lifted out into a layer of its own pinned to the bottom right of the screen (a fixed button inside a
+  // scrolling panel is unreliable on some phones, and a panel that scrolls or changes height must never move it).
+  const lifted = liftFab(p);
+  if (!lifted && $('#gm-mini')?.hidden !== false) fabHost()?.replaceChildren();
+  p.classList.toggle('has-fab', lifted || $('#gm-mini')?.hidden === false); // (and the panel leaves room for it)
   p.scrollTop = keepScroll;
   const dr = $('.gm-discs', p); // a bag with more discs than fit says so, and shows the edge of the next row
   if (dr) dr.classList.toggle('is-more', dr.scrollHeight > dr.clientHeight + 4);
   updateBubble();
   measureDock();
   if (focusSel) $(focusSel, p)?.focus({ preventScroll: true });
-  else if (isMeter()) $('[data-tap]', p)?.focus({ preventScroll: true });
+  else if (isMeter()) $('[data-tap]', fabHost())?.focus({ preventScroll: true });
 }
 
 /* ---------- the HUD ---------- */
@@ -887,7 +898,7 @@ function startMeter() {
     // the meters style: the power is a meter on the map, laid along the aim; the nose, hyzer and release are a timing window
     S.settings.spin = null;
     // (the timing window first: nose, hyzer and the release, each stopped on its dial; then the aim and power wedge, and its tap is the throw)
-    S.meter = { kind: 'nose', classic: true, before: { ...S.settings }, start: now(), mph: S.settings.mph, rel: G.releaseSetup(S.settings.mph), sweet: {}, pos: {}, ref: refPath() };
+    S.meter = { kind: 'nose', classic: true, baseMph: targetPt() ? armFor(targetPt()) : undefined, before: { ...S.settings }, start: now(), mph: S.settings.mph, rel: G.releaseSetup(S.settings.mph), sweet: {}, pos: {}, ref: refPath() };
     sweetFor('nose');
     setPhase('nose');
   } else {
@@ -1169,8 +1180,8 @@ function screenWedge(g) {
     g.stroke();
     word(`${ft}`, q.x - 12, q.y, 'rgba(238,241,232,0.9)', 11, 'right', '"Space Mono", monospace');
   }
-  const bdist = G.distance(lieOf(), S.hole.basket); // where the basket is along it
-  if (bdist < maxFt) word('◂ BASKET', edge(bdist, 1).x + 8, yOf(bdist), '#d35400', 11, 'left', '"Space Mono", monospace');
+  const bdist = G.distance(lieOf(), aimSpot()); // where the basket (or the spot you chose) is along it
+  if (bdist < maxFt) word(targetPt() ? '◂ TARGET' : '◂ BASKET', edge(bdist, 1).x + 8, yOf(bdist), '#d35400', 11, 'left', '"Space Mono", monospace');
   const hl = edge(headFt, -1);
   const hr = edge(headFt, 1);
   g.beginPath();
@@ -1254,8 +1265,9 @@ function syncMini() {
       <div class="gm-dials">${Object.keys(MINI_ROWS).map(miniCell).join('')}</div>
       <button class="gm-tap gm-tap--mini gm-fab" type="button" data-tap>Tap</button>
     </div>`;
+  liftFab(el); // (the Tap button is pinned to the corner like the others, so the dock leaves room for it)
   const pnl = panel();
-  if (pnl) { pnl.classList.add('has-fab'); measureDock(); } // (the Tap button is pinned to the corner like the others, so the dock leaves room for it)
+  if (pnl) { pnl.classList.add('has-fab'); measureDock(); }
 }
 // one dial, drawn for the marker's place on its bar (0..1; null before its turn)
 function drawDial(cvs, stage, v, state) {
@@ -1449,8 +1461,8 @@ function sweetFor(stage) {
   const meter = S.meter;
   if (!d || !meter) return;
   const chosen = stage === 'arm'; // the last stage of the meters style knows the nose and the hyzer
-  const base = { hand: S.settings.hand, style: S.settings.style, mph: S.settings.mph, spin: null, nose: stage === 'angle' || chosen ? S.settings.nose : 0, angle: chosen ? S.settings.angle : 0 };
-  const job = G.sweetJob(S.hole, d, base, heading(), lieOf(), stage, chosen ? meter.ex : undefined); // (the arm stage is played with the release you made)
+  const base = { hand: S.settings.hand, style: S.settings.style, mph: meter.baseMph ?? S.settings.mph, spin: null, nose: stage === 'angle' || chosen ? S.settings.nose : 0, angle: chosen ? S.settings.angle : 0 };
+  const job = G.sweetJob(S.hole, d, base, heading(), lieOf(), stage, chosen ? meter.ex : undefined, aimSpot()); // (the arm stage is played with the release you made; every stage aims at the spot you chose, or the basket)
   meter.sweet[stage] = [];
   const tok = (meter.tok = (meter.tok || 0) + 1);
   const pump = () => {
@@ -3231,6 +3243,40 @@ function showViewBtn() {
   if (btn.textContent !== txt) { btn.textContent = txt; btn.setAttribute('aria-pressed', String(pin)); }
 }
 // the aim line, the band a mistimed release can reach, and where it ends, laid over the 3D ground
+// the spot the player chose by dragging the marker: a double ring with a cross, and how far it is
+function drawTargetMark(g, ground) {
+  const t = targetPt();
+  if (!t) return;
+  const q = ground(t);
+  if (!q) return;
+  const rx = clamp(13 * q.s, 9, 36);
+  const ry = clamp(6.5 * q.s, 4.5, 18);
+  g.save();
+  g.strokeStyle = '#d35400';
+  g.lineWidth = 3;
+  g.beginPath();
+  g.ellipse(q.x, q.y, rx, ry, 0, 0, Math.PI * 2);
+  g.stroke();
+  g.strokeStyle = '#eef1e8';
+  g.lineWidth = 1.6;
+  g.beginPath();
+  g.ellipse(q.x, q.y, rx * 0.5, ry * 0.5, 0, 0, Math.PI * 2);
+  g.moveTo(q.x - rx * 1.25, q.y);
+  g.lineTo(q.x + rx * 1.25, q.y);
+  g.moveTo(q.x, q.y - ry * 1.9);
+  g.lineTo(q.x, q.y + ry * 1.9);
+  g.stroke();
+  g.font = '700 12px "Space Mono", monospace';
+  g.textAlign = 'center';
+  g.textBaseline = 'bottom';
+  g.lineWidth = 3;
+  g.strokeStyle = 'rgba(6,11,7,0.85)';
+  const label = `TARGET ${Math.round(G.distance(lieOf(), t))} ft`;
+  g.strokeText(label, q.x, q.y - ry * 2.2 - 3);
+  g.fillStyle = '#ffb27a';
+  g.fillText(label, q.x, q.y - ry * 2.2 - 3);
+  g.restore();
+}
 // The power meter in the meters style is the aim wedge itself: the wedge (the ground a throw along the aim can reach, from nothing out to a full-power
 // throw) fills up and drains again, the sweet spot is a lit stretch of it, and the dashed flight is the throw at the speed the fill has reached.
 // Tap anywhere to throw at that speed. (`wedgeMeter` draws it, here over the 3D view and on the map when 3D is off.)
@@ -3258,6 +3304,7 @@ function powerOverlay(g, ground, air, lie) {
   g.lineCap = 'round';
   g.stroke();
   g.setLineDash([]);
+  drawTargetMark(g, ground);
   const e = ground(land); // where it will come to rest
   if (e) {
     g.beginPath();
@@ -3295,6 +3342,7 @@ function aimOverlay(c, view, lie) {
     };
     stroke(pv.line, ground, 'rgba(238,241,232,0.28)', 1.6, [2, 6]); // where it passes over the ground
     stroke(pv.line, air, 'rgba(163,230,53,0.92)', 2.6, [8, 6]); // and the flight itself
+    drawTargetMark(g, ground);
     const e = ground(end);
     if (e) { // where it comes down, and how far that is
       g.beginPath();
@@ -3462,6 +3510,7 @@ function drawWorld(t) {
   drawMandoMap();
   drawBasket();
   drawPreview();
+  if (S.round && !inPutt() && ['pick', 'nose', 'angle', 'release', 'power'].includes(S.phase)) drawTargetMark(ctx, (p) => { const [x, y] = P(p.x, p.y); return { x, y, s: Math.max(0.9, cam.s * 0.5) }; });
   drawPowerMeter();
   drawOpp(t);
   drawLie(t);
@@ -3599,6 +3648,88 @@ function frame() {
 }
 
 /* ---------- input ---------- */
+
+/* ----- the marker: drag the landing ring to choose where you want to land; the sweet spots follow it ----- */
+
+const lieKey = () => (S.round ? `${S.hole.id}:${Math.round(lieOf().x * 10)}:${Math.round(lieOf().y * 10)}` : '');
+// the spot the player chose by dragging the marker (null: they have not, or they have aimed some other way since; then it is the basket)
+const targetPt = () => (S.target && S.targetKey === lieKey() && S.targetAim === S.aimOff ? S.target : null);
+const aimSpot = () => targetPt() || S.hole.basket;
+function setTarget(pt) {
+  const lie = lieOf();
+  const d = G.distance(lie, pt);
+  if (d < 14) return;
+  const h = G.headingTo(lie, pt);
+  const hv = G.headingVec(h);
+  const far = Math.min(d, 560);
+  let off = h - baseHeading();
+  off = ((off + 540) % 360) - 180;
+  setAim(Math.round(off));
+  S.target = { x: lie.x + hv.ux * far, y: lie.y + hv.uy * far };
+  S.targetKey = lieKey();
+  S.targetAim = S.aimOff;
+  S.previewKey = null;
+}
+// where the marker is on the screen, if it is on the ground in front of you: the spot you chose, or where the typical throw comes down
+function markerScreen() {
+  const t = targetPt();
+  const spot = t || (S.phase === 'pick' || S.phase === 'nose' || S.phase === 'angle' || S.phase === 'release' ? previewNow(lieOf()).end : null);
+  if (!spot) return null;
+  if (aimIn3D() && S.acam && S.aimView) { const q = C3.project(S.acam, S.aimView, spot.x, spot.y, C3.groundAt(S.hole, spot.x, spot.y) + 0.15); return q ? { x: q.x, y: q.y } : null; }
+  const [x, y] = P(spot.x, spot.y);
+  return { x, y };
+}
+// a finger or pointer that lands on the marker takes hold of it (to drag it), rather than aiming or tapping
+function grabsMarker(e) {
+  if (inPutt() || !(S.phase === 'pick' || S.meter?.classic)) return false;
+  const m = markerScreen();
+  if (!m) return false;
+  const r = cv.getBoundingClientRect();
+  return Math.hypot(e.clientX - r.left - m.x, e.clientY - r.top - m.y) < (e.pointerType === 'mouse' ? 30 : 48);
+}
+// the ground point under a screen point (null above the horizon)
+function groundAtPixel(sx, sy, cam, view) {
+  const b = C3.basis(cam);
+  const a = (sx - view.cx) / view.focal;
+  const u = -(sy - view.cy) / view.focal;
+  const d = [b.right[0] * a + b.up[0] * u + b.fwd[0], b.right[1] * a + b.up[1] * u + b.fwd[1], b.right[2] * a + b.up[2] * u + b.fwd[2]];
+  if (d[2] > -0.004) return null;
+  const tt = (C3.groundAt(S.hole, lieOf().x, lieOf().y) - cam.z) / d[2];
+  if (!(tt > 0 && tt < 3000)) return null;
+  return { x: cam.x + d[0] * tt, y: cam.y + d[1] * tt };
+}
+function dragMarker(e, begin) {
+  const r = cv.getBoundingClientRect();
+  let pt;
+  if (aimIn3D() && S.acam && S.aimView) {
+    if (begin || !S.aimSnap) S.aimSnap = { cam: { ...S.acam }, view: { ...S.aimView } };
+    pt = groundAtPixel(e.clientX - r.left, e.clientY - r.top, S.aimSnap.cam, S.aimSnap.view);
+  } else pt = toWorld(e.clientX - r.left, e.clientY - r.top);
+  if (pt) setTarget(pt);
+}
+// the sweet spots are worked out again for wherever the marker was dropped
+function resweet() {
+  const m = S.meter;
+  if (!m?.classic) return;
+  m.baseMph = targetPt() ? armFor(targetPt()) : S.settings.mph;
+  if (S.phase === 'nose') sweetFor('nose');
+  else if (S.phase === 'angle') sweetFor('angle');
+  else if (S.phase === 'power') sweetFor('arm');
+}
+// the arm speed that brings a flat throw about as far as a spot: the sweet spots for the nose and the hyzer are looked for around it
+function armFor(pt) {
+  const d = curDisc();
+  const lie = lieOf();
+  const want = G.distance(lie, pt);
+  let best = S.settings.mph;
+  let near = Infinity;
+  for (let mph = G.ARM.min; mph <= G.ARM.max; mph += G.ARM.step) {
+    const end = G.previewThrow(S.hole, d, S.settings, heading(), lie, 8, { mph, nose: 0, angle: 0 }).end;
+    const off = Math.abs(G.distance(lie, end) - want);
+    if (off < near) { near = off; best = mph; }
+  }
+  return best;
+}
 
 function setAimFromPointer(e, begin = false) {
   if ((S.phase !== 'pick' && !(S.meter?.classic && S.phase === 'power')) || inPutt()) return;
@@ -3823,7 +3954,7 @@ function selectDisc(step) {
   renderPanel(`[data-disc="${S.discId}"]`);
   retarget(false);
 }
-const panelButtons = () => [...panel().querySelectorAll('button:not([disabled]), select, input')].filter((el) => el.offsetParent !== null);
+const panelButtons = () => [...panel().querySelectorAll('button:not([disabled]), select, input'), ...fabHost().querySelectorAll('button:not([disabled])')].filter((el) => el.offsetParent !== null || el.closest('#gm-fab'));
 function focusMove(step) {
   const items = panelButtons();
   if (!items.length) return;
@@ -3832,8 +3963,8 @@ function focusMove(step) {
 }
 function pressFocused() {
   const el = document.activeElement;
-  if (el && panel().contains(el) && el.matches('button')) el.click();
-  else panel().querySelector('.btn:not(.btn--ghost):not([disabled]), .gm-tap')?.click(); // nothing chosen: the main button of the screen
+  if (el && (panel().contains(el) || fabHost().contains(el)) && el.matches('button')) el.click();
+  else (fabHost().querySelector('button') || panel().querySelector('.btn:not(.btn--ghost):not([disabled]), .gm-tap'))?.click(); // nothing chosen: the main button of the screen
 }
 
 /**
@@ -3868,7 +3999,7 @@ function act(name, o = {}) {
     if (name === 'up' || name === 'prev') { selectDisc(-1); return true; }
     if (name === 'down' || name === 'next') { selectDisc(1); return true; }
     if (name === 'catPrev' || name === 'catNext') { selectKind(name === 'catPrev' ? -1 : 1); return true; }
-    if (name === 'confirm') { panel().querySelector('[data-go], [data-next-step]')?.click(); return true; }
+    if (name === 'confirm') { (fabHost().querySelector('[data-go], [data-next-step]') || panel().querySelector('[data-go], [data-next-step]'))?.click(); return true; }
     if (name === 'back' && isPhone() && S.step !== 'disc') { S.step = S.step === 'aim' ? 'grip' : 'disc'; renderPanel(); return true; }
     return false;
   }
@@ -4761,12 +4892,22 @@ async function boot() {
   p.addEventListener('pointerdown', (e) => { if (e.target.closest('[data-tap], .gm-bar, #gm-putt') && isMeter()) { e.preventDefault(); tap(); } });
   $('#gm-mini').addEventListener('pointerdown', (e) => { if (isMeter() && S.meter?.classic) { e.preventDefault(); tap(); } }); // anywhere in the timing window is the tap
   p.addEventListener('keydown', (e) => { if (e.target.matches('[data-tap]') && (e.key === ' ' || e.key === 'Enter')) e.preventDefault(); });
+  // the pinned button layer does what the panel does for its buttons
+  const fh = fabHost();
+  fh.addEventListener('click', onPanelClick);
+  fh.addEventListener('pointerdown', (e) => { if (e.target.closest('[data-tap]') && isMeter()) { e.preventDefault(); tap(); } });
+  fh.addEventListener('keydown', (e) => { if (e.target.matches('[data-tap]') && (e.key === ' ' || e.key === 'Enter')) e.preventDefault(); });
   document.addEventListener('keydown', onKey);
   cv.addEventListener('contextmenu', (e) => e.preventDefault()); // a right click is a throw, not a menu
   document.addEventListener('pointerdown', (e) => { S.pointerKind = e.pointerType; setInput(e.pointerType === 'touch' ? 'touch' : 'mouse'); }, true);
   cv.addEventListener('pointerdown', (e) => {
     if (riding()) { S.anim.t0 -= 1e7; return; } // tap to skip the ride
     if (S.phase === 'swipe') { beginSwipe(e); return; }
+    if (grabsMarker(e)) { // the landing ring: drag it to choose where you want to land (the sweet spots follow)
+      S.markerDrag = { first: true };
+      try { cv.setPointerCapture?.(e.pointerId); } catch { /* gone */ }
+      return;
+    }
     if (S.meter?.classic && isMeter()) { // the meters style: tap anywhere on the hole to stop the marker; on the last stage a drag aims, a tap throws
       if (S.phase === 'power') { S.wedgeDown = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false, thr: e.pointerType === 'mouse' ? 9 : 28 }; try { cv.setPointerCapture?.(e.pointerId); } catch { /* gone */ } } else tap();
       return;
@@ -4778,6 +4919,7 @@ async function boot() {
   cv.addEventListener('wheel', (e) => { if (!pinLook()) return; e.preventDefault(); S.orbit.zoom = clamp(S.orbit.zoom * (1 + e.deltaY * 0.0012), 0.55, 1.8); }, { passive: false });
   cv.addEventListener('pointermove', (e) => {
     if (S.phase === 'swipe') { moveSwipe(e); return; }
+    if (S.markerDrag) { dragMarker(e, S.markerDrag.first); S.markerDrag.first = false; return; }
     const wd = S.wedgeDown;
     if (wd) {
       const first = !wd.moved && Math.hypot(e.clientX - wd.x, e.clientY - wd.y) > wd.thr; // a finger wobbles: it takes a real drag (28 px) to aim
@@ -4793,6 +4935,7 @@ async function boot() {
     if (e.buttons || e.pointerType === 'touch') setAimFromPointer(e);
   });
   cv.addEventListener('pointerup', (e) => {
+    if (S.markerDrag) { S.markerDrag = null; S.aimSnap = null; retarget(false); resweet(); return; }
     const wd = S.wedgeDown;
     if (wd) { // the last stage of the meters style: a drag aimed (the sweet spot is worked out again), a plain tap is the throw
       S.wedgeDown = null;
@@ -4807,7 +4950,7 @@ async function boot() {
     S.aimSnap = null;
     endSwipe(e);
   });
-  cv.addEventListener('pointercancel', () => { S.wedgeDown = null; S.aimSnap = null; S.pinDrag = null; if (S.meter) S.meter.drag = null; });
+  cv.addEventListener('pointercancel', () => { S.markerDrag = null; S.wedgeDown = null; S.aimSnap = null; S.pinDrag = null; if (S.meter) S.meter.drag = null; });
   $('#gm-view').addEventListener('click', () => { toggleView3(); SND.play('tap'); });
 
   onAccountChange(() => {

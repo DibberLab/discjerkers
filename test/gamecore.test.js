@@ -953,3 +953,18 @@ test('the meters style: the arm stage works out the sweet spot with the nose and
   const real = G.resolveThrow(hole, DRIVER, { ...RIGHT, spin: null, nose: 0, angle: 2, mph }, aim, { o: 0, pure: false, sloppy: 0, grade: 'Sweet' }, from, 72);
   assert.deepStrictEqual(sweet.lies[10], real.lie, 'the marker is where the throw lands');
 });
+
+test('the meters style: the sweet spots aim at the spot the player chose, not only the basket', async () => {
+  const G = await load();
+  const hole = G.HOLES[0];
+  const from = hole.tee;
+  const aim = G.headingTo(from, hole.basket);
+  const hv = G.headingVec(aim);
+  const base = { ...RIGHT, spin: null, nose: 0, angle: 0 };
+  const best = (sweet) => sweet.values[sweet.dist.indexOf(Math.min(...sweet.dist))];
+  const toBasket = G.sweetSpots(hole, DRIVER, base, aim, from, 'arm', undefined, hole.basket);
+  const near = { x: from.x + hv.ux * 150, y: from.y + hv.uy * 150 };
+  const toNear = G.sweetSpots(hole, DRIVER, base, aim, from, 'arm', undefined, near);
+  assert.ok(best(toNear) < best(toBasket), 'a short target wants a slower arm than the basket does');
+  assert.ok(G.distance(toNear.lies[toNear.values.indexOf(best(toNear))], near) < 40, 'and the best speed really lands near it');
+});
