@@ -36,7 +36,10 @@ const now = () => performance.now() + clock.offset;
 
 /* ---------- discs and bags ---------- */
 
-const STARTER = ['AviarX3', 'Zone OS', 'Roc3', 'Buzzz OS', 'Leopard3', 'Teebird3', 'Destroyer'];
+// the shared quick-play page (/play): no header, no account, no friends or boards: just a standard bag and the course
+const QUICK = document.body.hasAttribute('data-quick');
+const QUICK_BAG = ['Aviar3', 'Buzzz', 'Teebird', 'Leopard3', 'Wraith', 'Destroyer']; // a putter, a midrange, two fairway drivers and two distance drivers: the most thrown models
+const STARTER = QUICK ? QUICK_BAG : ['AviarX3', 'Zone OS', 'Roc3', 'Buzzz OS', 'Leopard3', 'Teebird3', 'Destroyer'];
 const DISCS = new Map();
 let DATA;
 
@@ -126,13 +129,14 @@ const S = {
   zoom: 1,
 };
 
+const PROGRESS_KEY = QUICK ? 'dj_progress_quick' : 'dj_progress';
 // the player's progress: kept in this browser, and (signed in) on their account too
 function loadGame() {
-  try { return PR.sanitizeGame(JSON.parse(localStorage.getItem('dj_progress'))) || PR.emptyGame(); } catch { return PR.emptyGame(); }
+  try { return PR.sanitizeGame(JSON.parse(localStorage.getItem(PROGRESS_KEY))) || PR.emptyGame(); } catch { return PR.emptyGame(); }
 }
 let gameSaveTimer = null;
 function saveGame() {
-  try { localStorage.setItem('dj_progress', JSON.stringify(S.game)); } catch { /* not saved */ }
+  try { localStorage.setItem(PROGRESS_KEY, JSON.stringify(S.game)); } catch { /* not saved */ }
   if (!account.user) return;
   clearTimeout(gameSaveTimer);
   gameSaveTimer = setTimeout(() => { // a few seconds after the last change, so a round of throws is one save
@@ -361,12 +365,12 @@ const panel = () => $('#gm-panel');
 // where the game starts below the site's header: nowhere, on a phone mid-round (the header is hidden then)
 function syncTop() {
   const mast = $('.masthead');
-  const h = !mast ? 66 : S.mastH || (S.mastH = mast.offsetHeight || 66);
+  const h = QUICK ? 0 : !mast ? 66 : S.mastH || (S.mastH = mast.offsetHeight || 66);
   document.documentElement.style.setProperty('--gm-top', `${isPhone() && PLAYING.has(S.phase) ? 0 : h}px`);
 }
 
 function bagBar() {
-  if (S.mode === 'match') return '';
+  if (S.mode === 'match' || QUICK) return '';
   if (!account.user) {
     return `<div class="gm-bagbar"><span>Starter bag</span><button class="chip" type="button" data-signin>Sign in to bring your bag</button></div>`;
   }
@@ -574,7 +578,25 @@ function panelPick() {
 function courseChooser() {
   return `<div class="gm-courses" role="group" aria-label="Course">${COURSES.map((c) => `<button class="gm-course" type="button" data-course="${c.id}" aria-pressed="${c.id === S.courseId}"><b>${esc(c.name)}</b><small>${esc(c.blurb)}</small><span>18 holes · par ${parTotal(c.holes)}</span></button>`).join('')}</div>`;
 }
+function panelQuick() {
+  const ch = courseHoles();
+  const course = courseById(S.courseId);
+  const kind = (d) => (d.speed <= 4 ? 'putter' : d.speed <= 6 ? 'midrange' : d.speed <= 9 ? 'fairway driver' : 'distance driver');
+  const bag = S.bag.discs.map(({ disc }) => `<li>${discChip(disc, null)}<span>${esc(splitName(disc.name))}<small>${kind(disc)}</small></span></li>`).join('');
+  return `<div class="gm-card gm-quickcard">
+      <h2>Quick play</h2>
+      <p>Throw a hole in the woods. Pick a disc, set the grip, then time the throw: nose, hyzer, release, power. Don't triple bogey: Marebear is watching, and she has a handbag.</p>
+      <ul class="gm-quickbag" aria-label="Your bag">${bag}</ul>
+      ${courseChooser()}
+      <button class="btn" type="button" data-solo="3">Quick warm-up<small>3 holes, about 5 minutes</small></button>
+      <div class="gm-menu">
+        <button class="btn" type="button" data-solo="9">Front 9<small>${esc(course.name)} · par ${parTotal(ch.slice(0, 9))}</small></button>
+        <button class="btn" type="button" data-solo="18">Full 18<small>${esc(course.name)} · par ${parTotal(ch)}</small></button>
+      </div>
+    </div>`;
+}
 function panelMenu() {
+  if (QUICK) return panelQuick();
   const ch = courseHoles();
   const course = courseById(S.courseId);
   const options = ch.map((h) => `<option value="${h.id}"${h.id === S.hole.id ? ' selected' : ''}>${h.n}. ${esc(h.name)} · par ${h.par}</option>`).join('');
@@ -4310,12 +4332,13 @@ function resetStage() {
   S.last = null;
   S.bag = buildBag();
   S.discId = null;
-  try { history.replaceState(null, '', '/game'); } catch { /* fine */ }
+  if (!QUICK) try { history.replaceState(null, '', '/game'); } catch { /* fine */ }
 }
 
 /* ----- goals, skins, and discs that break in ----- */
 
 function announce(ids) {
+  if (QUICK) return; // (no goals or skins here)
   for (const id of ids) {
     const a = PR.ACHIEVEMENTS.find((x) => x.id === id);
     if (!a) continue;
@@ -5035,7 +5058,7 @@ function copyLink() {
 /* ---------- boot ---------- */
 
 async function boot() {
-  S.mastH = $('.masthead')?.offsetHeight || 66;
+  S.mastH = QUICK ? 0 : $('.masthead')?.offsetHeight || 66;
   syncTop();
   const res = await fetch('/data/flightguide.json?v=1');
   DATA = await res.json();
@@ -5166,11 +5189,11 @@ async function boot() {
   });
   // a link to a match (?match=CODE): read it before the page tidies its own address
   const code = (new URLSearchParams(location.search).get('match') || '').toUpperCase();
-  await loadAccount();
+  if (!QUICK) await loadAccount();
   GR.warm(courseHoles()[0]);
   FO.start(() => { still.trees = null; }); // the drawn trees are made in the background; the map's cached picture of them is redone once they are
   showMenu();
-  if (code) {
+  if (code && !QUICK) {
     if (account.user) {
       mpJoin(code);
     } else {

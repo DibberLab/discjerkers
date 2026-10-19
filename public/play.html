@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#090c09">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css?v=7">
+  <link rel="stylesheet" href="/css/flightguide.css?v=25">
+  <link rel="stylesheet" href="/css/game.css?v=61">
+  <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+  <title>Quick Play — Disc Jerkers</title>
+  <meta name="description" content="A disc golf game in your browser: a bag of popular discs, a course in the woods, and a timing throw. Don't triple bogey. Marebear is watching.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="Disc Jerkers: Quick Play">
+  <meta property="og:description" content="A disc golf game in your browser: pick a disc, time the throw, don't triple bogey.">
+  <meta property="og:type" content="website">
+</head>
+<body class="gm-page gm-quick" data-quick>
+  <main class="gm" id="gm">
+    <section class="gm-stage" id="gm-stage">
+      <canvas id="gm-canvas" aria-label="The hole, seen from above. Tee at the bottom, basket at the top."></canvas>
+      <div class="gm-hud" id="gm-hud"></div>
+      <div class="gm-wind" id="gm-wind" aria-hidden="true"></div>
+      <div class="gm-keys" id="gm-keys" hidden aria-hidden="true"></div>
+      <div class="gm-toast" id="gm-toast" role="status" aria-live="polite"></div>
+      <div class="gm-bubble" id="gm-bubble" aria-live="polite"></div>
+      <div class="gm-mini" id="gm-mini" hidden></div>
+      <div class="gm-chips">
+        <button class="gm-cambtn" id="gm-cam" type="button" hidden aria-pressed="false">3D</button>
+        <button class="gm-cambtn gm-cambtn--sound" id="gm-sound" type="button" aria-pressed="true">Sound on</button>
+        <button class="gm-cambtn gm-cambtn--bear" id="gm-bear" type="button" aria-pressed="true">Marebear on</button>
+        <button class="gm-cambtn gm-cambtn--view" id="gm-view" type="button" hidden aria-pressed="false">Find pin</button>
+      </div>
+      <div class="gm-zoom" role="group" aria-label="Zoom the hole"><button type="button" id="gm-zin" aria-label="Zoom in">+</button><button type="button" id="gm-zout" aria-label="Zoom out">−</button></div>
+    </section>
+    <section class="gm-panel" id="gm-panel" aria-live="polite"><p class="gm-loading">Loading the course…</p></section>
+    <div class="gm-fabhost" id="gm-fab"></div>
+    <div class="gm-music" id="gm-music"></div>
+  </main>
+
+  <script type="module" src="/js/game.js?v=172"></script>
+</body>
+</html>
