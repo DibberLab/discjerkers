@@ -438,13 +438,13 @@
 }
 
 /* ---------- the meters style: the timing window over the 3D view ---------- */
-.gm-mini { position: absolute; left: 50%; bottom: calc(var(--dock, 0px) + 52px); transform: translateX(-50%); z-index: 3; width: min(470px, calc(100% - 24px)); }
+.gm-mini { position: absolute; left: 0; right: 0; margin: 0 auto; bottom: calc(var(--dock, 0px) + 52px); z-index: 3; width: min(470px, calc(100% - 24px)); } /* (no transform here: a transformed parent would stop the Tap button being pinned to the screen) */
 .gm-mini__box {
   display: grid; gap: 8px; padding: 10px 12px 12px; border: 1px solid var(--hair); border-radius: 14px;
   background: rgba(17, 23, 15, 0.94); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
 }
 .gm-mini.is-fresh .gm-mini__box { animation: gm-mini-in 0.18s ease-out; }
-@keyframes gm-mini-in { from { opacity: 0; transform: translateY(10px) scale(0.97); } to { opacity: 1; transform: none; } }
+@keyframes gm-mini-in { from { opacity: 0; } to { opacity: 1; } }
 .gm-mini__t { margin: 0; min-height: 2.7em; display: flex; align-items: center; justify-content: center; font: 700 0.66rem/1.3 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--bone-dim); text-align: center; } /* two lines tall whatever it says, so the Tap button never moves between stages */
 .gm-dials { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .gm-dialcell { display: grid; justify-items: center; gap: 2px; padding: 6px 4px 4px; border: 1px solid var(--hair); border-radius: 10px; background: var(--void); transition: opacity 0.15s; }
@@ -466,3 +466,14 @@
 .gm-meter__top .gm-read { flex: 1; min-width: 0; height: auto; justify-content: flex-end; flex-direction: column; align-items: flex-end; gap: 2px; }
 .gm-meter__top .gm-read b { font-size: 1.15rem; }
 .gm-meter__top .gm-read small { font-size: 0.56rem; }
+
+/* The main button of every screen that has one (Throw, the next step, Tap, Putt, Next throw) is pinned to the very bottom right of the screen on a phone, so a thumb
+   always finds it in the same place whatever is written above it. The panel leaves room for it (.has-fab). */
+@media (max-width: 900px) {
+  .gm-panel .gm-fab, .gm-mini .gm-fab {
+    position: fixed; right: max(12px, env(safe-area-inset-right)); bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 7;
+    width: min(58vw, 250px); min-height: 60px; padding: 0 16px; font-size: 1.45rem; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.6);
+  }
+  .gm-panel .gm-fab small { font-size: 0.7rem; }
+  .gm-panel.has-fab { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
+}

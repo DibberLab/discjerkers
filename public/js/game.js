@@ -531,7 +531,7 @@ function panelPickPhone() {
     body = `${planRows()}<p class="gm-note">The dashed line is the flight you have planned; the band is where a mistimed release can land.</p>`;
   }
   const last = i === steps.length - 1;
-  const go = last ? `<button class="btn" type="button" data-go>${putting ? 'Putt' : 'Throw'}</button>` : `<button class="btn" type="button" data-next-step>${names[steps[i + 1]]} <small>next</small></button>`;
+  const go = last ? `<button class="btn gm-fab" type="button" data-go>${putting ? 'Putt' : 'Throw'}</button>` : `<button class="btn gm-fab" type="button" data-next-step>${names[steps[i + 1]]} <small>next</small></button>`;
   return `<div class="gm-dock">
       <div class="gm-dock__top">${tabs}${leave}</div>
       ${S.mode === 'match' ? boardHtml() : ''}
@@ -731,7 +731,7 @@ function panelResult() {
       <p>${where}${c.p}</p>
       ${quipHtml()}
       ${ex ? `<p>${ex.slip ? esc(ex.grade) : `${esc(ex.grade)} throw`}: ${describeExecution(ex)}</p>` : ''}
-      <button class="btn" type="button" data-next>Next throw</button>
+      <button class="btn gm-fab" type="button" data-next>Next throw</button>
     </div>`;
 }
 
@@ -800,6 +800,7 @@ function renderPanel(focusSel) {
   const views = { menu: panelMenu, pick: panelPick, power: panelMeter, nose: panelMeter, angle: panelMeter, release: panelMeter, putt: panelMeter, swipe: panelSwipe, flight: panelFlight, result: panelResult, bear: panelBear, done: panelDone, summary: panelSummary, lobby: panelLobby, mwait: panelMwait, mturn: panelMturn, mhole: panelMhole, mdone: panelMdone, daily: panelDaily, standings: panelStandings, trophies: panelTrophies };
   p.innerHTML = (views[S.phase] || (() => ''))();
   p.dataset.phase = S.phase;
+  p.classList.toggle('has-fab', !!p.querySelector('.gm-fab')); // the main button is pinned to the bottom right of the screen (on a phone), and the panel leaves room for it
   p.scrollTop = keepScroll;
   const dr = $('.gm-discs', p); // a bag with more discs than fit says so, and shows the edge of the next row
   if (dr) dr.classList.toggle('is-more', dr.scrollHeight > dr.clientHeight + 4);
@@ -1004,11 +1005,14 @@ function fillIndex(v) {
 }
 // The arm-speed fill: it rises up the wedge at a steady pace by distance (not eased: the old bar crawled at the bottom and whipped through the top, where the sweet spot is)
 // and drains at the same pace. `f` is where it has got to along the wedge, `mph` the arm speed that distance stands for (what you throw if you tap now).
-const ARM_PERIOD = 3.2; // seconds for the fill to rise and drain once
+const ARM_PERIOD = 3.6; // seconds for the fill to rise and drain once
+const ARM_SNAP = 1.6; // >1: the fill quickens toward the top (u^1.6), so the last few feet go by in a flash
+// In real life taking a little off a full throw is easy and a full throw is the hard one. So the fill is roomy through the middle and the upper range, and only the very
+// top, the max, is a quick catch: stopping a bit short of it (say 85 to 95%) has about a tenth of a second to work with, the last 3% about thirty thousandths.
 function armAt(m, sec) {
   const pts = wedgeGeom().pts;
   const last = pts.length - 1;
-  const ft = ((G.needleAt(sec, ARM_PERIOD) + 1) / 2) * pts[last].ft;
+  const ft = ((G.needleAt(sec, ARM_PERIOD) + 1) / 2) ** ARM_SNAP * pts[last].ft;
   let k = 0;
   while (k < last - 1 && pts[k + 1].ft < ft) k++;
   const span = pts[k + 1].ft - pts[k].ft || 1;
@@ -1220,7 +1224,7 @@ function panelMetersStyle() {
       ${steps}
       <div class="gm-meter__top"><p class="gm-meter__t">${title}</p>${hasRead && isPhone() ? readout : ''}<button class="chip gm-backout" type="button" data-back-out aria-label="Back out of this throw">Back out</button></div>
       ${isPhone() && (kind === 'nose' || kind === 'angle' || kind === 'release') ? '' : `<div class="gm-meter__h"><p>${brief(hints[kind])}</p></div>`}
-      ${hasRead ? `<button class="gm-tap" type="button" data-tap>${kind === 'putt' ? 'Putt' : 'Throw'}</button>${isPhone() ? '' : readout}` : kind === 'putt' ? '<button class="gm-tap" type="button" data-tap>Tap</button>' : ''}
+      ${hasRead ? `<button class="gm-tap gm-fab" type="button" data-tap>${kind === 'putt' ? 'Putt' : 'Throw'}</button>${isPhone() ? '' : readout}` : kind === 'putt' ? '<button class="gm-tap gm-fab" type="button" data-tap>Tap</button>' : ''}
     </div>`;
 }
 
@@ -1251,8 +1255,10 @@ function syncMini() {
   el.innerHTML = `<div class="gm-mini__box" role="group" aria-label="Timing window">
       <p class="gm-mini__t">${hints[S.phase]}</p>
       <div class="gm-dials">${Object.keys(MINI_ROWS).map(miniCell).join('')}</div>
-      <button class="gm-tap gm-tap--mini" type="button" data-tap>Tap</button>
+      <button class="gm-tap gm-tap--mini gm-fab" type="button" data-tap>Tap</button>
     </div>`;
+  const pnl = panel();
+  if (pnl) { pnl.classList.add('has-fab'); measureDock(); } // (the Tap button is pinned to the corner like the others, so the dock leaves room for it)
 }
 // one dial, drawn for the marker's place on its bar (0..1; null before its turn)
 function drawDial(cvs, stage, v, state) {
@@ -2759,7 +2765,7 @@ function drawPreview() {
 function drawDisc(wx, wy, h, discId, size = 1, owner = 'me') {
   const look = discLook(discId, owner);
   const [gx, gy] = P(wx, wy);
-  const r = Math.max(6, 3.2 * cam.s) * size * (1 + h / 120);
+  const r = clamp(1.1 * cam.s, 5, 10) * size * (1 + h / 120); // a few feet across at most: zoomed in for a putt it used to be as big as a thumb
   const lift = h * 0.3 * cam.s;
   ctx.beginPath();
   ctx.ellipse(gx, gy, r * 0.9, r * 0.55, 0, 0, Math.PI * 2);
@@ -2807,7 +2813,7 @@ function drawLie(t) {
   const lie = lieOf();
   const [x, y] = P(lie.x, lie.y);
   ctx.beginPath();
-  ctx.arc(x, y, 14 + Math.sin(t / 260) * 1.5, 0, Math.PI * 2);
+  ctx.arc(x, y, 12 + Math.sin(t / 260) * 1.2, 0, Math.PI * 2);
   ctx.strokeStyle = S.mode === 'match' ? 'rgba(163,230,53,0.8)' : 'rgba(238,241,232,0.5)';
   ctx.lineWidth = 1.5;
   ctx.stroke();
