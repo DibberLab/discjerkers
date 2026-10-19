@@ -42,6 +42,7 @@ app.use(express.json({ limit: '128kb' }));
 app.use('/api/changes', changes);
 app.use('/api/account', accounts);
 app.use('/api/game', game);
+app.use('/api/music', require('./routes/music').createMusicRouter());
 app.use('/api', require('./routes/api'));
 
 app.get('/healthz', (req, res) => res.json({ ok: true, demoMode: config.demoMode }));

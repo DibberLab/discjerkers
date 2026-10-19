@@ -48,7 +48,7 @@ export function initMusic(root) {
 
   root.innerHTML = `
     <div class="gm-music__drawer" id="gm-music-drawer" hidden role="dialog" aria-label="Pick a vibe">
-      <p class="gm-music__h">Pick a vibe <small>streams from YouTube</small></p>
+      <p class="gm-music__h">Pick a vibe <input class="gm-music__q" type="search" placeholder="or search anything…" maxlength="80" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" aria-label="Search YouTube and play it"></p>
       <div class="gm-music__grid">${VIBES.map((v) => `<button type="button" class="gm-vibe" data-vibe="${v.id}"><b>${v.name}</b><small>${v.sub}</small></button>`).join('')}</div>
       <p class="gm-music__now" id="gm-music-now" aria-live="polite"></p>
     </div>
@@ -64,16 +64,19 @@ export function initMusic(root) {
   const vibeLabel = q('#gm-music-vibe');
   const now = q('#gm-music-now');
 
+  let custom = null; // what was searched for, while that is what is playing
+  let note = null; // a message (a search that found nothing) that stays for a few seconds, over the song's title
+  const tell = (text, ms = 6000) => { note = { text, until: Date.now() + ms }; render(); };
   const render = () => {
     const v = vibeById(st.vibe);
-    vibeLabel.textContent = v.name;
+    vibeLabel.textContent = custom || v.name;
     const playing = status === 'playing' || status === 'loading';
     playBtn.innerHTML = playing ? ICON.pause : ICON.play;
     playBtn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
     playBtn.classList.toggle('is-stuck', status === 'stuck');
     root.classList.toggle('is-on', status === 'playing');
-    root.querySelectorAll('.gm-vibe').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.vibe === st.vibe)));
-    now.textContent = broken ? 'That vibe will not play here right now. Try another.' : status === 'stuck' ? 'Tap play to start.' : player && status !== 'idle' ? (player.getVideoData?.().title || '') : '';
+    root.querySelectorAll('.gm-vibe').forEach((b) => b.setAttribute('aria-pressed', String(!custom && b.dataset.vibe === st.vibe)));
+    now.textContent = note && Date.now() < note.until ? note.text : broken ? 'That vibe will not play here right now. Try another.' : status === 'stuck' ? 'Tap play to start.' : player && status !== 'idle' ? (player.getVideoData?.().title || '') : '';
   };
 
   const loadApi = (cb) => {
@@ -111,20 +114,21 @@ export function initMusic(root) {
     clearTimeout(switchTimer);
     try { player.stopVideo(); } catch { /* gone */ }
     switchTimer = setTimeout(() => {
-      try { player.loadPlaylist({ listType: 'playlist', list: c.list, index: startIndex(c.n) }); player.setVolume(st.vol); } catch { /* gone */ }
+      try { player.loadPlaylist(c.ids ? { playlist: c.ids, index: 0 } : { listType: 'playlist', list: c.list, index: startIndex(c.n) }); player.setVolume(st.vol); } catch { /* gone */ }
       arm();
     }, 300);
   };
   const hop = () => switchTo(chooseList(vibeById('mix')));
-  const build = () => {
+  const build = (c = chooseList(vibeById(st.vibe))) => {
     status = 'loading';
     broken = false;
     render();
     loadApi(() => {
-      const c = chooseList(vibeById(st.vibe));
+      // a vibe or a search's playlist, or a mix made of a search's videos (the one searched for first)
+      const what = c.ids ? { videoId: c.ids[0], playerVars: { playlist: c.ids.slice(1).join(','), } } : { playerVars: { listType: 'playlist', list: c.list, index: startIndex(c.n) } };
       player = new window.YT.Player('gm-yt', {
-        height: '200', width: '200',
-        playerVars: { listType: 'playlist', list: c.list, index: startIndex(c.n), autoplay: 1, controls: 0, disablekb: 1, playsinline: 1, rel: 0, modestbranding: 1, origin: location.origin },
+        height: '200', width: '200', ...(c.ids ? { videoId: c.ids[0] } : {}),
+        playerVars: { ...what.playerVars, autoplay: 1, controls: 0, disablekb: 1, playsinline: 1, rel: 0, modestbranding: 1, origin: location.origin },
         events: {
           onReady: (e) => { e.target.setVolume(st.vol); e.target.playVideo(); arm(); },
           onStateChange: (e) => {
@@ -177,6 +181,7 @@ export function initMusic(root) {
     setTimeout(() => { try { if (player.getVideoData().video_id === before) player.nextVideo(); } catch { /* gone */ } }, 1500); // (if it did not move, the plain next one)
   };
   const pick = (id) => {
+    custom = null;
     st.vibe = vibeById(id).id;
     save(st);
     broken = false;
@@ -204,6 +209,31 @@ export function initMusic(root) {
     else if (b.dataset.m === 'vibe') setDrawer(!drawerOpen);
     b.blur(); // (so Space and Enter go on being the game's keys)
   });
+  // the search box: whatever is typed, find something close to it on YouTube and play it (the server picks: a playlist that is about it, or a mix of the top videos)
+  const input = q('.gm-music__q');
+  let searching = false;
+  const runSearch = async (raw) => {
+    const text = String(raw).trim();
+    if (!text || searching) return;
+    searching = true;
+    tell('Searching…', 15000);
+    try {
+      const res = await fetch(`/api/music/search?q=${encodeURIComponent(text)}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { tell(data.error || 'Nothing playable for that. Try other words.'); return; }
+      note = null;
+      custom = text.length > 22 ? `${text.slice(0, 21)}…` : text;
+      broken = false;
+      errors = 0;
+      const c = data.kind === 'playlist' ? { list: data.list, n: data.n } : { ids: data.ids };
+      if (player) { status = 'loading'; switchTo(c); arm(); } else build(c);
+      input.value = '';
+      input.blur();
+      setDrawer(false);
+      render();
+    } catch { tell('The search did not work just now. Try again.'); } finally { searching = false; }
+  };
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); runSearch(input.value); } });
   q('.gm-mvol').addEventListener('input', (e) => { st.vol = clampVolume(e.target.value); save(st); try { player?.setVolume(st.vol); } catch { /* not yet */ } });
   root.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') setDrawer(false); }); // the game must not take a key typed on the music bar
   document.addEventListener('pointerdown', (e) => { if (drawerOpen && !root.contains(e.target)) setDrawer(false); }, true);
