@@ -2459,18 +2459,18 @@ let dpr = 1;
 const cam = { x: 0, y: 200, s: 0.6, tx: 0, ty: 200, ts: 0.6 };
 const ZOOM = { min: 1, max: 3.4, step: 1.45 };
 
-// The 3D camera is on for everyone, with a 3D switch over the hole to turn it off (remembered). /game?cam=off or ?cam=3d set it too.
+// The throws are watched from above (the map) unless you turn the 3D switch over the hole on (remembered). /game?cam=off or ?cam=3d set it too.
 // Putting has its own switch (`putt`): it is in the 3D view by default whatever you chose for the throws, and the 3D chip turns off whichever you are in (the throws', or the putting's).
-const CAM = { on: true, putt: true };
+const CAM = { on: false, putt: true };
 let syncCam = () => {}; // (the chip over the hole, once the page has made it)
 function loadCam() {
   try {
     const q = new URLSearchParams(location.search).get('cam');
     if (q === '3d') { localStorage.setItem('dj_cam', 'on'); localStorage.setItem('dj_cam_putt', 'on'); }
     else if (q === 'off') { localStorage.setItem('dj_cam', 'off'); localStorage.setItem('dj_cam_putt', 'off'); }
-    CAM.on = localStorage.getItem('dj_cam') !== 'off';
+    CAM.on = localStorage.getItem('dj_cam') === 'on';
     CAM.putt = localStorage.getItem('dj_cam_putt') !== 'off';
-  } catch { /* on */ }
+  } catch { /* the defaults: the map for throws, 3D for putts */ }
 }
 // whose throws are watched in 3D: yours, and in a match of two everybody's; in a bigger group the others' stay on the map so the game keeps moving
 const watching3D = (who) => CAM.on && (!who || who === 'me' || !S.mp || S.mp.view.players.filter((p) => !p.left).length <= 2);

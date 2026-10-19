@@ -338,7 +338,7 @@ that way; don't introduce React/Vite/Tailwind here.
 - **3D camera** (`public/js/cam3d.js`): a thrown disc is watched from behind it, in perspective, on the same canvas: ground shapes
   (fairway stripes, water, out of bounds) are projected polygons clipped at the near plane, trees (drawn per species), bushes and
   the basket (with a tall flag, and chains up close) are billboards sorted by depth, and a chase camera (`follow`) eases after
-  the disc and banks into turns. **On for everyone**, with a "3D on/off" chip over the hole (remembered in localStorage `dj_cam`;
+  the disc and banks into turns. **Off by default** (throws are watched on the map; putting is in 3D, see below), with a "3D on/off" chip over the hole (remembered in localStorage `dj_cam`, only an explicit `on` turns it on;
   `/game?cam=off` and `?cam=3d` set it). In a match of two everyone's throws are watched in 3D; in a bigger group the others'
   stay on the map so it keeps moving. Tapping the hole skips a ride. A drawing mistake falls back to the map (`draw()` catches it)
   and `frame()` can never stop the loop.
