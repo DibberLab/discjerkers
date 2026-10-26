@@ -12,8 +12,9 @@ const router = express.Router();
  * Stripe webhook. Must receive the RAW body, so this router is mounted before
  * express.json() in server/index.js.
  *
- * checkout.session.completed is the moment money is confirmed — that's when the
- * order is handed to Printify. Everything is idempotent on the session id so a
+ * checkout.session.completed (or async_payment_succeeded for delayed methods) is
+ * when the order is handed to Printify, after re-checking with Stripe that the
+ * session is actually paid. Everything is idempotent on the session id so a
  * replayed event never double-orders.
  */
 router.post('/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
@@ -37,15 +38,23 @@ router.post('/stripe', express.raw({ type: 'application/json' }), async (req, re
   // Printify call to cause a duplicate delivery.
   res.json({ received: true });
 
-  if (event.type !== 'checkout.session.completed') return;
+  if (event.type !== 'checkout.session.completed' && event.type !== 'checkout.session.async_payment_succeeded') return;
 
-  const session = event.data.object;
+  const sessionId = event.data.object.id;
   try {
+    // Never trust the event body for money: re-read the session from Stripe so a
+    // forged or replayed event (e.g. with a leaked signing secret) can't trigger
+    // a Printify order, and only fulfil once Stripe says it's actually paid.
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    if (session.payment_status !== 'paid') {
+      console.log('[webhook] session not paid yet, skipping', sessionId, session.payment_status);
+      return;
+    }
     await fulfill(session);
   } catch (err) {
-    console.error('[webhook] fulfillment failed for session', session.id, err);
+    console.error('[webhook] fulfillment failed for session', sessionId, err);
     store.recordOrder({
-      id: session.id,
+      id: sessionId,
       status: 'failed',
       error: err.message,
       printifyBody: err.body || null,
