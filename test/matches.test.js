@@ -287,7 +287,12 @@ test('Marebear comes for a disc at a triple bogey, and the bear is on the record
   const who = m.round.turn;
   const user = who === ANA.id ? ANA : BEN;
   m.round.rounds[who].strokes = 6;
-  const out = store.move(user, id, 'throw', plan(gp, store.view(m, who), who).body, gp);
+  // a soft throw well off line: the server rolls scatter, and a throw at the basket can now and then drop in,
+  // and a holed disc is safe from her
+  const throwIt = { ...plan(gp, store.view(m, who), who).body, aimOff: 90 };
+  throwIt.settings = { ...throwIt.settings, mph: 14 };
+  const out = store.move(user, id, 'throw', throwIt, gp);
+  assert.notStrictEqual(out.last.kind, 'basket');
   assert.ok(out.last.bear, 'she came');
   assert.deepStrictEqual(out.match.round.rounds[who].eaten, [out.last.bear.discId]);
   assert.ok(!out.match.round.rounds[who === ANA.id ? BEN.id : ANA.id].eaten.length, 'only the player she came for');
