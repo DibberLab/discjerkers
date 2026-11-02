@@ -121,42 +121,11 @@ domains there already do.
 ## Auto-deploy
 
 Every push to `main` runs `.github/workflows/deploy.yml`: the tests, then (only
-if they pass) an SSH to the droplet that runs `discjerkers-deploy`. That script
-(`deploy/discjerkers-deploy`) pulls `main`, runs `docker compose up -d --build`
-and waits for `/healthz`; the run goes red if the site does not come back.
-`.env` and `data/` are gitignored, so a deploy never touches orders, accounts,
-photos or matches. nginx is not part of it. It can also be run by hand from
-the Actions tab (*Run workflow*). Same pattern as DibberLab/budget.
-
-One-time setup on the droplet (as root):
-
-```bash
-# 1. Make the app folder a git checkout (it was rsynced). .env and data/ stay.
-cd /var/www/discjerkers
-git init -b main && git remote add origin https://github.com/DibberLab/discjerkers.git
-git fetch origin main && git reset --hard origin/main
-
-# 2. Install the deploy script.
-install -m 755 deploy/discjerkers-deploy /usr/local/bin/discjerkers-deploy
-
-# 3. A key that can only ever run that script.
-ssh-keygen -t ed25519 -N '' -C discjerkers-deploy -f /root/.ssh/discjerkers_deploy
-echo "command=\"/usr/local/bin/discjerkers-deploy\",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty $(cat /root/.ssh/discjerkers_deploy.pub)" >> /root/.ssh/authorized_keys
-cat /root/.ssh/discjerkers_deploy   # -> DEPLOY_SSH_KEY secret, then delete it from the server
-rm /root/.ssh/discjerkers_deploy
-```
-
-Then in GitHub, repo Settings → Secrets and variables → Actions, add:
-
-- `DEPLOY_SSH_KEY`: the private key printed above.
-- `DEPLOY_HOST`: the droplet's IP or hostname.
-- `DEPLOY_KNOWN_HOSTS`: the output of `ssh-keyscan -t ed25519 <host>`, run from
-  your own machine.
-
-If budget's secrets already point at the same droplet, `DEPLOY_HOST` and
-`DEPLOY_KNOWN_HOSTS` can be the same values; the key must be the new one,
-since each key is locked to one script. If the deploy script ever changes,
-re-run step 2 (the server runs its installed copy, not the repo's).
+if they pass) an SSH to the droplet with a key that can only run
+`discjerkers-deploy` (`deploy/discjerkers-deploy`: pull `main`,
+`docker compose up -d --build`, wait for `/healthz`). `.env`, `data/` and nginx
+are never touched. It can also be run from the Actions tab (*Run workflow*).
+The one-time setup is in `deploy/AUTODEPLOY.md`.
 
 ## Cloudflare notes
 
