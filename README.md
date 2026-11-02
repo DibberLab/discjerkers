@@ -15,7 +15,7 @@ server/
   routes/api.js    /api/* storefront endpoints
   routes/webhook.js Stripe webhook -> Printify order
 data/            carts.json + orders.json (gitignored)
-deploy/          nginx site config for the droplet
+deploy/          nginx site config and the auto-deploy script for the droplet
 shirts/          brand source art (.ai + PNG) — NOT deployed, see rsync excludes
 ```
 
@@ -30,14 +30,18 @@ highlighter.
 Type: Anton (display, all caps), Archivo (body), Space Mono (labels, nav,
 prices, anything that should read like a scorecard).
 
-The hero mark is `public/img/death-by-disc.png`, derived from
-`shirts/CatReaper-shirt-01b.png` — white line art on transparency, which is why
-it only works on a dark surface. Regenerate the web copies with:
+The hero mark is `public/img/disc-jerkers-logo.png` (and `-sm.png` for
+phones): the Disc Jerkers logo recoloured to **white line art on
+transparency**, which is why it only works on a dark surface. The logo comes
+as black art; to regenerate the web copies from it, keep its alpha and paint
+the lines white:
 
 ```bash
-convert shirts/CatReaper-shirt-01b.png -resize 1100x -strip PNG32:public/img/death-by-disc.png
-convert shirts/CatReaper-shirt-01b.png -resize 480x  -strip PNG32:public/img/death-by-disc-sm.png
+convert logo-black.png -fill white -colorize 100 -resize 1100x -strip PNG32:public/img/disc-jerkers-logo.png
+convert logo-black.png -fill white -colorize 100 -resize 480x  -strip PNG32:public/img/disc-jerkers-logo-sm.png
 ```
+
+The old reaper-cat art (`death-by-disc.png`) is still in `public/img/`, unused.
 
 Voice: self-deprecating, in on its own joke. The home page carries the six
 Official Rules and the lexicon. No member names anywhere on the site.
@@ -96,7 +100,8 @@ enabled and your registrations configured in the Stripe dashboard.
 
 ## Deploying to the droplet
 
-See `deploy/discjerkers.nginx.conf`. Short version, following the usual
+First-time install (after this, pushes to `main` deploy themselves: see
+**Auto-deploy** below). See `deploy/discjerkers.nginx.conf`. Short version, following the usual
 dibberlab pattern:
 
 ```bash
@@ -112,6 +117,46 @@ ssh dibberlab-droplet "cd /var/www/discjerkers && docker compose up -d"
 Check `3040` is free on the box first, and check whether discjerkers.com should
 use a Cloudflare origin cert or certbot — match whatever the other external
 domains there already do.
+
+## Auto-deploy
+
+Every push to `main` runs `.github/workflows/deploy.yml`: the tests, then (only
+if they pass) an SSH to the droplet that runs `discjerkers-deploy`. That script
+(`deploy/discjerkers-deploy`) pulls `main`, runs `docker compose up -d --build`
+and waits for `/healthz`; the run goes red if the site does not come back.
+`.env` and `data/` are gitignored, so a deploy never touches orders, accounts,
+photos or matches. nginx is not part of it. It can also be run by hand from
+the Actions tab (*Run workflow*). Same pattern as DibberLab/budget.
+
+One-time setup on the droplet (as root):
+
+```bash
+# 1. Make the app folder a git checkout (it was rsynced). .env and data/ stay.
+cd /var/www/discjerkers
+git init -b main && git remote add origin https://github.com/DibberLab/discjerkers.git
+git fetch origin main && git reset --hard origin/main
+
+# 2. Install the deploy script.
+install -m 755 deploy/discjerkers-deploy /usr/local/bin/discjerkers-deploy
+
+# 3. A key that can only ever run that script.
+ssh-keygen -t ed25519 -N '' -C discjerkers-deploy -f /root/.ssh/discjerkers_deploy
+echo "command=\"/usr/local/bin/discjerkers-deploy\",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty $(cat /root/.ssh/discjerkers_deploy.pub)" >> /root/.ssh/authorized_keys
+cat /root/.ssh/discjerkers_deploy   # -> DEPLOY_SSH_KEY secret, then delete it from the server
+rm /root/.ssh/discjerkers_deploy
+```
+
+Then in GitHub, repo Settings → Secrets and variables → Actions, add:
+
+- `DEPLOY_SSH_KEY`: the private key printed above.
+- `DEPLOY_HOST`: the droplet's IP or hostname.
+- `DEPLOY_KNOWN_HOSTS`: the output of `ssh-keyscan -t ed25519 <host>`, run from
+  your own machine.
+
+If budget's secrets already point at the same droplet, `DEPLOY_HOST` and
+`DEPLOY_KNOWN_HOSTS` can be the same values; the key must be the new one,
+since each key is locked to one script. If the deploy script ever changes,
+re-run step 2 (the server runs its installed copy, not the repo's).
 
 ## Cloudflare notes
 
