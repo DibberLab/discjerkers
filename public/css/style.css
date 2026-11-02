@@ -213,7 +213,7 @@ p { margin: 0 0 1em; }
 .hero__art img {
   width: 100%;
   height: auto;
-  max-width: 440px;
+  max-width: 520px;
   filter: drop-shadow(0 0 70px rgba(163, 230, 53, 0.18));
 }
 .hero__art::before {
@@ -482,7 +482,7 @@ p { margin: 0 0 1em; }
 @media (max-width: 950px) {
   .hero__grid { grid-template-columns: 1fr; gap: 30px; }
   .hero__art { order: -1; }
-  .hero__art img { max-width: 300px; }
+  .hero__art img { max-width: 340px; }
   .product { grid-template-columns: 1fr; gap: 34px; }
   .cart-layout { grid-template-columns: 1fr; gap: 32px; }
   .rules { grid-template-columns: 1fr; }

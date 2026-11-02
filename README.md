@@ -15,7 +15,7 @@ server/
   routes/api.js    /api/* storefront endpoints
   routes/webhook.js Stripe webhook -> Printify order
 data/            carts.json + orders.json (gitignored)
-deploy/          nginx site config for the droplet
+deploy/          nginx site config and the auto-deploy script for the droplet
 shirts/          brand source art (.ai + PNG) — NOT deployed, see rsync excludes
 ```
 
@@ -30,14 +30,18 @@ highlighter.
 Type: Anton (display, all caps), Archivo (body), Space Mono (labels, nav,
 prices, anything that should read like a scorecard).
 
-The hero mark is `public/img/death-by-disc.png`, derived from
-`shirts/CatReaper-shirt-01b.png` — white line art on transparency, which is why
-it only works on a dark surface. Regenerate the web copies with:
+The hero mark is `public/img/disc-jerkers-logo.png` (and `-sm.png` for
+phones): the Disc Jerkers logo recoloured to **white line art on
+transparency**, which is why it only works on a dark surface. The logo comes
+as black art; to regenerate the web copies from it, keep its alpha and paint
+the lines white:
 
 ```bash
-convert shirts/CatReaper-shirt-01b.png -resize 1100x -strip PNG32:public/img/death-by-disc.png
-convert shirts/CatReaper-shirt-01b.png -resize 480x  -strip PNG32:public/img/death-by-disc-sm.png
+convert logo-black.png -fill white -colorize 100 -resize 1100x -strip PNG32:public/img/disc-jerkers-logo.png
+convert logo-black.png -fill white -colorize 100 -resize 480x  -strip PNG32:public/img/disc-jerkers-logo-sm.png
 ```
+
+The old reaper-cat art (`death-by-disc.png`) is still in `public/img/`, unused.
 
 Voice: self-deprecating, in on its own joke. The home page carries the six
 Official Rules and the lexicon. No member names anywhere on the site.
@@ -96,7 +100,8 @@ enabled and your registrations configured in the Stripe dashboard.
 
 ## Deploying to the droplet
 
-See `deploy/discjerkers.nginx.conf`. Short version, following the usual
+First-time install (after this, pushes to `main` deploy themselves: see
+**Auto-deploy** below). See `deploy/discjerkers.nginx.conf`. Short version, following the usual
 dibberlab pattern:
 
 ```bash
@@ -105,13 +110,42 @@ ssh dibberlab-droplet "cd /var/www/discjerkers && cp .env.example .env"   # then
 ssh dibberlab-droplet "cp /var/www/discjerkers/deploy/discjerkers.nginx.conf /etc/nginx/sites-available/discjerkers"
 ssh dibberlab-droplet "ln -s /etc/nginx/sites-available/discjerkers /etc/nginx/sites-enabled/discjerkers"
 ssh dibberlab-droplet "nginx -t && systemctl reload nginx"
-ssh dibberlab-droplet "cd /etc/nginx && git add -A && git commit -m 'add discjerkers.com' && git push origin main"
+ssh dibberlab-droplet "cd /etc/nginx && git add sites-available/discjerkers sites-enabled/discjerkers && git commit -m 'add discjerkers.com' && git push origin main"
 ssh dibberlab-droplet "cd /var/www/discjerkers && docker compose up -d"
 ```
 
 Check `3040` is free on the box first, and check whether discjerkers.com should
 use a Cloudflare origin cert or certbot — match whatever the other external
 domains there already do.
+
+## Auto-deploy
+
+Every push to `main` deploys (`.github/workflows/deploy.yml`, the same setup as
+discform): the tests run, and if they pass GitHub Actions SSHes to the droplet
+with a key that `authorized_keys` locks to `/usr/local/bin/discjerkers-deploy`
+(installed from `deploy/discjerkers-deploy.sh`: `git pull --ff-only`,
+`docker compose up -d --build`, wait for `/healthz`, logs on failure). `.env`,
+`data/` and nginx are never touched. Manual redeploy: Actions → Deploy → Run
+workflow.
+
+**One-time setup**, on Andrew's Mac, after this is on `main`:
+
+```bash
+bash deploy/setup-from-mac.sh
+```
+
+It backs up the app folder, turns it into a git checkout (it was rsynced),
+shows what differs and asks before replacing anything, installs the script,
+makes the deploy key and sets the three repo secrets (`DEPLOY_HOST`,
+`DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`), then runs a test deploy. Safe to
+re-run. The droplet's IP is read from the Mac's ssh config and only ever goes
+into a secret: never commit it.
+
+Not automatic: nginx (the script warns if `deploy/discjerkers.nginx.conf`
+changed), new `.env` keys, and data migrations (back up `data/` first). Edit
+`deploy/discjerkers-deploy.sh`? Re-run the setup (or its install line): the
+server runs its installed copy, so a push can't change what root runs.
+Cloudflare caches static files: bump `?v=N` on any changed `public/` file.
 
 ## Cloudflare notes
 
