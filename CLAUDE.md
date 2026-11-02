@@ -44,7 +44,9 @@ that way; don't introduce React/Vite/Tailwind here.
 
 - Dark base only. The hero art (`public/img/disc-jerkers-logo.png`) is **white line
   art on transparency** — it disappears on a light surface. Don't introduce a
-  light theme without replacing the art.
+  light theme without replacing the art. Andrew swaps it himself by uploading a new
+  `disc-jerkers-logo.png` on github.com (README "Changing the logo"); `server/lib/homepage.js`
+  serves `/` with the file's hash on its address, so keep the hero `<img>` pointing at that name.
 - Glow Lime `#a3e635` is an accent: eyebrows, stat numbers, hovers, selected
   chips. It is never a background for a large area and never body text.
 - Rust `#d35400` carries actions (buttons, prices, rule numbers). Pine is
