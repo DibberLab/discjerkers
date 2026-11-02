@@ -388,4 +388,9 @@ that way; don't introduce React/Vite/Tailwind here.
 
 Droplet, `/var/www/discjerkers`, docker compose behind nginx on 127.0.0.1:3040.
 Follow the dibberlab server-ops discipline: `nginx -t` → reload → commit and
-push `/etc/nginx` **from the server**. See README.md for the full sequence.
+push `/etc/nginx` **from the server** (stage files by name, never `git add -A`).
+See README.md for the full sequence.
+
+**Pushing to `main` is the deploy** (GitHub Actions → `discjerkers-deploy` on the
+droplet; README "Auto-deploy"). A cloud session cannot SSH: push, and leave server
+steps to Andrew's Mac. Never commit the droplet's IP.

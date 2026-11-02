@@ -110,7 +110,7 @@ ssh dibberlab-droplet "cd /var/www/discjerkers && cp .env.example .env"   # then
 ssh dibberlab-droplet "cp /var/www/discjerkers/deploy/discjerkers.nginx.conf /etc/nginx/sites-available/discjerkers"
 ssh dibberlab-droplet "ln -s /etc/nginx/sites-available/discjerkers /etc/nginx/sites-enabled/discjerkers"
 ssh dibberlab-droplet "nginx -t && systemctl reload nginx"
-ssh dibberlab-droplet "cd /etc/nginx && git add -A && git commit -m 'add discjerkers.com' && git push origin main"
+ssh dibberlab-droplet "cd /etc/nginx && git add sites-available/discjerkers sites-enabled/discjerkers && git commit -m 'add discjerkers.com' && git push origin main"
 ssh dibberlab-droplet "cd /var/www/discjerkers && docker compose up -d"
 ```
 
@@ -120,12 +120,32 @@ domains there already do.
 
 ## Auto-deploy
 
-Every push to `main` runs `.github/workflows/deploy.yml`: the tests, then (only
-if they pass) an SSH to the droplet with a key that can only run
-`discjerkers-deploy` (`deploy/discjerkers-deploy`: pull `main`,
-`docker compose up -d --build`, wait for `/healthz`). `.env`, `data/` and nginx
-are never touched. It can also be run from the Actions tab (*Run workflow*).
-The one-time setup is in `deploy/AUTODEPLOY.md`.
+Every push to `main` deploys (`.github/workflows/deploy.yml`, the same setup as
+discform): the tests run, and if they pass GitHub Actions SSHes to the droplet
+with a key that `authorized_keys` locks to `/usr/local/bin/discjerkers-deploy`
+(installed from `deploy/discjerkers-deploy.sh`: `git pull --ff-only`,
+`docker compose up -d --build`, wait for `/healthz`, logs on failure). `.env`,
+`data/` and nginx are never touched. Manual redeploy: Actions → Deploy → Run
+workflow.
+
+**One-time setup**, on Andrew's Mac, after this is on `main`:
+
+```bash
+bash deploy/setup-from-mac.sh
+```
+
+It backs up the app folder, turns it into a git checkout (it was rsynced),
+shows what differs and asks before replacing anything, installs the script,
+makes the deploy key and sets the three repo secrets (`DEPLOY_HOST`,
+`DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`), then runs a test deploy. Safe to
+re-run. The droplet's IP is read from the Mac's ssh config and only ever goes
+into a secret: never commit it.
+
+Not automatic: nginx (the script warns if `deploy/discjerkers.nginx.conf`
+changed), new `.env` keys, and data migrations (back up `data/` first). Edit
+`deploy/discjerkers-deploy.sh`? Re-run the setup (or its install line): the
+server runs its installed copy, so a push can't change what root runs.
+Cloudflare caches static files: bump `?v=N` on any changed `public/` file.
 
 ## Cloudflare notes
 
