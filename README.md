@@ -30,16 +30,21 @@ highlighter.
 Type: Anton (display, all caps), Archivo (body), Space Mono (labels, nav,
 prices, anything that should read like a scorecard).
 
-The hero mark is `public/img/disc-jerkers-logo.png` (and `-sm.png` for
-phones): the Disc Jerkers logo recoloured to **white line art on
-transparency**, which is why it only works on a dark surface. The logo comes
-as black art; to regenerate the web copies from it, keep its alpha and paint
-the lines white:
+The hero mark is `public/img/disc-jerkers-logo.png`: **white line art on a
+transparent background**, which is why it only works on a dark surface.
 
-```bash
-convert logo-black.png -fill white -colorize 100 -resize 1100x -strip PNG32:public/img/disc-jerkers-logo.png
-convert logo-black.png -fill white -colorize 100 -resize 480x  -strip PNG32:public/img/disc-jerkers-logo-sm.png
-```
+### Changing the logo (no code, just GitHub)
+
+1. Name the new file exactly `disc-jerkers-logo.png`. It must be a PNG, white
+   on transparent, about 1000 to 2000 px wide.
+2. On github.com open DibberLab/discjerkers → `public` → `img`.
+3. **Add file → Upload files**, drop the file in (it replaces the old one),
+   choose **Commit directly to the `main` branch**, and press **Commit changes**.
+4. That's the deploy: the **Actions** tab shows it running, and the site has
+   the new logo a few minutes later.
+
+The server stamps the logo's address with a hash of the file when it starts
+(`server/lib/homepage.js`), so nobody gets a cached old copy.
 
 The old reaper-cat art (`death-by-disc.png`) is still in `public/img/`, unused.
 

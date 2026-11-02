@@ -48,6 +48,10 @@ app.use('/api', require('./routes/api'));
 
 app.get('/healthz', (req, res) => res.json({ ok: true, demoMode: config.demoMode }));
 
+// the home page carries the logo's hash, so a replaced logo shows at once (server/lib/homepage.js)
+const homepage = require('./lib/homepage').homepageHtml(path.join(__dirname, '..', 'public'));
+app.get(['/', '/index', '/index.html'], (req, res) => res.type('html').send(homepage));
+
 app.use(express.static(path.join(__dirname, '..', 'public'), { extensions: ['html'] }));
 
 // Unknown API path -> JSON 404; anything else -> the site's 404 page.
